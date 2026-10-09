@@ -1,0 +1,6 @@
+{
+  "name": "PhotoStudio BD",
+  "description": "পাসপোর্ট, স্ট্যাম্প, কাপল ছবি ও স্মার্ট এনআইডি কার্ড এ৪ পেপারে সাজিয়ে সরাসরি প্রিন্ট, পিডিএফ ও জেপিজি ডাউনলোডের স্বয়ংক্রিয় স্টুডিও টুল।",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
