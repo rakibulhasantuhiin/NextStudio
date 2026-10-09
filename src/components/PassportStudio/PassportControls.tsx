@@ -25,7 +25,8 @@ import {
   PhotoPresetType,
   StudioPhotoItem,
 } from '../../types';
-import { PHOTO_PRESETS } from '../../utils/constants';
+import { PAPER_SIZES, PHOTO_PRESETS } from '../../utils/constants';
+import { calculateMaxSpreadColGap } from '../../utils/layoutCalculator';
 import { translations } from '../../utils/translations';
 
 interface Props {
@@ -121,6 +122,31 @@ export const PassportControls: React.FC<Props> = ({
   };
 
   const activePhoto = photos[activePhotoIndex] || (photos.length > 0 ? photos[0] : null);
+
+  const currentPaper = PAPER_SIZES[paperSize];
+  const isLandscape = orientation === 'landscape';
+  const paperWidthMm = isLandscape ? currentPaper.height : currentPaper.width;
+  const effectivePhotoWidth =
+    preset === 'custom' ? customWidth : (PHOTO_PRESETS[preset]?.width || 35);
+  const currentCols = layoutMode === 'top-5' ? 5 : layoutMode === 'top-4-couple' ? 4 : layoutMode === 'top-6' ? 6 : 5;
+
+  const maxSpreadGap = calculateMaxSpreadColGap({
+    paperWidth: paperWidthMm,
+    photoWidth: effectivePhotoWidth,
+    colsPerRow: currentCols,
+    minSideMargin: 3.5,
+  });
+
+  const handleAutoSpread = () => {
+    if (maxSpreadGap > 0) {
+      setMargins((prev) => ({
+        ...prev,
+        colGap: maxSpreadGap,
+        left: 3.5,
+        right: 3.5,
+      }));
+    }
+  };
 
   return (
     <div className="space-y-4 text-slate-800 dark:text-slate-100">
@@ -238,27 +264,39 @@ export const PassportControls: React.FC<Props> = ({
 
                 {/* 1-Click Background Options */}
                 <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] text-slate-500 font-medium">রঙ:</span>
+                  <span className="text-[11px] text-slate-500 font-medium">ব্যাকগ্রাউন্ড:</span>
+                  <button
+                    type="button"
+                    onClick={() => onQuickApplyBg(activePhotoIndex, 'original')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition cursor-pointer ${
+                      activePhoto.adjustments.backgroundMode === 'original'
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 ring-2 ring-blue-500 shadow-2xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                    }`}
+                  >
+                    {activePhoto.adjustments.backgroundMode === 'original' ? '✓ মূল ব্যাকগ্রাউন্ড' : 'মূল ব্যাকগ্রাউন্ড'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => onQuickApplyBg(activePhotoIndex, 'studio-blue')}
-                    className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-600 text-white hover:bg-blue-700 transition cursor-pointer shadow-2xs"
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold transition cursor-pointer shadow-2xs ${
+                      activePhoto.adjustments.backgroundMode === 'studio-blue'
+                        ? 'bg-blue-600 text-white ring-2 ring-blue-400'
+                        : 'bg-blue-600/90 text-white hover:bg-blue-700'
+                    }`}
                   >
-                    নীল
+                    {activePhoto.adjustments.backgroundMode === 'studio-blue' ? '✓ নীল' : 'নীল'}
                   </button>
                   <button
                     type="button"
                     onClick={() => onQuickApplyBg(activePhotoIndex, 'white')}
-                    className="px-2 py-0.5 rounded text-[11px] font-semibold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 transition cursor-pointer shadow-2xs"
+                    className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition cursor-pointer shadow-2xs ${
+                      activePhoto.adjustments.backgroundMode === 'white'
+                        ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 border-blue-600 ring-2 ring-blue-400'
+                        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-100'
+                    }`}
                   >
-                    সাদা
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onQuickApplyBg(activePhotoIndex, 'original')}
-                    className="px-2 py-0.5 rounded text-[11px] font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 transition cursor-pointer"
-                  >
-                    আসল ছবি
+                    {activePhoto.adjustments.backgroundMode === 'white' ? '✓ সাদা' : 'সাদা'}
                   </button>
                 </div>
               </div>
@@ -585,10 +623,10 @@ export const PassportControls: React.FC<Props> = ({
           </label>
           <div className="grid grid-cols-4 gap-1.5 text-xs">
             {[
+              { id: 'none', label: '❌ নেই' },
               { id: 'scissors', label: '✂️ কাঁচি' },
               { id: 'dashed', label: '╌ ড্যাশ' },
               { id: 'solid', label: '⬛ বর্ডার' },
-              { id: 'none', label: '❌ নেই' },
             ].map((item) => (
               <button
                 key={item.id}
@@ -596,7 +634,7 @@ export const PassportControls: React.FC<Props> = ({
                 onClick={() => setCuttingGuide(item.id as CuttingGuideStyle)}
                 className={`py-1.5 px-1.5 rounded-md text-xs font-medium text-center transition cursor-pointer ${
                   cuttingGuide === item.id
-                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold shadow-2xs'
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold shadow-2xs ring-1 ring-blue-500'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >
@@ -621,45 +659,142 @@ export const PassportControls: React.FC<Props> = ({
           </button>
 
           {showMarginSliders && (
-            <div className="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] text-slate-600 leading-normal">উপরের মার্জিন:</span>
-                <span className="font-mono font-semibold">{margins.top} মিমি</span>
-              </div>
-              <input
-                type="range"
-                min="2"
-                max="30"
-                value={margins.top}
-                onChange={(e) => updateMargin('top', Number(e.target.value))}
-                className="w-full accent-blue-600 cursor-pointer"
-              />
+            <div className="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 space-y-3 text-xs">
+              {/* Auto-Spread Button to cover sides and maximize middle gaps */}
+              {maxSpreadGap > 0 && (
+                <button
+                  type="button"
+                  onClick={handleAutoSpread}
+                  className="w-full py-2 px-3 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-2xs group"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600 group-hover:scale-110 transition" />
+                  <span>উভয় পাশে জায়গা কভার করে সর্বোচ্চ ফাঁকা ({maxSpreadGap} মিমি)</span>
+                </button>
+              )}
 
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-[11px] text-slate-600 leading-normal">ছবির পাশাপাশি ফাঁকা:</span>
-                <span className="font-mono font-semibold">{margins.colGap} মিমি</span>
+              {/* Slider 1: Col Gap (ছবির পাশাপাশি ফাঁকা) */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 leading-normal block">
+                      ছবির পাশাপাশি ফাঁকা (গ্যাপ):
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      মাঝখানের গ্যাপ বড় করতে স্লাইডার ডানে টানুন
+                    </span>
+                  </div>
+                  <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-xs bg-blue-50 dark:bg-blue-950/50 px-2 py-0.5 rounded border border-blue-200/60">
+                    {margins.colGap} মিমি
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max={Math.max(15, Math.ceil(maxSpreadGap))}
+                  step="0.5"
+                  value={margins.colGap}
+                  onChange={(e) => updateMargin('colGap', Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer mt-1.5"
+                />
               </div>
-              <input
-                type="range"
-                min="0"
-                max="15"
-                value={margins.colGap}
-                onChange={(e) => updateMargin('colGap', Number(e.target.value))}
-                className="w-full accent-blue-600 cursor-pointer"
-              />
 
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-[11px] text-slate-600 leading-normal">ছবির উপর-নিচ ফাঁকা:</span>
-                <span className="font-mono font-semibold">{margins.rowGap} মিমি</span>
+              {/* Slider 2: Side Margins (দুই পাশের মার্জিন) */}
+              <div className="pt-1 border-t border-slate-200/80 dark:border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 leading-normal block">
+                      দুই পাশের মার্জিন (বাম ও ডান):
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      দুই পাশের অতিরিক্ত জায়গা কমাতে মার্জিন কমান
+                    </span>
+                  </div>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                    {margins.left} মিমি
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="25"
+                  step="1"
+                  value={margins.left}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setMargins((prev) => ({ ...prev, left: val, right: val }));
+                  }}
+                  className="w-full accent-blue-600 cursor-pointer mt-1.5"
+                />
               </div>
-              <input
-                type="range"
-                min="0"
-                max="15"
-                value={margins.rowGap}
-                onChange={(e) => updateMargin('rowGap', Number(e.target.value))}
-                className="w-full accent-blue-600 cursor-pointer"
-              />
+
+              {/* Slider 3: Top Margin (উপরের মার্জিন) */}
+              <div className="pt-1 border-t border-slate-200/80 dark:border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400 leading-normal">
+                    উপরের মার্জিন:
+                  </span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                    {margins.top} মিমি
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="2"
+                  max="35"
+                  step="1"
+                  value={margins.top}
+                  onChange={(e) => updateMargin('top', Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer mt-1.5"
+                />
+              </div>
+
+              {/* Slider 4: Row Gap (ছবির উপর-নিচ ফাঁকা) */}
+              <div className="pt-1 border-t border-slate-200/80 dark:border-slate-800/80">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400 leading-normal">
+                    ছবির উপর-নিচ ফাঁকা:
+                  </span>
+                  <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                    {margins.rowGap} মিমি
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="20"
+                  step="1"
+                  value={margins.rowGap}
+                  onChange={(e) => updateMargin('rowGap', Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer mt-1.5"
+                />
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="flex items-center gap-2 pt-2 border-t border-slate-200/80 dark:border-slate-800/80">
+                <button
+                  type="button"
+                  onClick={handleAutoSpread}
+                  className="flex-1 py-1 px-2 rounded-md text-[11px] font-semibold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:border-blue-500 text-blue-600 dark:text-blue-400 transition cursor-pointer text-center"
+                >
+                  সর্বোচ্চ ছড়ানো ({maxSpreadGap} মিমি)
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMargins((prev) => ({
+                      ...prev,
+                      colGap: 5,
+                      left: 6,
+                      right: 6,
+                      top: 10,
+                      rowGap: 5,
+                    }))
+                  }
+                  className="flex-1 py-1 px-2 rounded-md text-[11px] font-medium bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 text-slate-600 dark:text-slate-400 transition cursor-pointer text-center"
+                >
+                  ডিফল্ট রিসেট (৫ মিমি)
+                </button>
+              </div>
             </div>
           )}
         </div>

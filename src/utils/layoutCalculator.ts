@@ -14,6 +14,25 @@ export interface CalculatedItem {
   index: number;
 }
 
+/**
+ * Calculates the maximum side-by-side gap that fits across the paper width
+ * so photos can spread out and cover the margins on both sides.
+ */
+export function calculateMaxSpreadColGap(options: {
+  paperWidth: number;
+  photoWidth: number;
+  colsPerRow: number;
+  minSideMargin?: number;
+}): number {
+  const { paperWidth, photoWidth, colsPerRow, minSideMargin = 3.5 } = options;
+  if (colsPerRow <= 1) return 0;
+  const availableWidth = paperWidth - 2 * minSideMargin;
+  const totalPhotosWidth = colsPerRow * photoWidth;
+  const gapSpace = availableWidth - totalPhotosWidth;
+  if (gapSpace <= 0) return 0;
+  return Math.round((gapSpace / (colsPerRow - 1)) * 10) / 10;
+}
+
 export function calculatePhotoPositions(options: {
   paper: PaperDimensions;
   orientation: PaperOrientation;
@@ -77,25 +96,37 @@ export function calculatePhotoPositions(options: {
   if (!colsPerRow) {
     colsPerRow = Math.max(
       1,
-      Math.floor((printableWidth + margins.colGap) / (photoWidth + margins.colGap))
+      Math.floor((paperWidth - 2 * 3.5 + margins.colGap) / (photoWidth + margins.colGap))
     );
   }
 
-  // Adjust gap dynamically if fixed colsPerRow exceeds printableWidth
+  // Safe minimum printable margin on physical paper
+  const minSafeMargin = 3.5; // mm
+  const maxPhysicalWidth = paperWidth - 2 * minSafeMargin;
+
+  // Maximum gap that can physically fit on this paper width
+  const maxPossibleColGap = colsPerRow > 1
+    ? Math.max(0, (maxPhysicalWidth - colsPerRow * photoWidth) / (colsPerRow - 1))
+    : 0;
+
+  // Adjust gap dynamically: allow gap to expand across the page into side margins down to minSafeMargin
   let effectiveColGap = margins.colGap;
-  const initialRowWidth = colsPerRow * photoWidth + (colsPerRow - 1) * margins.colGap;
-  if (colsPerRow > 1 && initialRowWidth > printableWidth) {
-    const fittedGap = (printableWidth - colsPerRow * photoWidth) / (colsPerRow - 1);
-    if (fittedGap >= 0) {
-      effectiveColGap = fittedGap;
-    }
+  if (colsPerRow > 1) {
+    effectiveColGap = Math.min(margins.colGap, maxPossibleColGap);
   }
 
-  // Auto-center the row on paper
+  // Total row width with this effective gap
   const totalRowWidth = colsPerRow * photoWidth + (colsPerRow - 1) * effectiveColGap;
-  const startX = totalRowWidth <= printableWidth
-    ? margins.left + (printableWidth - totalRowWidth) / 2
-    : margins.left;
+
+  // Auto-center the row:
+  // If row fits within user's configured margins, center inside printableWidth.
+  // If user increased colGap to cover the side spaces, center across the full paperWidth!
+  let startX = margins.left;
+  if (totalRowWidth <= printableWidth) {
+    startX = margins.left + (printableWidth - totalRowWidth) / 2;
+  } else {
+    startX = Math.max(minSafeMargin, (paperWidth - totalRowWidth) / 2);
+  }
 
   const items: CalculatedItem[] = [];
 

@@ -119,8 +119,8 @@ export const PaperPreview: React.FC<Props> = ({
             className="absolute border border-dashed border-blue-400/20 pointer-events-none"
             style={{
               top: `${margins.top * mmToPx}px`,
-              left: `${margins.left * mmToPx}px`,
-              right: `${margins.right * mmToPx}px`,
+              left: `${(passportItems.length > 0 ? Math.min(margins.left, Math.min(...passportItems.map((p) => p.x))) : margins.left) * mmToPx}px`,
+              right: `${(passportItems.length > 0 ? Math.min(margins.right, Math.max(0, paperWidthMm - Math.max(...passportItems.map((p) => p.x + p.width)))) : margins.right) * mmToPx}px`,
               bottom: `${margins.bottom * mmToPx}px`,
             }}
           />

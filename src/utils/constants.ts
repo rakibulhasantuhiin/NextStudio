@@ -89,15 +89,15 @@ export const PHOTO_PRESETS: Record<PhotoPresetType, PhotoPresetConfig> = {
 
 export const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
   brightness: 0,
-  contrast: 5,
-  saturation: 5,
-  sharpness: 10,
+  contrast: 0,
+  saturation: 0,
+  sharpness: 0,
   exposure: 0,
   warmth: 0,
   rotation: 0,
   flipH: false,
   flipV: false,
-  backgroundMode: 'studio-blue',
+  backgroundMode: 'original',
   customBgColor: '#2563eb',
   bgSensitivity: 38,
   bgFeather: 3,
@@ -107,9 +107,9 @@ export const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
 export const DEFAULT_MARGINS: MarginSettings = {
   top: 10,
   bottom: 10,
-  left: 10,
-  right: 10,
-  colGap: 3.5,
+  left: 6,
+  right: 6,
+  colGap: 5,
   rowGap: 5,
 };
 

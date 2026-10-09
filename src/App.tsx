@@ -64,15 +64,15 @@ export default function App() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('top-5');
   const [manualCount, setManualCount] = useState<number>(5);
   const [margins, setMargins] = useState<MarginSettings>(DEFAULT_MARGINS);
-  const [cuttingGuide, setCuttingGuide] = useState<CuttingGuideStyle>('scissors');
+  const [cuttingGuide, setCuttingGuide] = useState<CuttingGuideStyle>('none');
   const [bleedArea, setBleedArea] = useState<number>(0);
   const [colorProfile, setColorProfile] = useState<'srgb' | 'cmyk' | 'bw'>('srgb');
   const [printQuality, setPrintQuality] = useState<150 | 300 | 600>(300);
 
-  // Auto Processing on Upload State
-  const [autoRemoveBg, setAutoRemoveBg] = useState<boolean>(true);
+  // Auto Processing on Upload State (starts with original background preserved)
+  const [autoRemoveBg, setAutoRemoveBg] = useState<boolean>(false);
   const [uploadBgMode, setUploadBgMode] = useState<'studio-blue' | 'white' | 'sky-blue' | 'off-white'>('studio-blue');
-  const [autoStraighten, setAutoStraighten] = useState<boolean>(true);
+  const [autoStraighten, setAutoStraighten] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
   // Photos State - Starts completely empty (no dummy photos)
@@ -343,26 +343,33 @@ export default function App() {
     }
   };
 
-  // Re-run Auto Face Detect & Straighten for a photo
+  // Re-run Auto Face Detect & Straighten for a photo (preserves current background)
   const handleAutoFitPhoto = async (index: number) => {
     const target = photos[index];
     if (!target) return;
     try {
       const targetAspect = effectivePhotoWidth / effectivePhotoHeight;
+      const currentBgMode = target.adjustments.backgroundMode;
       const result = await autoProcessUploadedPhoto(target.originalSrc, {
         targetAspect,
         autoStraighten: true,
-        autoRemoveBg: target.adjustments.backgroundMode !== 'original',
-        bgMode: target.adjustments.backgroundMode === 'original' ? 'studio-blue' : target.adjustments.backgroundMode,
+        autoRemoveBg: currentBgMode !== 'original',
+        bgMode: currentBgMode === 'original' ? 'studio-blue' : currentBgMode,
       });
+
+      const updatedAdj: PhotoAdjustments = {
+        ...result.adjustments,
+        backgroundMode: currentBgMode,
+      };
+      const processedSrc = await processStudioPhoto(target.originalSrc, updatedAdj);
 
       setPhotos((prev) =>
         prev.map((p, idx) =>
           idx === index
             ? {
                 ...p,
-                adjustments: result.adjustments,
-                processedSrc: result.processedSrc,
+                adjustments: updatedAdj,
+                processedSrc,
               }
             : p
         )

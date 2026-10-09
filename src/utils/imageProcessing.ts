@@ -417,6 +417,24 @@ export async function processStudioPhoto(
   src: string,
   adjustments: PhotoAdjustments
 ): Promise<string> {
+  // If original photo with no modifications, return src directly for maximum fidelity & speed
+  const isUntouched =
+    adjustments.backgroundMode === 'original' &&
+    !adjustments.crop &&
+    adjustments.rotation === 0 &&
+    !adjustments.flipH &&
+    !adjustments.flipV &&
+    adjustments.brightness === 0 &&
+    adjustments.contrast === 0 &&
+    adjustments.saturation === 0 &&
+    adjustments.exposure === 0 &&
+    adjustments.warmth === 0 &&
+    adjustments.sharpness === 0;
+
+  if (isUntouched) {
+    return src;
+  }
+
   const img = await loadImage(src);
 
   const cropCanvas = document.createElement('canvas');
@@ -690,8 +708,8 @@ export async function autoProcessUploadedPhoto(
   framing: PortraitFramingResult;
 }> {
   const targetAspect = options.targetAspect ?? (35 / 45);
-  const autoStraighten = options.autoStraighten ?? true;
-  const autoRemoveBg = options.autoRemoveBg ?? true;
+  const autoStraighten = options.autoStraighten ?? false;
+  const autoRemoveBg = options.autoRemoveBg ?? false;
   const bgMode = options.bgMode ?? 'studio-blue';
   const customBgColor = options.customBgColor ?? '#2563EB';
 
@@ -702,9 +720,9 @@ export async function autoProcessUploadedPhoto(
 
   const initialAdj: PhotoAdjustments = {
     brightness: 0,
-    contrast: 6, // slight studio clarity boost
+    contrast: 0,
     saturation: 0,
-    sharpness: 12, // light unsharp mask for crisp passport print
+    sharpness: 0,
     exposure: 0,
     warmth: 0,
     rotation: autoStraighten ? framing.rotation : 0,

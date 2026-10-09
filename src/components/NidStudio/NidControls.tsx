@@ -436,9 +436,9 @@ export const NidControls: React.FC<Props> = ({
           </label>
           <div className="grid grid-cols-3 gap-1.5 text-xs">
             {[
+              { id: 'none', label: '❌ কোনো দাগ নেই' },
               { id: 'scissors', label: '✂️ কাঁচি দাগ' },
               { id: 'dashed', label: '╌ ড্যাশ রেখা' },
-              { id: 'none', label: '❌ কোনো দাগ নেই' },
             ].map((item) => (
               <button
                 key={item.id}
@@ -446,7 +446,7 @@ export const NidControls: React.FC<Props> = ({
                 onClick={() => setCuttingGuide(item.id as CuttingGuideStyle)}
                 className={`py-1.5 px-1 rounded-md text-xs font-medium text-center transition cursor-pointer ${
                   cuttingGuide === item.id
-                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold shadow-2xs'
+                    ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-semibold shadow-2xs ring-1 ring-blue-500'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >

@@ -91,7 +91,6 @@ export const PhotoEditorModal: React.FC<Props> = ({
         ...prev,
         crop: framing.crop,
         rotation: framing.rotation,
-        backgroundMode: prev.backgroundMode === 'original' ? 'studio-blue' : prev.backgroundMode,
       }));
     } catch (err) {
       console.error('Failed auto detect in modal:', err);

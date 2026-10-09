@@ -1,6 +1,7 @@
 import { StudioState } from '../types';
 
-const STORAGE_KEY = 'photostudio_bd_saved_project_v1';
+const STORAGE_KEY = 'photostudio_bd_saved_project_v2';
+const LEGACY_STORAGE_KEY = 'photostudio_bd_saved_project_v1';
 
 export function saveStateToLocal(state: StudioState): boolean {
   try {
@@ -15,8 +16,19 @@ export function saveStateToLocal(state: StudioState): boolean {
 
 export function loadStateFromLocal(): StudioState | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      // Check legacy key
+      const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacyRaw) {
+        const parsed: StudioState = JSON.parse(legacyRaw);
+        // Force new defaults: cuttingGuide = 'none', autoRemoveBgOnUpload = false
+        parsed.cuttingGuide = 'none';
+        parsed.autoRemoveBgOnUpload = false;
+        return parsed;
+      }
+      return null;
+    }
     return JSON.parse(raw);
   } catch (err) {
     console.warn('Failed to parse saved state:', err);
