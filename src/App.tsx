@@ -78,7 +78,15 @@ export default function App() {
   });
   const [isSaved, setIsSaved] = useState(true);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
-  const [zoom, setZoom] = useState<number>(0.85);
+  const [zoom, setZoom] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const w = window.innerWidth;
+      if (w < 480) return 0.42;
+      if (w < 640) return 0.50;
+      if (w < 1024) return 0.65;
+    }
+    return 0.85;
+  });
 
   // Language setter wrapper with storage persistence
   const handleSetLang = (newLang: 'bn' | 'en') => {
@@ -917,8 +925,10 @@ export default function App() {
   const handleFitZoom = () => {
     // Computes ideal zoom for typical viewport
     const w = window.innerWidth;
-    if (w < 640) setZoom(0.45);
-    else if (w < 1024) setZoom(0.65);
+    if (w < 400) setZoom(0.38);
+    else if (w < 480) setZoom(0.44);
+    else if (w < 640) setZoom(0.52);
+    else if (w < 1024) setZoom(0.68);
     else setZoom(0.85);
   };
 
@@ -949,33 +959,47 @@ export default function App() {
       />
 
       {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}
-      <div className="lg:hidden no-print bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-center gap-2">
-        <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl w-full max-w-sm border border-slate-200/80 dark:border-slate-800">
+      <div className="lg:hidden no-print sticky top-13 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-center shadow-2xs">
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full max-w-md border border-slate-200/80 dark:border-slate-700">
           <button
             onClick={() => setMobileTab('preview')}
             className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
               mobileTab === 'preview'
-                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <span>{lang === 'bn' ? 'পেপার প্রিভিউ' : 'Paper Preview'}</span>
+            <span>{lang === 'bn' ? '📄 পেপার প্রিভিউ' : '📄 Paper Preview'}</span>
+            {placedItems.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                mobileTab === 'preview' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+              }`}>
+                {placedItems.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => setMobileTab('controls')}
             className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
               mobileTab === 'controls'
-                ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            <span>{lang === 'bn' ? 'কন্ট্রোল ও ছবি' : 'Controls & Photos'}</span>
+            <span>{lang === 'bn' ? '⚙️ কন্ট্রোল ও সেটিংস' : '⚙️ Controls & Settings'}</span>
+            {photos.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                mobileTab === 'controls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+              }`}>
+                {photos.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
       {/* 2. Main Workspace: Wide Desktop Workstation & Mobile Clean View */}
-      <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full max-w-[1920px] mx-auto pb-16 lg:pb-0">
+      <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full max-w-[1920px] mx-auto pb-18 lg:pb-0">
         {/* Left Sidebar: Controls & Settings */}
         <aside
           className={`w-full lg:w-[410px] xl:w-[450px] shrink-0 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-3 sm:p-4 overflow-y-auto max-h-[calc(100vh-3.5rem)] transition-colors ${
@@ -1142,29 +1166,29 @@ export default function App() {
       />
 
       {/* Mobile Sticky Bottom Action Bar (Mobile Only) */}
-      <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2.5 px-4 flex items-center justify-between gap-2 shadow-xl">
+      <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2 px-3 flex items-center justify-between gap-2 shadow-2xl">
         {mode === 'passport' && photos.length > 0 && (
           <button
             onClick={() => setEditingPhotoIndex(activePhotoIndex)}
-            className="flex-1 py-2 px-2.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition active:scale-95"
+            className="flex-1 py-2 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95"
           >
-            <Edit3 className="w-3.5 h-3.5" />
-            <span>{lang === 'bn' ? 'ছবি এডিট' : 'Edit Photo'}</span>
+            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+            <span className="truncate">{lang === 'bn' ? 'ছবি এডিট' : 'Edit Photo'}</span>
           </button>
         )}
         <button
           onClick={handleDownloadPdf}
-          className="flex-1 py-2 px-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-xs"
+          className="flex-1 py-2 px-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 shadow-xs"
         >
-          <FileDown className="w-3.5 h-3.5" />
-          <span>{lang === 'bn' ? 'PDF সেভ' : 'Save PDF'}</span>
+          <FileDown className="w-3.5 h-3.5 text-blue-400" />
+          <span className="truncate">{lang === 'bn' ? 'PDF সেভ' : 'Save PDF'}</span>
         </button>
         <button
           onClick={handleDirectPrint}
-          className="flex-1 py-2 px-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 shadow-md shadow-blue-500/20"
+          className="flex-1 py-2 px-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 shadow-md shadow-blue-500/20"
         >
           <Printer className="w-3.5 h-3.5" />
-          <span>{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
+          <span className="truncate">{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
         </button>
       </div>
 

@@ -85,24 +85,24 @@ export const PhotoEditorModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
-      <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-1.5 sm:p-4 md:p-6 overflow-y-auto">
+      <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[96vh] sm:max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <Sliders className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
             <div>
-              <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-snug">
+              <h3 className="font-bold text-xs sm:text-base text-slate-900 dark:text-white leading-snug">
                 {lang === 'bn' ? 'ছবি এডজাস্টমেন্ট ও ক্রপ এডিটর' : 'Photo Adjustments & Crop Editor'}
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 hidden xs:block">
                 {lang === 'bn' ? 'উজ্জ্বলতা, কনট্রাস্ট ও নির্দিষ্ট সাইজে ক্রপ করুন' : 'Adjust brightness, contrast, color & crop precisely'}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
@@ -112,12 +112,12 @@ export const PhotoEditorModal: React.FC<Props> = ({
         {/* Body: Left Preview, Right Controls */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-y-auto">
           {/* Preview Panel */}
-          <div className="md:col-span-7 bg-slate-950 p-4 sm:p-6 flex flex-col items-center justify-center min-h-[300px] sm:min-h-[400px] relative select-none">
-            <div className="relative max-w-full max-h-[360px] flex items-center justify-center rounded-lg overflow-hidden border border-slate-800 shadow-2xl bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:12px_12px]">
+          <div className="md:col-span-7 bg-slate-950 p-3 sm:p-4 md:p-6 flex flex-col items-center justify-center min-h-[220px] sm:min-h-[320px] md:min-h-[400px] relative select-none">
+            <div className="relative max-w-full max-h-[260px] sm:max-h-[340px] flex items-center justify-center rounded-lg overflow-hidden border border-slate-800 shadow-2xl bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:12px_12px]">
               <img
                 src={previewSrc}
                 alt="Preview"
-                className="max-h-[340px] max-w-full object-contain"
+                className="max-h-[240px] sm:max-h-[320px] max-w-full object-contain"
               />
               {isProcessing && (
                 <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center text-white text-xs font-medium">

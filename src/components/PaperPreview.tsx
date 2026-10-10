@@ -283,27 +283,27 @@ export const PaperPreview: React.FC<Props> = ({
   return (
     <div
       onClick={() => onSelectItem?.(null)}
-      className="relative flex-1 flex flex-col items-center justify-start p-3 sm:p-6 overflow-auto select-none min-h-full"
+      className="relative flex-1 flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 overflow-auto select-none min-h-full"
     >
       {/* Paper Information Banner & Quick Sheet Action Bar */}
-      <div className="mb-2 w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-2 px-1 flex-wrap">
-        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
+      <div className="mb-2 w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-2 px-1">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 flex-wrap text-center sm:text-left">
           <span className="font-bold text-slate-800 dark:text-slate-200">
-            {paper.name} ({paperWidthMm} × {paperHeightMm} মিমি)
+            {paper.name} ({paperWidthMm} × {paperHeightMm} {lang === 'en' ? 'mm' : 'মিমি'})
           </span>
           <span aria-hidden="true" className="opacity-40">·</span>
           <span className="text-blue-600 dark:text-blue-400 font-semibold">
-            {mode === 'passport' ? countSummary() : nid.frontImage || nid.backImage ? 'এনআইডি স্মার্ট কার্ড' : 'এনআইডি কার্ড (খালি)'}
+            {mode === 'passport' ? countSummary() : nid.frontImage || nid.backImage ? (lang === 'en' ? 'Smart NID Card' : 'এনআইডি স্মার্ট কার্ড') : (lang === 'en' ? 'Empty NID Card' : 'এনআইডি কার্ড (খালি)')}
           </span>
           <span aria-hidden="true" className="opacity-40">·</span>
           <span className="font-mono text-slate-600 dark:text-slate-300">
-            {Math.round(zoom * 100)}% ডিসপ্লে
+            {Math.round(zoom * 100)}% {lang === 'en' ? 'Zoom' : 'ডিসপ্লে'}
           </span>
         </div>
 
         {/* Quick Toolbar for Adding Copies & Auto-Aligning */}
         {mode === 'passport' && passportItems.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
             {onAddPassportCopy && (
               <button
                 type="button"
@@ -312,10 +312,10 @@ export const PaperPreview: React.FC<Props> = ({
                   onAddPassportCopy();
                 }}
                 className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 text-blue-600 dark:text-blue-400 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-                title="পেপারে ১টি পাসপোর্ট সাইজ ছবি (৩৫ × ৪৫ মিমি) যোগ করুন"
+                title={lang === 'en' ? 'Add 1 Passport photo (35x45mm) to sheet' : 'পেপারে ১টি পাসপোর্ট সাইজ ছবি (৩৫ × ৪৫ মিমি) যোগ করুন'}
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>+ পাসপোর্ট ছবি</span>
+                <span>{lang === 'en' ? '+ Passport' : '+ পাসপোর্ট'}</span>
               </button>
             )}
             {onAddStampCopy && (
@@ -326,10 +326,10 @@ export const PaperPreview: React.FC<Props> = ({
                   onAddStampCopy();
                 }}
                 className="py-1 px-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-                title="পেপারে ১টি স্ট্যাম্প সাইজ ছবি (২০ × ২৫ মিমি) যোগ করুন"
+                title={lang === 'en' ? 'Add 1 Stamp photo (20x25mm) to sheet' : 'পেপারে ১টি স্ট্যাম্প সাইজ ছবি (২০ × ২৫ মিমি) যোগ করুন'}
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? '+ স্ট্যাম্প ছবি' : '+ Stamp Photo'}</span>
+                <span>{lang === 'en' ? '+ Stamp' : '+ স্ট্যাম্প'}</span>
               </button>
             )}
             {onAutoAlignGrid && (
@@ -352,17 +352,17 @@ export const PaperPreview: React.FC<Props> = ({
 
       {/* Movement instruction tip */}
       {mode === 'passport' && passportItems.length > 0 && (
-        <div className="mb-3 text-[11px] text-slate-500 dark:text-slate-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/60 rounded-lg px-3 py-1 flex items-center gap-2 max-w-4xl w-full justify-between flex-wrap">
+        <div className="mb-3 text-[11px] text-slate-500 dark:text-slate-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/60 rounded-lg px-2.5 sm:px-3 py-1 flex items-center gap-1.5 sm:gap-2 max-w-4xl w-full justify-between flex-wrap">
           <div className="flex items-center gap-1.5">
             <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>
-              <strong>{lang === 'bn' ? 'ছবি মুভ করতে:' : 'Move photos:'}</strong>{' '}
+              <strong>{lang === 'bn' ? 'ছবি সরানো:' : 'Move photos:'}</strong>{' '}
               {lang === 'bn'
-                ? 'মাউস দিয়ে টেনে ইচ্ছামতো সরান অথবা ক্লিক করে কীবোর্ডের তীরচিহ্ন (← → ↑ ↓) চাপুন।'
-                : 'Drag with mouse or select and press arrow keys (← → ↑ ↓) on keyboard to move anywhere.'}
+                ? 'ছবিতে ট্যাপ বা ড্র্যাগ করে ইচ্ছামতো সরান।'
+                : 'Drag or tap photos to place anywhere on paper.'}
             </span>
           </div>
-          <span className="text-[10px] text-slate-400 font-mono">
+          <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
             {selectedItemId
               ? (lang === 'bn' ? 'সিলেক্টেড ছবি কীবোর্ড দিয়ে মুভ হচ্ছে' : 'Moving selected photo via keyboard')
               : (lang === 'bn' ? 'ছবিতে ক্লিক করে সিলেক্ট করুন' : 'Click any photo to select')}
