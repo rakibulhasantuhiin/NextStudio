@@ -112,10 +112,10 @@ export const NidControls: React.FC<Props> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
-              ১
+              1
             </div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white leading-normal">
-              এনআইডি কার্ড আপলোড (সামনে ও পেছনে)
+              {lang === 'en' ? 'Upload NID Card (Front & Back)' : 'এনআইডি কার্ড আপলোড (সামনে ও পেছনে)'}
             </h2>
           </div>
         </div>
@@ -126,7 +126,7 @@ export const NidControls: React.FC<Props> = ({
           <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-normal">
-                সামনের অংশ (Front)
+                {lang === 'en' ? 'Front Side (Front)' : 'সামনের অংশ (Front)'}
               </span>
               {nid.frontImage && (
                 <div className="flex items-center gap-1.5">
@@ -136,13 +136,13 @@ export const NidControls: React.FC<Props> = ({
                     className="text-[11px] font-semibold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <Edit3 className="w-3 h-3" />
-                    <span>এডিট</span>
+                    <span>{lang === 'en' ? 'Edit' : 'এডিট'}</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleRemoveFront}
                     className="p-1 text-slate-400 hover:text-red-600 rounded cursor-pointer"
-                    title="ছবি মুছুন"
+                    title={lang === 'en' ? 'Delete' : 'ছবি মুছুন'}
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -170,8 +170,12 @@ export const NidControls: React.FC<Props> = ({
               ) : (
                 <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-blue-600 transition p-2 text-center">
                   <Upload className="w-5 h-5 mb-0.5" />
-                  <span className="text-xs font-semibold leading-normal">সামনের ছবি আপলোড</span>
-                  <span className="text-[10px] text-slate-400 leading-normal">ক্লিক বা ড্রপ করুন</span>
+                  <span className="text-xs font-semibold leading-normal">
+                    {lang === 'en' ? 'Upload Front Image' : 'সামনের ছবি আপলোড'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 leading-normal">
+                    {lang === 'en' ? 'Click or drop file' : 'ক্লিক বা ড্রপ করুন'}
+                  </span>
                 </div>
               )}
             </div>
@@ -181,7 +185,7 @@ export const NidControls: React.FC<Props> = ({
           <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 dark:text-slate-200 leading-normal">
-                পেছনের অংশ (Back)
+                {lang === 'en' ? 'Back Side (Back)' : 'পেছনের অংশ (Back)'}
               </span>
               {nid.backImage && (
                 <div className="flex items-center gap-1.5">
@@ -191,13 +195,13 @@ export const NidControls: React.FC<Props> = ({
                     className="text-[11px] font-semibold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     <Edit3 className="w-3 h-3" />
-                    <span>এডিট</span>
+                    <span>{lang === 'en' ? 'Edit' : 'এডিট'}</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleRemoveBack}
                     className="p-1 text-slate-400 hover:text-red-600 rounded cursor-pointer"
-                    title="ছবি মুছুন"
+                    title={lang === 'en' ? 'Delete' : 'ছবি মুছুন'}
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
@@ -225,8 +229,12 @@ export const NidControls: React.FC<Props> = ({
               ) : (
                 <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-blue-600 transition p-2 text-center">
                   <Upload className="w-5 h-5 mb-0.5" />
-                  <span className="text-xs font-semibold leading-normal">পেছনের ছবি আপলোড</span>
-                  <span className="text-[10px] text-slate-400 leading-normal">ক্লিক বা ড্রপ করুন</span>
+                  <span className="text-xs font-semibold leading-normal">
+                    {lang === 'en' ? 'Upload Back Image' : 'পেছনের ছবি আপলোড'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 leading-normal">
+                    {lang === 'en' ? 'Click or drop file' : 'ক্লিক বা ড্রপ করুন'}
+                  </span>
                 </div>
               )}
             </div>
@@ -239,10 +247,12 @@ export const NidControls: React.FC<Props> = ({
             <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
             <div>
               <span className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-normal block">
-                সাদা কাগজ ও ক্লিয়ার ডকুমেন্ট ফিল্টার
+                {lang === 'en' ? 'Clean White Document Filter' : 'সাদা কাগজ ও ক্লিয়ার ডকুমেন্ট ফিল্টার'}
               </span>
               <span className="text-[11px] text-slate-500 leading-normal block">
-                টেবিল, আঙ্গুল বা ছায়া পরিষ্কার করে ডকুমেন্ট একদম সাদা ও স্পষ্ট রাখবে
+                {lang === 'en'
+                  ? 'Cleans table background and shadows to keep document paper clean and white'
+                  : 'টেবিল, আঙ্গুল বা ছায়া পরিষ্কার করে ডকুমেন্ট একদম সাদা ও স্পষ্ট রাখবে'}
               </span>
             </div>
           </div>
@@ -264,14 +274,14 @@ export const NidControls: React.FC<Props> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
-              ২
+              2
             </div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white leading-normal">
-              স্মার্ট এনআইডি সাইজ ও অ্যালাইনমেন্ট
+              {lang === 'en' ? 'Smart NID Size & Alignment' : 'স্মার্ট এনআইডি সাইজ ও অ্যালাইনমেন্ট'}
             </h2>
           </div>
           <span className="text-xs font-mono font-semibold text-blue-600">
-            {nid.cardWidth} × {nid.cardHeight} মিমি
+            {nid.cardWidth} × {nid.cardHeight} {lang === 'en' ? 'mm' : 'মিমি'}
           </span>
         </div>
 
@@ -292,9 +302,11 @@ export const NidControls: React.FC<Props> = ({
                 : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 text-slate-700 dark:text-slate-300'
             }`}
           >
-            <span className="font-bold block leading-normal">স্মার্ট এনআইডি (ID-1)</span>
+            <span className="font-bold block leading-normal">
+              {lang === 'en' ? 'Smart NID (ID-1)' : 'স্মার্ট এনআইডি (ID-1)'}
+            </span>
             <span className="text-[10px] text-slate-400 font-mono block leading-normal mt-0.5">
-              ৮৫.৬ × ৫৪ মিমি (আসল মাপ)
+              {lang === 'en' ? '85.6 × 54 mm (Standard)' : '৮৫.৬ × ৫৪ মিমি (আসল মাপ)'}
             </span>
           </button>
 
@@ -313,9 +325,11 @@ export const NidControls: React.FC<Props> = ({
                 : 'border-slate-200 dark:border-slate-800 bg-slate-50/40 text-slate-700 dark:text-slate-300'
             }`}
           >
-            <span className="font-bold block leading-normal">পুরাতন লেমিনেটিং কার্ড</span>
+            <span className="font-bold block leading-normal">
+              {lang === 'en' ? 'Old Laminating Card' : 'পুরাতন লেমিনেটিং কার্ড'}
+            </span>
             <span className="text-[10px] text-slate-400 font-mono block leading-normal mt-0.5">
-              ৯২ × ৬০ মিমি (বড় সাইজ)
+              {lang === 'en' ? '92 × 60 mm (Large)' : '৯২ × ৬০ মিমি (বড় সাইজ)'}
             </span>
           </button>
         </div>
@@ -325,7 +339,7 @@ export const NidControls: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <AlignCenter className="w-4 h-4 text-slate-500" />
             <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 leading-normal">
-              এ৪ পেপারের মাঝখানে রাখা (Centered)
+              {lang === 'en' ? 'Center on A4 Page (Centered)' : 'এ৪ পেপারের মাঝখানে রাখা (Centered)'}
             </span>
           </div>
           <input
@@ -342,9 +356,11 @@ export const NidControls: React.FC<Props> = ({
         <div className="space-y-1 text-xs">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-slate-600 dark:text-slate-400 leading-normal">
-              দুই অংশের মাঝের ফাঁকা দূরত্ব:
+              {lang === 'en' ? 'Vertical gap between front & back:' : 'দুই অংশের মাঝের ফাঁকা দূরত্ব:'}
             </span>
-            <span className="font-mono font-semibold text-blue-600">{nid.verticalSpacing} মিমি</span>
+            <span className="font-mono font-semibold text-blue-600">
+              {nid.verticalSpacing} {lang === 'en' ? 'mm' : 'মিমি'}
+            </span>
           </div>
           <input
             type="range"
@@ -366,10 +382,10 @@ export const NidControls: React.FC<Props> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-xs">
-              ৩
+              3
             </div>
             <h2 className="text-sm font-bold text-slate-900 dark:text-white leading-normal">
-              পেপার ও কাটিং লাইন
+              {lang === 'en' ? 'Paper & Cutting Guides' : 'পেপার ও কাটিং লাইন'}
             </h2>
           </div>
         </div>
@@ -378,7 +394,7 @@ export const NidControls: React.FC<Props> = ({
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div>
             <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1 leading-normal">
-              কাগজের সাইজ:
+              {lang === 'en' ? 'Paper Size:' : 'কাগজের সাইজ:'}
             </label>
             <div className="grid grid-cols-2 gap-1">
               {(['a4', '4r'] as PaperSizeType[]).map((size) => (
@@ -400,7 +416,7 @@ export const NidControls: React.FC<Props> = ({
 
           <div>
             <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1 leading-normal">
-              কাগজের দিক:
+              {lang === 'en' ? 'Orientation:' : 'কাগজের দিক:'}
             </label>
             <div className="grid grid-cols-2 gap-1">
               <button
@@ -412,7 +428,7 @@ export const NidControls: React.FC<Props> = ({
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >
-                লম্বালম্বি
+                {lang === 'en' ? 'Portrait' : 'লম্বালম্বি'}
               </button>
               <button
                 type="button"
@@ -423,7 +439,7 @@ export const NidControls: React.FC<Props> = ({
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >
-                আড়াআড়ি
+                {lang === 'en' ? 'Landscape' : 'আড়াআড়ি'}
               </button>
             </div>
           </div>
@@ -432,13 +448,13 @@ export const NidControls: React.FC<Props> = ({
         {/* Cutting Guides */}
         <div>
           <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1 leading-normal">
-            কাটার সুবিধার জন্য গাইড দাগ:
+            {lang === 'en' ? 'Cutting Guides:' : 'কাটার সুবিধার জন্য গাইড দাগ:'}
           </label>
           <div className="grid grid-cols-3 gap-1.5 text-xs">
             {[
-              { id: 'none', label: '❌ কোনো দাগ নেই' },
-              { id: 'scissors', label: '✂️ কাঁচি দাগ' },
-              { id: 'dashed', label: '╌ ড্যাশ রেখা' },
+              { id: 'none', label: lang === 'en' ? '❌ None' : '❌ কোনো দাগ নেই' },
+              { id: 'scissors', label: lang === 'en' ? '✂️ Scissors' : '✂️ কাঁচি দাগ' },
+              { id: 'dashed', label: lang === 'en' ? '╌ Dashed' : '╌ ড্যাশ রেখা' },
             ].map((item) => (
               <button
                 key={item.id}

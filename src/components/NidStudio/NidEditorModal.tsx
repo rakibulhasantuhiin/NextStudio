@@ -101,7 +101,7 @@ export const NidEditorModal: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <Sliders className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h3 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white">
-              {side === 'front' ? t.nidFrontTitle : t.nidBackTitle} - ডকুমেন্ট ক্লিন ও সোজা করা
+              {side === 'front' ? t.nidFrontTitle : t.nidBackTitle} - {lang === 'en' ? 'Clean Document & Straighten' : 'ডকুমেন্ট ক্লিন ও সোজা করা'}
             </h3>
           </div>
           <button
@@ -125,7 +125,7 @@ export const NidEditorModal: React.FC<Props> = ({
               {isProcessing && (
                 <div className="absolute inset-0 bg-black/30 backdrop-blur-xs flex items-center justify-center text-white text-xs font-medium">
                   <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-                  প্রসেসিং হচ্ছে...
+                  {lang === 'en' ? 'Processing...' : 'প্রসেসিং হচ্ছে...'}
                 </div>
               )}
             </div>
@@ -137,7 +137,7 @@ export const NidEditorModal: React.FC<Props> = ({
                 className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-white text-xs flex items-center gap-1.5 hover:bg-slate-800 transition"
               >
                 <RotateCw className="w-3.5 h-3.5" />
-                <span>৯০° ঘোরান</span>
+                <span>{lang === 'en' ? 'Rotate 90°' : '৯০° ঘোরান'}</span>
               </button>
             </div>
           </div>
@@ -181,11 +181,11 @@ export const NidEditorModal: React.FC<Props> = ({
                 className="w-full accent-blue-600"
               />
               <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
-                <span>-৪৫°</span>
+                <span>-45°</span>
                 <span onClick={() => setAngle(0)} className="cursor-pointer hover:text-blue-500">
-                  ০° সোজা
+                  {lang === 'en' ? '0° Reset' : '০° সোজা'}
                 </span>
-                <span>+৪৫°</span>
+                <span>+45°</span>
               </div>
             </div>
 
@@ -243,7 +243,7 @@ export const NidEditorModal: React.FC<Props> = ({
             {/* Extra Border Crop Presets */}
             <div>
               <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1.5">
-                বাইরের অংশ বা ব্যাকগ্রাউন্ড বাদ দিন (Crop):
+                {lang === 'en' ? 'Crop Outside Boundaries:' : 'বাইরের অংশ বা ব্যাকগ্রাউন্ড বাদ দিন (Crop):'}
               </label>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <button
@@ -254,7 +254,7 @@ export const NidEditorModal: React.FC<Props> = ({
                       : 'border-slate-200 dark:border-slate-700'
                   }`}
                 >
-                  পুরো ছবি রাখুন
+                  {lang === 'en' ? 'Full Image' : 'পুরো ছবি রাখুন'}
                 </button>
                 <button
                   onClick={() => setCrop({ x: 5, y: 5, width: 90, height: 90 })}
@@ -264,7 +264,7 @@ export const NidEditorModal: React.FC<Props> = ({
                       : 'border-slate-200 dark:border-slate-700'
                   }`}
                 >
-                  বর্ডার ট্রিম (৫% কাট)
+                  {lang === 'en' ? 'Border Trim (5%)' : 'বর্ডার ট্রিম (৫% কাট)'}
                 </button>
                 <button
                   onClick={() => setCrop({ x: 10, y: 10, width: 80, height: 80 })}
@@ -274,7 +274,7 @@ export const NidEditorModal: React.FC<Props> = ({
                       : 'border-slate-200 dark:border-slate-700'
                   }`}
                 >
-                  টাইট ট্রিম (১০% কাট)
+                  {lang === 'en' ? 'Tight Trim (10%)' : 'টাইট ট্রিম (১০% কাট)'}
                 </button>
               </div>
             </div>

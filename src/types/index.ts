@@ -138,8 +138,8 @@ export interface StudioState {
   printQuality: PrintQuality;
   photos: StudioPhotoItem[];
   activePhotoIndex: number;
-  autoRemoveBgOnUpload: boolean;
-  uploadBgMode: 'studio-blue' | 'white' | 'sky-blue' | 'off-white';
+  autoRemoveBgOnUpload?: boolean;
+  uploadBgMode?: 'studio-blue' | 'white' | 'sky-blue' | 'off-white';
   placedItems?: PlacedSheetItem[];
   selectedItemId?: string | null;
   // NID state

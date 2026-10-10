@@ -329,7 +329,7 @@ export const PaperPreview: React.FC<Props> = ({
                 title="পেপারে ১টি স্ট্যাম্প সাইজ ছবি (২০ × ২৫ মিমি) যোগ করুন"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>+ স্ট্যাম্প ছবি</span>
+                <span>{lang === 'bn' ? '+ স্ট্যাম্প ছবি' : '+ Stamp Photo'}</span>
               </button>
             )}
             {onAutoAlignGrid && (
@@ -340,10 +340,10 @@ export const PaperPreview: React.FC<Props> = ({
                   onAutoAlignGrid();
                 }}
                 className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-                title="সব ছবি গ্রিড লাইনে সোজা করে সারিবদ্ধ করুন"
+                title={lang === 'bn' ? 'সব ছবি গ্রিড লাইনে সোজা করে সারিবদ্ধ করুন' : 'Align all photos into neat rows'}
               >
                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                <span>গ্রিডে সাজান</span>
+                <span>{lang === 'bn' ? 'গ্রিডে সাজান' : 'Align Grid'}</span>
               </button>
             )}
           </div>
@@ -356,11 +356,16 @@ export const PaperPreview: React.FC<Props> = ({
           <div className="flex items-center gap-1.5">
             <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>
-              <strong>ছবি মুভ করতে:</strong> মাউস দিয়ে টেনে ইচ্ছামতো সরান অথবা ক্লিক করে কীবোর্ডের তীরচিহ্ন (← → ↑ ↓) চাপুন।
+              <strong>{lang === 'bn' ? 'ছবি মুভ করতে:' : 'Move photos:'}</strong>{' '}
+              {lang === 'bn'
+                ? 'মাউস দিয়ে টেনে ইচ্ছামতো সরান অথবা ক্লিক করে কীবোর্ডের তীরচিহ্ন (← → ↑ ↓) চাপুন।'
+                : 'Drag with mouse or select and press arrow keys (← → ↑ ↓) on keyboard to move anywhere.'}
             </span>
           </div>
           <span className="text-[10px] text-slate-400 font-mono">
-            {selectedItemId ? 'সিলেক্টেড ছবি কীবোর্ড দিয়ে মুভ হচ্ছে' : 'ছবিতে ক্লিক করে সিলেক্ট করুন'}
+            {selectedItemId
+              ? (lang === 'bn' ? 'সিলেক্টেড ছবি কীবোর্ড দিয়ে মুভ হচ্ছে' : 'Moving selected photo via keyboard')
+              : (lang === 'bn' ? 'ছবিতে ক্লিক করে সিলেক্ট করুন' : 'Click any photo to select')}
           </span>
         </div>
       )}
@@ -429,10 +434,12 @@ export const PaperPreview: React.FC<Props> = ({
                     </div>
                     <div>
                       <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                        কোনো ছবি নির্বাচন করা হয়নি
+                        {lang === 'en' ? 'No photos selected yet' : 'কোনো ছবি নির্বাচন করা হয়নি'}
                       </h3>
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        বাম পাশের প্যানেল থেকে ছবি আপলোড করুন অথবা নিচের বাটনে ক্লিক করুন। আপলোড করলেই তা পেপারে সাজানো হবে।
+                        {lang === 'en'
+                          ? 'Upload photos from the left panel or click below. Uploaded photos will be automatically placed on this paper sheet.'
+                          : 'বাম পাশের প্যানেল থেকে ছবি আপলোড করুন অথবা নিচের বাটনে ক্লিক করুন। আপলোড করলেই তা পেপারে সাজানো হবে।'}
                       </p>
                     </div>
                     {onUploadPassportTrigger && (
@@ -442,7 +449,7 @@ export const PaperPreview: React.FC<Props> = ({
                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition cursor-pointer"
                       >
                         <Upload className="w-3.5 h-3.5" />
-                        <span>ছবি আপলোড করুন</span>
+                        <span>{lang === 'en' ? 'Upload Photos' : 'ছবি আপলোড করুন'}</span>
                       </button>
                     )}
                   </div>
@@ -517,7 +524,7 @@ export const PaperPreview: React.FC<Props> = ({
 
                       {/* Size Type Badge in Corner */}
                       <span className="absolute top-0.5 left-0.5 bg-black/70 text-white text-[8px] font-mono px-1 rounded pointer-events-none opacity-80 group-hover:opacity-100">
-                        {isStamp ? 'স্ট্যাম্প' : 'পাসপোর্ট'}
+                        {isStamp ? (lang === 'en' ? 'Stamp' : 'স্ট্যাম্প') : (lang === 'en' ? 'Passport' : 'পাসপোর্ট')}
                       </span>
 
                       {/* Floating Interactive Toolbar for Selected Photo */}
@@ -532,9 +539,13 @@ export const PaperPreview: React.FC<Props> = ({
                               type="button"
                               onClick={() => onToggleItemSize(item.id, isStamp ? 'bd-passport' : 'bd-stamp')}
                               className="px-1.5 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer"
-                              title={isStamp ? 'পাসপোর্ট সাইজে পরিবর্তন (৩৫ × ৪৫ মিমি)' : 'স্ট্যাম্প সাইজে পরিবর্তন (২০ × ২৫ মিমি)'}
+                              title={
+                                isStamp
+                                  ? (lang === 'en' ? 'Change to Passport size (35 × 45 mm)' : 'পাসপোর্ট সাইজে পরিবর্তন (৩৫ × ৪৫ মিমি)')
+                                  : (lang === 'en' ? 'Change to Stamp size (20 × 25 mm)' : 'স্ট্যাম্প সাইজে পরিবর্তন (২০ × ২৫ মিমি)')
+                              }
                             >
-                              {isStamp ? '➡️ পাসপোর্ট' : '➡️ স্ট্যাম্প'}
+                              {isStamp ? (lang === 'en' ? '➡️ Passport' : '➡️ পাসপোর্ট') : (lang === 'en' ? '➡️ Stamp' : '➡️ স্ট্যাম্প')}
                             </button>
                           )}
 
@@ -545,7 +556,7 @@ export const PaperPreview: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => onNudgeItem(item.id, -1, 0)}
                                 className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                                title="বামে সরান (←)"
+                                title={lang === 'en' ? 'Nudge Left (←)' : 'বামে সরান (←)'}
                               >
                                 ◀
                               </button>
@@ -553,7 +564,7 @@ export const PaperPreview: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => onNudgeItem(item.id, 1, 0)}
                                 className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                                title="ডানে সরান (→)"
+                                title={lang === 'en' ? 'Nudge Right (→)' : 'ডানে সরান (→)'}
                               >
                                 ▶
                               </button>
@@ -561,7 +572,7 @@ export const PaperPreview: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => onNudgeItem(item.id, 0, -1)}
                                 className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                                title="উপরে সরান (↑)"
+                                title={lang === 'en' ? 'Nudge Up (↑)' : 'উপরে সরান (↑)'}
                               >
                                 ▲
                               </button>
@@ -569,7 +580,7 @@ export const PaperPreview: React.FC<Props> = ({
                                 type="button"
                                 onClick={() => onNudgeItem(item.id, 0, 1)}
                                 className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                                title="নিচে সরান (↓)"
+                                title={lang === 'en' ? 'Nudge Down (↓)' : 'নিচে সরান (↓)'}
                               >
                                 ▼
                               </button>
@@ -582,7 +593,7 @@ export const PaperPreview: React.FC<Props> = ({
                               type="button"
                               onClick={() => onCycleItemPhoto(item.id)}
                               className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                              title="ছবি পরিবর্তন করুন (পরবর্তী ব্যক্তি)"
+                              title={lang === 'en' ? 'Switch photo (next person)' : 'ছবি পরিবর্তন করুন (পরবর্তী ব্যক্তি)'}
                             >
                               <RefreshCw className="w-3 h-3" />
                             </button>
@@ -594,7 +605,7 @@ export const PaperPreview: React.FC<Props> = ({
                               type="button"
                               onClick={() => onDuplicateItem(item.id)}
                               className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
-                              title="কপি করুন (Ctrl+D)"
+                              title={lang === 'en' ? 'Duplicate (Ctrl+D)' : 'কপি করুন (Ctrl+D)'}
                             >
                               <Copy className="w-3 h-3" />
                             </button>
@@ -606,7 +617,7 @@ export const PaperPreview: React.FC<Props> = ({
                               type="button"
                               onClick={() => onDeleteItem(item.id)}
                               className="p-1 hover:bg-red-600 rounded text-red-400 hover:text-white"
-                              title="মুছুন (Delete)"
+                              title={lang === 'en' ? 'Delete (Delete)' : 'মুছুন (Delete)'}
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>
@@ -617,7 +628,7 @@ export const PaperPreview: React.FC<Props> = ({
                       {/* Live Coordinates Pill while dragging */}
                       {isDragging && (
                         <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[9px] font-mono px-1.5 py-0.5 rounded shadow pointer-events-none whitespace-nowrap z-50">
-                          {item.x} × {item.y} মিমি
+                          {item.x} × {item.y} {lang === 'en' ? 'mm' : 'মিমি'}
                         </div>
                       )}
 
@@ -629,7 +640,7 @@ export const PaperPreview: React.FC<Props> = ({
                           onEditPhoto(item.index % passportItems.length);
                         }}
                         className="absolute bottom-1 right-1 p-1 bg-black/75 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                        title="ছবি এডিট করুন"
+                        title={lang === 'en' ? 'Edit Adjustments / Crop' : 'ছবি এডিট করুন'}
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>
@@ -706,10 +717,10 @@ export const PaperPreview: React.FC<Props> = ({
                       <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center text-slate-400 group-hover:text-blue-600 transition">
                         <CreditCard className="w-6 h-6 mb-1 opacity-70" />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                          এনআইডি সামনের অংশ (Front)
+                          {lang === 'en' ? 'NID Front Side' : 'এনআইডি সামনের অংশ (Front)'}
                         </span>
                         <span className="text-[10px] text-slate-400 mt-0.5">
-                          ক্লিক করে ছবি আপলোড করুন
+                          {lang === 'en' ? 'Click to upload image' : 'ক্লিক করে ছবি আপলোড করুন'}
                         </span>
                       </div>
                     )}
@@ -763,7 +774,7 @@ export const PaperPreview: React.FC<Props> = ({
                             if (onEditNidSide) onEditNidSide('back');
                           }}
                           className="absolute bottom-1 right-1 p-1 bg-black/70 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                          title="পেছনের অংশ এডিট"
+                          title={lang === 'en' ? 'Edit Back Side' : 'পেছনের অংশ এডিট'}
                         >
                           <Edit3 className="w-3 h-3" />
                         </button>
@@ -772,10 +783,10 @@ export const PaperPreview: React.FC<Props> = ({
                       <div className="w-full h-full flex flex-col items-center justify-center p-3 text-center text-slate-400 group-hover:text-blue-600 transition">
                         <CreditCard className="w-6 h-6 mb-1 opacity-70" />
                         <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                          এনআইডি পেছনের অংশ (Back)
+                          {lang === 'en' ? 'NID Back Side' : 'এনআইডি পেছনের অংশ (Back)'}
                         </span>
                         <span className="text-[10px] text-slate-400 mt-0.5">
-                          ক্লিক করে ছবি আপলোড করুন
+                          {lang === 'en' ? 'Click to upload image' : 'ক্লিক করে ছবি আপলোড করুন'}
                         </span>
                       </div>
                     )}
@@ -806,7 +817,7 @@ export const PaperPreview: React.FC<Props> = ({
           <button
             onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
             className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-            title="জুম ছোট"
+            title={lang === 'en' ? 'Zoom Out' : 'জুম ছোট'}
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
@@ -816,7 +827,7 @@ export const PaperPreview: React.FC<Props> = ({
           <button
             onClick={() => setZoom((z) => Math.min(2.0, z + 0.1))}
             className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-            title="জুম বড়"
+            title={lang === 'en' ? 'Zoom In' : 'জুম বড়'}
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
@@ -824,9 +835,9 @@ export const PaperPreview: React.FC<Props> = ({
             <button
               onClick={onFitZoom}
               className="px-2 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-full transition border-l border-slate-200 dark:border-slate-800 cursor-pointer ml-0.5"
-              title="স্ক্রিনে ফিট করুন"
+              title={lang === 'en' ? 'Fit Screen' : 'স্ক্রিনে ফিট করুন'}
             >
-              ফিট
+              {lang === 'en' ? 'Fit' : 'ফিট'}
             </button>
           )}
         </div>

@@ -179,7 +179,9 @@ export const Header: React.FC<HeaderProps> = ({
                     <FileDown className="w-4 h-4 text-blue-600 shrink-0" />
                     <div>
                       <div className="font-semibold text-slate-900 dark:text-white">{t.downloadPdf}</div>
-                      <div className="text-[11px] text-slate-500">৩০০ DPI ভেক্টর প্রিন্ট রেডি ফাইল</div>
+                      <div className="text-[11px] text-slate-500">
+                        {lang === 'en' ? '300 DPI Vector print-ready file' : '৩০০ DPI ভেক্টর প্রিন্ট রেডি ফাইল'}
+                      </div>
                     </div>
                   </button>
                   <button
@@ -192,7 +194,9 @@ export const Header: React.FC<HeaderProps> = ({
                     <ImageIcon className="w-4 h-4 text-emerald-600 shrink-0" />
                     <div>
                       <div className="font-semibold text-slate-900 dark:text-white">{t.downloadPng}</div>
-                      <div className="text-[11px] text-slate-500">স্বচ্ছ ও নিখুঁত হাই-রেজোলিউশন ছবি</div>
+                      <div className="text-[11px] text-slate-500">
+                        {lang === 'en' ? 'Crisp high-resolution transparent image' : 'স্বচ্ছ ও নিখুঁত হাই-রেজোলিউশন ছবি'}
+                      </div>
                     </div>
                   </button>
                   <button
@@ -205,7 +209,9 @@ export const Header: React.FC<HeaderProps> = ({
                     <ImageIcon className="w-4 h-4 text-indigo-600 shrink-0" />
                     <div>
                       <div className="font-semibold text-slate-900 dark:text-white">{t.downloadJpg}</div>
-                      <div className="text-[11px] text-slate-500">ল্যাব ও স্টুডিও প্রিন্ট ফরম্যাট</div>
+                      <div className="text-[11px] text-slate-500">
+                        {lang === 'en' ? 'Photo lab and studio print format' : 'ল্যাব ও স্টুডিও প্রিন্ট ফরম্যাট'}
+                      </div>
                     </div>
                   </button>
                 </div>
@@ -218,10 +224,34 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onPrint}
             disabled={isProcessing}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs sm:text-sm transition shadow-xs disabled:opacity-50 cursor-pointer"
-            title="শর্টকাট: Ctrl + P"
+            title={lang === 'bn' ? 'শর্টকাট: Ctrl + P' : 'Shortcut: Ctrl + P'}
           >
             <Printer className="w-4 h-4" />
             <span>{t.printNow}</span>
+          </button>
+
+          {/* Quick Theme Toggle (Light / Dark) */}
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="p-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
+            title={theme === 'dark' ? (lang === 'bn' ? 'লাইট মোড অন করুন' : 'Switch to Light Mode') : (lang === 'bn' ? 'ডার্ক মোড অন করুন' : 'Switch to Dark Mode')}
+            aria-label="Toggle Dark / Light Mode"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-400" />
+            ) : (
+              <Moon className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+            )}
+          </button>
+
+          {/* Quick Language Toggle */}
+          <button
+            onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
+            className="px-2.5 py-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5"
+            title={lang === 'bn' ? 'Switch to English' : 'বাংলায় পরিবর্তন করুন'}
+          >
+            <Globe className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>{lang === 'bn' ? 'EN' : 'বাং'}</span>
           </button>
 
           {/* More options menu */}
@@ -229,7 +259,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={() => setShowMoreMenu(!showMoreMenu)}
               className="p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition cursor-pointer"
-              title="আরও অপশন"
+              title={lang === 'bn' ? 'আরও অপশন' : 'More Options'}
             >
               <ChevronDown className="w-4 h-4" />
             </button>
@@ -249,7 +279,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="w-full text-left px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                    <span>সব রিসেট করুন</span>
+                    <span>{lang === 'bn' ? 'সব রিসেট করুন' : 'Reset All'}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -259,7 +289,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="w-full text-left px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                   >
                     <Save className="w-3.5 h-3.5 text-slate-400" />
-                    <span>প্রজেক্ট ব্যাকআপ সেভ</span>
+                    <span>{lang === 'bn' ? 'প্রজেক্ট ব্যাকআপ সেভ' : 'Export Project JSON'}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -269,7 +299,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="w-full text-left px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                   >
                     <FolderUp className="w-3.5 h-3.5 text-slate-400" />
-                    <span>ব্যাকআপ লোড</span>
+                    <span>{lang === 'bn' ? 'ব্যাকআপ লোড' : 'Load Project JSON'}</span>
                   </button>
                   <div className="h-px bg-slate-100 dark:bg-slate-800 my-1" />
                   <button
@@ -280,7 +310,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="w-full text-left px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                   >
                     <Globe className="w-3.5 h-3.5 text-slate-400" />
-                    <span>ভাষা: {lang === 'bn' ? 'English' : 'বাংলা'}</span>
+                    <span>{lang === 'bn' ? 'Language: English' : 'ভাষা: বাংলা'}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -290,7 +320,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="w-full text-left px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                   >
                     {theme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-slate-400" />}
-                    <span>থিম: {theme === 'dark' ? 'লাইট মোড' : 'ডার্ক মোড'}</span>
+                    <span>{theme === 'dark' ? (lang === 'bn' ? 'থিম: লাইট মোড' : 'Theme: Light Mode') : (lang === 'bn' ? 'থিম: ডার্ক মোড' : 'Theme: Dark Mode')}</span>
                   </button>
                   <button
                     onClick={() => {
@@ -300,7 +330,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="w-full text-left px-3.5 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 cursor-pointer"
                   >
                     <HelpCircle className="w-3.5 h-3.5 text-slate-400" />
-                    <span>কিবোর্ড শর্টকাট (?)</span>
+                    <span>{lang === 'bn' ? 'কিবোর্ড শর্টকাট (?)' : 'Keyboard Shortcuts (?)'}</span>
                   </button>
                 </div>
               </>
