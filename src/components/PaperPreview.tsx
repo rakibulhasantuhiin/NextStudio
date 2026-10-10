@@ -1,8 +1,14 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera,
+  Copy,
   CreditCard,
   Edit3,
+  Move,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
   Upload,
   ZoomIn,
   ZoomOut,
@@ -39,6 +45,19 @@ interface Props {
   onUploadPassportTrigger?: () => void;
   onUploadNidFrontTrigger?: () => void;
   onUploadNidBackTrigger?: () => void;
+  // Multi-size and interactive draggable placement props
+  selectedItemId?: string | null;
+  onSelectItem?: (id: string | null) => void;
+  onMoveItem?: (id: string, newX: number, newY: number) => void;
+  onNudgeItem?: (id: string, deltaX: number, deltaY: number) => void;
+  onToggleItemSize?: (id: string, targetPreset: 'bd-passport' | 'bd-stamp') => void;
+  onDuplicateItem?: (id: string) => void;
+  onDeleteItem?: (id: string) => void;
+  onAddStampCopy?: () => void;
+  onAddPassportCopy?: () => void;
+  onAutoAlignGrid?: () => void;
+  onAutoSpreadWidth?: () => void;
+  onCycleItemPhoto?: (id: string) => void;
 }
 
 export const PaperPreview: React.FC<Props> = ({
@@ -62,6 +81,18 @@ export const PaperPreview: React.FC<Props> = ({
   onUploadPassportTrigger,
   onUploadNidFrontTrigger,
   onUploadNidBackTrigger,
+  selectedItemId,
+  onSelectItem,
+  onMoveItem,
+  onNudgeItem,
+  onToggleItemSize,
+  onDuplicateItem,
+  onDeleteItem,
+  onAddStampCopy,
+  onAddPassportCopy,
+  onAutoAlignGrid,
+  onAutoSpreadWidth,
+  onCycleItemPhoto,
 }) => {
   const t = translations[lang];
 
@@ -74,28 +105,265 @@ export const PaperPreview: React.FC<Props> = ({
   const sheetWidthPx = paperWidthMm * mmToPx;
   const sheetHeightPx = paperHeightMm * mmToPx;
 
+  // Mouse / Touch Dragging State
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const dragRef = useRef<{
+    itemId: string;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
+
+  // Start mouse drag
+  const handleMouseDownItem = (e: React.MouseEvent, item: CalculatedItem) => {
+    // If clicked on an action button, don't initiate drag
+    if ((e.target as HTMLElement).closest('button')) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    onSelectItem?.(item.id);
+    onSelectPhoto(item.index % Math.max(1, passportItems.length));
+
+    dragRef.current = {
+      itemId: item.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: item.x,
+      originY: item.y,
+    };
+    setDraggingItemId(item.id);
+  };
+
+  // Start touch drag
+  const handleTouchStartItem = (e: React.TouchEvent, item: CalculatedItem) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    if (e.touches.length !== 1) return;
+
+    const touch = e.touches[0];
+    onSelectItem?.(item.id);
+    onSelectPhoto(item.index % Math.max(1, passportItems.length));
+
+    dragRef.current = {
+      itemId: item.id,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      originX: item.x,
+      originY: item.y,
+    };
+    setDraggingItemId(item.id);
+  };
+
+  // Window drag events for mouse & touch
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current || !onMoveItem) return;
+      const { itemId, startX, startY, originX, originY } = dragRef.current;
+      const targetItem = passportItems.find((i) => i.id === itemId);
+      if (!targetItem) return;
+
+      const deltaX_px = e.clientX - startX;
+      const deltaY_px = e.clientY - startY;
+      const deltaX_mm = deltaX_px / mmToPx;
+      const deltaY_mm = deltaY_px / mmToPx;
+
+      const newX = Math.max(0, Math.min(paperWidthMm - targetItem.width, originX + deltaX_mm));
+      const newY = Math.max(0, Math.min(paperHeightMm - targetItem.height, originY + deltaY_mm));
+
+      // Snap to 0.5 mm
+      const snappedX = Math.round(newX * 2) / 2;
+      const snappedY = Math.round(newY * 2) / 2;
+
+      onMoveItem(itemId, snappedX, snappedY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!dragRef.current || !onMoveItem || e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const { itemId, startX, startY, originX, originY } = dragRef.current;
+      const targetItem = passportItems.find((i) => i.id === itemId);
+      if (!targetItem) return;
+
+      const deltaX_px = touch.clientX - startX;
+      const deltaY_px = touch.clientY - startY;
+      const deltaX_mm = deltaX_px / mmToPx;
+      const deltaY_mm = deltaY_px / mmToPx;
+
+      const newX = Math.max(0, Math.min(paperWidthMm - targetItem.width, originX + deltaX_mm));
+      const newY = Math.max(0, Math.min(paperHeightMm - targetItem.height, originY + deltaY_mm));
+
+      const snappedX = Math.round(newX * 2) / 2;
+      const snappedY = Math.round(newY * 2) / 2;
+
+      onMoveItem(itemId, snappedX, snappedY);
+    };
+
+    const handleDragEnd = () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        setDraggingItemId(null);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleDragEnd);
+    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('touchend', handleDragEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleDragEnd);
+    };
+  }, [passportItems, mmToPx, paperWidthMm, paperHeightMm, onMoveItem]);
+
+  // Keyboard navigation for selected photo: Arrow keys to move, Delete to remove, Ctrl+D to duplicate
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selectedItemId || !onNudgeItem) return;
+
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      const step = e.shiftKey ? 5 : 1; // 1 mm step, 5 mm with Shift
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        onNudgeItem(selectedItemId, -step, 0);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        onNudgeItem(selectedItemId, step, 0);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        onNudgeItem(selectedItemId, 0, -step);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        onNudgeItem(selectedItemId, 0, step);
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        onDeleteItem?.(selectedItemId);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        onDuplicateItem?.(selectedItemId);
+      } else if (e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        onToggleItemSize?.(selectedItemId, 'bd-stamp');
+      } else if (e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        onToggleItemSize?.(selectedItemId, 'bd-passport');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedItemId, onNudgeItem, onDeleteItem, onDuplicateItem, onToggleItemSize]);
+
+  // Breakdown of photos currently on sheet (e.g. 5 Passport, 8 Stamp)
+  const passportCount = passportItems.filter(
+    (i) => i.preset === 'bd-passport' || i.preset === 'intl-passport' || (i.width === 35 && i.height === 45)
+  ).length;
+  const stampCount = passportItems.filter(
+    (i) => i.preset === 'bd-stamp' || (i.width === 20 && i.height === 25)
+  ).length;
+  const otherCount = passportItems.length - passportCount - stampCount;
+
+  const countSummary = () => {
+    if (passportItems.length === 0) return 'খালি পেপার (কোন ছবি নেই)';
+    const parts: string[] = [];
+    if (passportCount > 0) parts.push(`${passportCount}টি পাসপোর্ট`);
+    if (stampCount > 0) parts.push(`${stampCount}টি স্ট্যাম্প`);
+    if (otherCount > 0) parts.push(`${otherCount}টি কাস্টম`);
+    return parts.join(' + ') + ' ছবি সাজানো';
+  };
+
   return (
-    <div className="relative flex-1 flex flex-col items-center justify-start p-3 sm:p-6 overflow-auto select-none min-h-full">
-      {/* Paper Information Banner */}
-      <div className="mb-3 text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap justify-center">
-        <span className="font-bold text-slate-800 dark:text-slate-200">
-          {paper.name} ({paperWidthMm} × {paperHeightMm} মিমি)
-        </span>
-        <span aria-hidden="true" className="opacity-40">·</span>
-        <span className="text-blue-600 dark:text-blue-400 font-semibold">
-          {mode === 'passport'
-            ? passportItems.length > 0
-              ? `${passportItems.length}টি পাসপোর্ট ছবি সাজানো`
-              : 'খালি পেপার (কোন ছবি নেই)'
-            : nid.frontImage || nid.backImage
-            ? 'এনআইডি স্মার্ট কার্ড (৮৫.৬ × ৫৪ মিমি)'
-            : 'এনআইডি কার্ড স্লট (খালি)'}
-        </span>
-        <span aria-hidden="true" className="opacity-40">·</span>
-        <span className="font-mono text-slate-600 dark:text-slate-300">
-          {Math.round(zoom * 100)}% ডিসপ্লে
-        </span>
+    <div
+      onClick={() => onSelectItem?.(null)}
+      className="relative flex-1 flex flex-col items-center justify-start p-3 sm:p-6 overflow-auto select-none min-h-full"
+    >
+      {/* Paper Information Banner & Quick Sheet Action Bar */}
+      <div className="mb-2 w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-2 px-1 flex-wrap">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
+          <span className="font-bold text-slate-800 dark:text-slate-200">
+            {paper.name} ({paperWidthMm} × {paperHeightMm} মিমি)
+          </span>
+          <span aria-hidden="true" className="opacity-40">·</span>
+          <span className="text-blue-600 dark:text-blue-400 font-semibold">
+            {mode === 'passport' ? countSummary() : nid.frontImage || nid.backImage ? 'এনআইডি স্মার্ট কার্ড' : 'এনআইডি কার্ড (খালি)'}
+          </span>
+          <span aria-hidden="true" className="opacity-40">·</span>
+          <span className="font-mono text-slate-600 dark:text-slate-300">
+            {Math.round(zoom * 100)}% ডিসপ্লে
+          </span>
+        </div>
+
+        {/* Quick Toolbar for Adding Copies & Auto-Aligning */}
+        {mode === 'passport' && passportItems.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {onAddPassportCopy && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddPassportCopy();
+                }}
+                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 text-blue-600 dark:text-blue-400 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title="পেপারে ১টি পাসপোর্ট সাইজ ছবি (৩৫ × ৪৫ মিমি) যোগ করুন"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ পাসপোর্ট ছবি</span>
+              </button>
+            )}
+            {onAddStampCopy && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddStampCopy();
+                }}
+                className="py-1 px-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title="পেপারে ১টি স্ট্যাম্প সাইজ ছবি (২০ × ২৫ মিমি) যোগ করুন"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ স্ট্যাম্প ছবি</span>
+              </button>
+            )}
+            {onAutoAlignGrid && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAutoAlignGrid();
+                }}
+                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title="সব ছবি গ্রিড লাইনে সোজা করে সারিবদ্ধ করুন"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <span>গ্রিডে সাজান</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Movement instruction tip */}
+      {mode === 'passport' && passportItems.length > 0 && (
+        <div className="mb-3 text-[11px] text-slate-500 dark:text-slate-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/60 rounded-lg px-3 py-1 flex items-center gap-2 max-w-4xl w-full justify-between flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>
+              <strong>ছবি মুভ করতে:</strong> মাউস দিয়ে টেনে ইচ্ছামতো সরান অথবা ক্লিক করে কীবোর্ডের তীরচিহ্ন (← → ↑ ↓) চাপুন।
+            </span>
+          </div>
+          <span className="text-[10px] text-slate-400 font-mono">
+            {selectedItemId ? 'সিলেক্টেড ছবি কীবোর্ড দিয়ে মুভ হচ্ছে' : 'ছবিতে ক্লিক করে সিলেক্ট করুন'}
+          </span>
+        </div>
+      )}
 
       {/* Realistic Paper Sheet Canvas */}
       <div className="relative pb-16">
@@ -133,7 +401,7 @@ export const PaperPreview: React.FC<Props> = ({
               {passportItems.length === 0 ? (
                 /* Empty Sheet State (Clean, inviting, no dummy photo) */
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                  {/* Subtle Ghost Slots at Top of Paper (Shows where photos will appear) */}
+                  {/* Ghost slots */}
                   <div
                     className="absolute flex gap-2 pointer-events-none opacity-40"
                     style={{
@@ -155,7 +423,6 @@ export const PaperPreview: React.FC<Props> = ({
                     ))}
                   </div>
 
-                  {/* Center Guidance Card */}
                   <div className="relative z-10 max-w-sm p-6 rounded-2xl bg-white/95 border border-slate-200 shadow-lg text-center space-y-3">
                     <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
                       <Camera className="w-6 h-6" />
@@ -165,7 +432,7 @@ export const PaperPreview: React.FC<Props> = ({
                         কোনো ছবি নির্বাচন করা হয়নি
                       </h3>
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                        বাম পাশের প্যানেল থেকে ছবি আপলোড করুন অথবা নিচের বাটনে ক্লিক করুন। আপলোড করলেই তা স্বয়ংক্রিয়ভাবে পেপারে সাজানো হবে।
+                        বাম পাশের প্যানেল থেকে ছবি আপলোড করুন অথবা নিচের বাটনে ক্লিক করুন। আপলোড করলেই তা পেপারে সাজানো হবে।
                       </p>
                     </div>
                     {onUploadPassportTrigger && (
@@ -181,19 +448,32 @@ export const PaperPreview: React.FC<Props> = ({
                   </div>
                 </div>
               ) : (
-                /* Rendered Passport Photos on Sheet */
+                /* Rendered Draggable & Movable Photos on Sheet */
                 passportItems.map((item, idx) => {
-                  const isSelected = item.photo.id === passportItems[activePhotoIndex]?.photo.id;
+                  const isSelected = selectedItemId === item.id;
+                  const isDragging = draggingItemId === item.id;
+                  const isStamp = item.width <= 25 || item.preset === 'bd-stamp';
 
                   return (
                     <div
-                      key={`${item.photo.id}-${idx}`}
-                      onClick={() => onSelectPhoto(item.index % passportItems.length)}
-                      onDoubleClick={() => onEditPhoto(item.index % passportItems.length)}
-                      className={`absolute cursor-pointer group transition-all ${
-                        isSelected
-                          ? 'ring-2 ring-blue-500 shadow-md z-10'
-                          : 'hover:ring-1 hover:ring-blue-400'
+                      key={item.id || `${item.photo.id}-${idx}`}
+                      onMouseDown={(e) => handleMouseDownItem(e, item)}
+                      onTouchStart={(e) => handleTouchStartItem(e, item)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectItem?.(item.id);
+                        onSelectPhoto(item.index % passportItems.length);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onEditPhoto(item.index % passportItems.length);
+                      }}
+                      className={`absolute group select-none transition-shadow ${
+                        isDragging
+                          ? 'cursor-grabbing shadow-2xl z-40 ring-2 ring-blue-600 opacity-95'
+                          : isSelected
+                          ? 'cursor-grab ring-2 ring-blue-500 shadow-lg z-30'
+                          : 'cursor-grab hover:ring-1 hover:ring-blue-400/80 hover:shadow-xs z-10'
                       }`}
                       style={{
                         left: `${item.x * mmToPx}px`,
@@ -201,12 +481,12 @@ export const PaperPreview: React.FC<Props> = ({
                         width: `${item.width * mmToPx}px`,
                         height: `${item.height * mmToPx}px`,
                       }}
-                      title="ডাবল ক্লিক করে এডিট করুন"
+                      title="মাউস দিয়ে টেনে সরান, অ্যারো কী দিয়ে মুভ করুন, ডাবল ক্লিক করে এডিট করুন"
                     >
                       <img
                         src={item.photo.processedSrc || item.photo.originalSrc}
                         alt="Photo"
-                        className="w-full h-full object-cover pointer-events-none select-none"
+                        className="w-full h-full object-cover pointer-events-none select-none block"
                       />
 
                       {/* Bleed outline */}
@@ -235,14 +515,121 @@ export const PaperPreview: React.FC<Props> = ({
                         <div className="absolute inset-0 border border-solid border-slate-300 pointer-events-none" />
                       )}
 
-                      {/* Hover action badge */}
+                      {/* Size Type Badge in Corner */}
+                      <span className="absolute top-0.5 left-0.5 bg-black/70 text-white text-[8px] font-mono px-1 rounded pointer-events-none opacity-80 group-hover:opacity-100">
+                        {isStamp ? 'স্ট্যাম্প' : 'পাসপোর্ট'}
+                      </span>
+
+                      {/* Floating Interactive Toolbar for Selected Photo */}
+                      {isSelected && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute -top-9 left-1/2 -translate-x-1/2 bg-slate-900/95 text-white rounded-lg px-1.5 py-1 flex items-center gap-1 shadow-xl z-50 text-[10px] whitespace-nowrap border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                        >
+                          {/* Size toggle */}
+                          {onToggleItemSize && (
+                            <button
+                              type="button"
+                              onClick={() => onToggleItemSize(item.id, isStamp ? 'bd-passport' : 'bd-stamp')}
+                              className="px-1.5 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium transition cursor-pointer"
+                              title={isStamp ? 'পাসপোর্ট সাইজে পরিবর্তন (৩৫ × ৪৫ মিমি)' : 'স্ট্যাম্প সাইজে পরিবর্তন (২০ × ২৫ মিমি)'}
+                            >
+                              {isStamp ? '➡️ পাসপোর্ট' : '➡️ স্ট্যাম্প'}
+                            </button>
+                          )}
+
+                          {/* Quick Nudge Buttons */}
+                          {onNudgeItem && (
+                            <div className="flex items-center gap-0.5 border-l border-slate-700 pl-1">
+                              <button
+                                type="button"
+                                onClick={() => onNudgeItem(item.id, -1, 0)}
+                                className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                                title="বামে সরান (←)"
+                              >
+                                ◀
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onNudgeItem(item.id, 1, 0)}
+                                className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                                title="ডানে সরান (→)"
+                              >
+                                ▶
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onNudgeItem(item.id, 0, -1)}
+                                className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                                title="উপরে সরান (↑)"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onNudgeItem(item.id, 0, 1)}
+                                className="p-0.5 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                                title="নিচে সরান (↓)"
+                              >
+                                ▼
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Cycle Photo (if multiple photos available) */}
+                          {onCycleItemPhoto && (
+                            <button
+                              type="button"
+                              onClick={() => onCycleItemPhoto(item.id)}
+                              className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                              title="ছবি পরিবর্তন করুন (পরবর্তী ব্যক্তি)"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          )}
+
+                          {/* Duplicate */}
+                          {onDuplicateItem && (
+                            <button
+                              type="button"
+                              onClick={() => onDuplicateItem(item.id)}
+                              className="p-1 hover:bg-slate-800 rounded text-slate-300 hover:text-white"
+                              title="কপি করুন (Ctrl+D)"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          )}
+
+                          {/* Delete */}
+                          {onDeleteItem && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteItem(item.id)}
+                              className="p-1 hover:bg-red-600 rounded text-red-400 hover:text-white"
+                              title="মুছুন (Delete)"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Live Coordinates Pill while dragging */}
+                      {isDragging && (
+                        <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[9px] font-mono px-1.5 py-0.5 rounded shadow pointer-events-none whitespace-nowrap z-50">
+                          {item.x} × {item.y} মিমি
+                        </div>
+                      )}
+
+                      {/* Edit Badge in Bottom-Right */}
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           onEditPhoto(item.index % passportItems.length);
                         }}
                         className="absolute bottom-1 right-1 p-1 bg-black/75 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                        title="এডিট করুন"
+                        title="ছবি এডিট করুন"
                       >
                         <Edit3 className="w-3 h-3" />
                       </button>

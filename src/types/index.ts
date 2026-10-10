@@ -13,7 +13,15 @@ export type PaperSizeType = 'a4' | '4r' | 'a5' | 'letter' | 'custom';
 
 export type PaperOrientation = 'portrait' | 'landscape';
 
-export type LayoutMode = 'top-5' | 'top-4-couple' | 'top-6' | 'full-grid' | 'manual';
+export type LayoutMode =
+  | 'top-5'
+  | 'top-4-couple'
+  | 'top-6'
+  | 'combo-passport-stamp'
+  | 'full-grid'
+  | 'full-grid-stamp'
+  | 'manual'
+  | 'freeform';
 
 export type CuttingGuideStyle = 'none' | 'dashed' | 'solid' | 'crosshair' | 'scissors';
 
@@ -78,6 +86,17 @@ export interface StudioPhotoItem {
   type?: 'individual' | 'couple';
 }
 
+export interface PlacedSheetItem {
+  id: string; // unique item instance id
+  photoId: string; // references StudioPhotoItem.id
+  x: number; // mm
+  y: number; // mm
+  width: number; // mm
+  height: number; // mm
+  preset: PhotoPresetType;
+  customPositioned?: boolean;
+}
+
 export interface NIDCardSettings {
   frontImage: string | null;
   backImage: string | null;
@@ -121,6 +140,8 @@ export interface StudioState {
   activePhotoIndex: number;
   autoRemoveBgOnUpload: boolean;
   uploadBgMode: 'studio-blue' | 'white' | 'sky-blue' | 'off-white';
+  placedItems?: PlacedSheetItem[];
+  selectedItemId?: string | null;
   // NID state
   nid: NIDCardSettings;
   nidMargins: MarginSettings;

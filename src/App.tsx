@@ -22,6 +22,7 @@ import {
   PaperSizeType,
   PhotoAdjustments,
   PhotoPresetType,
+  PlacedSheetItem,
   StudioMode,
   StudioPhotoItem,
   StudioState,
@@ -41,7 +42,12 @@ import {
   loadImage,
   processStudioPhoto,
 } from './utils/imageProcessing';
-import { calculatePhotoPositions } from './utils/layoutCalculator';
+import {
+  addPhotoToSheet,
+  autoAlignPlacedItems,
+  calculatePhotoPositions,
+  generateDefaultPlacedItems,
+} from './utils/layoutCalculator';
 import { exportToImage, exportToPdf, triggerDirectPrint } from './utils/printAndPdf';
 import { getSampleNidBack, getSampleNidFront, getSamplePassportPhoto } from './utils/sampleImages';
 import { exportProjectAsJson, importProjectFromJson, loadStateFromLocal, saveStateToLocal } from './utils/storage';
@@ -79,6 +85,10 @@ export default function App() {
   const [photos, setPhotos] = useState<StudioPhotoItem[]>([]);
   const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
+
+  // Placed items on the paper sheet (enables drag-and-drop, nudging, mixed passport & stamp sizes)
+  const [placedItems, setPlacedItems] = useState<PlacedSheetItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
   // NID State - Starts completely empty (no dummy cards)
   const [nid, setNid] = useState<NIDCardSettings>({
@@ -133,6 +143,12 @@ export default function App() {
         );
         setPhotos(realPhotos);
       }
+      if (saved.placedItems && saved.placedItems.length > 0) {
+        setPlacedItems(saved.placedItems);
+      }
+      if (saved.selectedItemId) {
+        setSelectedItemId(saved.selectedItemId);
+      }
       if (saved.nid) {
         const cleanFront = saved.nid.frontImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.frontImage || '');
         const cleanBack = saved.nid.backImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.backImage || '');
@@ -186,6 +202,8 @@ export default function App() {
         activePhotoIndex,
         autoRemoveBgOnUpload: autoRemoveBg,
         uploadBgMode,
+        placedItems,
+        selectedItemId,
         nid,
         nidMargins,
       };
@@ -216,6 +234,8 @@ export default function App() {
     uploadBgMode,
     photos,
     activePhotoIndex,
+    placedItems,
+    selectedItemId,
     nid,
     nidMargins,
   ]);
@@ -227,8 +247,25 @@ export default function App() {
     photoPreset === 'custom' ? customPhotoHeight : PHOTO_PRESETS[photoPreset].height;
   const currentPaper = PAPER_SIZES[paperSize];
 
-  // 6. Calculate items for passport grid
+  // 6. Calculate items for passport grid (syncs placedItems with calculated coordinates)
   const passportItems = useMemo(() => {
+    if (photos.length === 0) return [];
+
+    const itemsToUse = placedItems.length > 0
+      ? placedItems
+      : generateDefaultPlacedItems({
+          paper: currentPaper,
+          orientation,
+          margins,
+          photoPreset,
+          customPhotoWidth: effectivePhotoWidth,
+          customPhotoHeight: effectivePhotoHeight,
+          layoutMode,
+          manualCount,
+          photos,
+          activePhotoIndex,
+        });
+
     return calculatePhotoPositions({
       paper: currentPaper,
       orientation,
@@ -238,6 +275,8 @@ export default function App() {
       layoutMode,
       manualCount,
       photos,
+      placedItems: itemsToUse,
+      activePhotoIndex,
     });
   }, [
     currentPaper,
@@ -248,6 +287,9 @@ export default function App() {
     layoutMode,
     manualCount,
     photos,
+    placedItems,
+    activePhotoIndex,
+    photoPreset,
   ]);
 
   // 7. Keyboard Shortcuts
@@ -292,13 +334,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [photos, mode, nid]);
 
-  // 8. Photo Upload Handler: Automatic Face Framing, Straightening, and Background Removal
+  // 8. Photo Upload Handler: Supports Multiple Pictures at once
   const handleUploadPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
     setIsUploading(true);
     const targetAspect = effectivePhotoWidth / effectivePhotoHeight;
     const filesArray = Array.from(files);
+    const newlyProcessedPhotos: StudioPhotoItem[] = [];
 
     try {
       for (const file of filesArray) {
@@ -310,7 +353,7 @@ export default function App() {
         });
 
         try {
-          // 100% offline auto-straighten, passport framing & background removal
+          // 100% offline auto-straighten, passport framing & background preservation/removal
           const result = await autoProcessUploadedPhoto(dataUrl, {
             targetAspect,
             autoStraighten,
@@ -318,26 +361,63 @@ export default function App() {
             bgMode: uploadBgMode,
           });
 
-          const newPhoto: StudioPhotoItem = {
+          newlyProcessedPhotos.push({
             id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
             originalSrc: result.originalSrc,
             processedSrc: result.processedSrc,
             adjustments: result.adjustments,
-          };
-
-          setPhotos((prev) => [...prev, newPhoto]);
+          });
         } catch (err) {
           console.error('Failed to auto-process uploaded photo:', err);
-          const fallbackPhoto: StudioPhotoItem = {
+          newlyProcessedPhotos.push({
             id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
             originalSrc: dataUrl,
             processedSrc: dataUrl,
             adjustments: { ...DEFAULT_ADJUSTMENTS },
-          };
-          setPhotos((prev) => [...prev, fallbackPhoto]);
+          });
         }
       }
-      setActivePhotoIndex(photos.length);
+
+      setPhotos((prev) => {
+        const combined = [...prev, ...newlyProcessedPhotos];
+
+        // If sheet is empty or was unplaced, generate layout with all uploaded photos
+        if (prev.length === 0 || placedItems.length === 0) {
+          const newPlaced = generateDefaultPlacedItems({
+            paper: currentPaper,
+            orientation,
+            margins,
+            photoPreset,
+            customPhotoWidth: effectivePhotoWidth,
+            customPhotoHeight: effectivePhotoHeight,
+            layoutMode,
+            manualCount,
+            photos: combined,
+            activePhotoIndex: 0,
+          });
+          setPlacedItems(newPlaced);
+        } else {
+          // Append new uploaded photos as items to the sheet
+          let updatedPlaced = [...placedItems];
+          for (const newPhoto of newlyProcessedPhotos) {
+            updatedPlaced = addPhotoToSheet({
+              existingItems: updatedPlaced,
+              photoId: newPhoto.id,
+              preset: photoPreset,
+              paper: currentPaper,
+              orientation,
+              margins,
+              customWidth: effectivePhotoWidth,
+              customHeight: effectivePhotoHeight,
+            });
+          }
+          setPlacedItems(updatedPlaced);
+        }
+
+        return combined;
+      });
+
+      setActivePhotoIndex((prev) => prev);
     } finally {
       setIsUploading(false);
     }
@@ -420,8 +500,13 @@ export default function App() {
     }
   };
 
+  // Remove photo from studio & sheet
   const handleRemovePhoto = (index: number) => {
+    const target = photos[index];
     setPhotos((prev) => prev.filter((_, i) => i !== index));
+    if (target) {
+      setPlacedItems((prev) => prev.filter((i) => i.photoId !== target.id));
+    }
     if (activePhotoIndex >= photos.length - 1) {
       setActivePhotoIndex(Math.max(0, photos.length - 2));
     }
@@ -435,6 +520,303 @@ export default function App() {
       id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     };
     setPhotos((prev) => [...prev, duplicated]);
+  };
+
+  // Layout mode switcher - updates layout and rebuilds placedItems accordingly
+  const handleLayoutModeChange = (newMode: LayoutMode) => {
+    setLayoutMode(newMode);
+    if (photos.length > 0) {
+      const newPlaced = generateDefaultPlacedItems({
+        paper: currentPaper,
+        orientation,
+        margins,
+        photoPreset,
+        customPhotoWidth: effectivePhotoWidth,
+        customPhotoHeight: effectivePhotoHeight,
+        layoutMode: newMode,
+        manualCount,
+        photos,
+        activePhotoIndex,
+      });
+      setPlacedItems(newPlaced);
+    }
+  };
+
+  const handleManualCountChange = (updater: number | ((prev: number) => number)) => {
+    const newCount = typeof updater === 'function' ? updater(manualCount) : updater;
+    setManualCount(newCount);
+    if (layoutMode === 'manual' && photos.length > 0) {
+      const newPlaced = generateDefaultPlacedItems({
+        paper: currentPaper,
+        orientation,
+        margins,
+        photoPreset,
+        customPhotoWidth: effectivePhotoWidth,
+        customPhotoHeight: effectivePhotoHeight,
+        layoutMode: 'manual',
+        manualCount: newCount,
+        photos,
+        activePhotoIndex,
+      });
+      setPlacedItems(newPlaced);
+    }
+  };
+
+  // Placed item movement (Mouse Drag & Drop)
+  const handleMoveItem = (id: string, newX: number, newY: number) => {
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      return base.map((item) =>
+        item.id === id ? { ...item, x: newX, y: newY, customPositioned: true } : item
+      );
+    });
+  };
+
+  // Placed item nudging (Keyboard Arrow Keys: Left, Right, Up, Down)
+  const handleNudgeItem = (id: string, deltaX: number, deltaY: number) => {
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      const isLandscape = orientation === 'landscape';
+      const paperWidthMm = isLandscape ? currentPaper.height : currentPaper.width;
+      const paperHeightMm = isLandscape ? currentPaper.width : currentPaper.height;
+
+      return base.map((item) => {
+        if (item.id !== id) return item;
+        const clampedX = Math.max(0, Math.min(paperWidthMm - item.width, Math.round((item.x + deltaX) * 2) / 2));
+        const clampedY = Math.max(0, Math.min(paperHeightMm - item.height, Math.round((item.y + deltaY) * 2) / 2));
+        return { ...item, x: clampedX, y: clampedY, customPositioned: true };
+      });
+    });
+  };
+
+  // Toggle item size between Passport (35x45 mm) and Stamp (20x25 mm)
+  const handleToggleItemSize = (id: string, targetPreset: 'bd-passport' | 'bd-stamp') => {
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      const newWidth = targetPreset === 'bd-stamp' ? 20 : 35;
+      const newHeight = targetPreset === 'bd-stamp' ? 25 : 45;
+
+      return base.map((item) => {
+        if (item.id !== id) return item;
+        return {
+          ...item,
+          width: newWidth,
+          height: newHeight,
+          preset: targetPreset,
+          customPositioned: true,
+        };
+      });
+    });
+  };
+
+  // Duplicate an item on the sheet
+  const handleDuplicateItem = (id: string) => {
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      const target = base.find((i) => i.id === id);
+      if (!target) return base;
+      const newItem: PlacedSheetItem = {
+        ...target,
+        id: `placed-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        x: Math.round((target.x + 5) * 10) / 10,
+        y: Math.round((target.y + 5) * 10) / 10,
+        customPositioned: true,
+      };
+      setSelectedItemId(newItem.id);
+      return [...base, newItem];
+    });
+  };
+
+  // Delete an item from the sheet
+  const handleDeleteItem = (id: string) => {
+    setPlacedItems((prev) => prev.filter((i) => i.id !== id));
+    if (selectedItemId === id) setSelectedItemId(null);
+  };
+
+  // Add 1 Stamp copy (20x25 mm) to the sheet
+  const handleAddStampCopy = (photoId?: string) => {
+    if (photos.length === 0) return;
+    const targetPhotoId = photoId || photos[activePhotoIndex]?.id || photos[0]?.id;
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      const updated = addPhotoToSheet({
+        existingItems: base,
+        photoId: targetPhotoId,
+        preset: 'bd-stamp',
+        paper: currentPaper,
+        orientation,
+        margins,
+        customWidth: 20,
+        customHeight: 25,
+      });
+      const last = updated[updated.length - 1];
+      if (last) setSelectedItemId(last.id);
+      return updated;
+    });
+  };
+
+  // Add 1 Passport copy (35x45 mm) to the sheet
+  const handleAddPassportCopy = (photoId?: string) => {
+    if (photos.length === 0) return;
+    const targetPhotoId = photoId || photos[activePhotoIndex]?.id || photos[0]?.id;
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      const updated = addPhotoToSheet({
+        existingItems: base,
+        photoId: targetPhotoId,
+        preset: 'bd-passport',
+        paper: currentPaper,
+        orientation,
+        margins,
+        customWidth: effectivePhotoWidth,
+        customHeight: effectivePhotoHeight,
+      });
+      const last = updated[updated.length - 1];
+      if (last) setSelectedItemId(last.id);
+      return updated;
+    });
+  };
+
+  // Auto-align all placed items into clean grid rows
+  const handleAutoAlignGrid = () => {
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      return autoAlignPlacedItems(base, currentPaper, orientation, margins);
+    });
+  };
+
+  // Reset placed items to template default
+  const handleResetPlacedItems = () => {
+    if (photos.length > 0) {
+      const newItems = generateDefaultPlacedItems({
+        paper: currentPaper,
+        orientation,
+        margins,
+        photoPreset,
+        customPhotoWidth: effectivePhotoWidth,
+        customPhotoHeight: effectivePhotoHeight,
+        layoutMode,
+        manualCount,
+        photos,
+        activePhotoIndex,
+      });
+      setPlacedItems(newItems);
+    } else {
+      setPlacedItems([]);
+    }
+    setSelectedItemId(null);
+  };
+
+  // Distribute all uploaded photos across the sheet
+  const handleDistributeAllPhotos = () => {
+    if (photos.length === 0) return;
+    const newItems = generateDefaultPlacedItems({
+      paper: currentPaper,
+      orientation,
+      margins,
+      photoPreset,
+      customPhotoWidth: effectivePhotoWidth,
+      customPhotoHeight: effectivePhotoHeight,
+      layoutMode,
+      manualCount: Math.max(photos.length, manualCount),
+      photos,
+      activePhotoIndex: 0,
+    });
+    setPlacedItems(newItems);
+  };
+
+  // Switch photo assigned to a slot
+  const handleSwitchItemPhoto = (itemId: string, photoId: string) => {
+    setPlacedItems((prev) =>
+      prev.map((i) => (i.id === itemId ? { ...i, photoId } : i))
+    );
+  };
+
+  // Cycle photo in a slot to the next uploaded photo
+  const handleCycleItemPhoto = (itemId: string) => {
+    if (photos.length <= 1) return;
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      return base.map((item) => {
+        if (item.id !== itemId) return item;
+        const currentPhotoIdx = photos.findIndex((p) => p.id === item.photoId);
+        const nextPhotoIdx = (currentPhotoIdx + 1) % photos.length;
+        const nextPhoto = photos[nextPhotoIdx];
+        return nextPhoto ? { ...item, photoId: nextPhoto.id } : item;
+      });
+    });
   };
 
   // 9. Photo Editor Modal Save
@@ -563,7 +945,7 @@ export default function App() {
     setMargins({ ...DEFAULT_MARGINS });
     setLayoutMode('top-5');
     setPhotoPreset('bd-passport');
-    setCuttingGuide('scissors');
+    setCuttingGuide('none');
     setPaperSize('a4');
     setOrientation('portrait');
     setPrintQuality(300);
@@ -571,6 +953,8 @@ export default function App() {
     setBleedArea(0);
     setPhotos([]);
     setActivePhotoIndex(0);
+    setPlacedItems([]);
+    setSelectedItemId(null);
     setNid((prev) => ({
       ...prev,
       frontImage: '',
@@ -692,9 +1076,9 @@ export default function App() {
               orientation={orientation}
               setOrientation={setOrientation}
               layoutMode={layoutMode}
-              setLayoutMode={setLayoutMode}
+              setLayoutMode={handleLayoutModeChange}
               manualCount={manualCount}
-              setManualCount={setManualCount}
+              setManualCount={handleManualCountChange}
               margins={margins}
               setMargins={setMargins}
               cuttingGuide={cuttingGuide}
@@ -705,6 +1089,20 @@ export default function App() {
               setColorProfile={setColorProfile}
               dpi={printQuality}
               setDpi={setPrintQuality}
+              placedItems={placedItems}
+              selectedItemId={selectedItemId}
+              onSelectItem={setSelectedItemId}
+              onAddStampCopy={handleAddStampCopy}
+              onAddPassportCopy={handleAddPassportCopy}
+              onAutoAlignGrid={handleAutoAlignGrid}
+              onResetPlacedItems={handleResetPlacedItems}
+              onDistributeAllPhotos={handleDistributeAllPhotos}
+              onSwitchItemPhoto={handleSwitchItemPhoto}
+              onCycleItemPhoto={handleCycleItemPhoto}
+              onToggleItemSize={handleToggleItemSize}
+              onNudgeItem={handleNudgeItem}
+              onDuplicateItem={handleDuplicateItem}
+              onDeleteItem={handleDeleteItem}
             />
           ) : (
             <NidControls
@@ -756,6 +1154,17 @@ export default function App() {
             onUploadPassportTrigger={() => passportUploadInputRef.current?.click()}
             onUploadNidFrontTrigger={() => nidFrontInputRef.current?.click()}
             onUploadNidBackTrigger={() => nidBackInputRef.current?.click()}
+            selectedItemId={selectedItemId}
+            onSelectItem={setSelectedItemId}
+            onMoveItem={handleMoveItem}
+            onNudgeItem={handleNudgeItem}
+            onToggleItemSize={handleToggleItemSize}
+            onDuplicateItem={handleDuplicateItem}
+            onDeleteItem={handleDeleteItem}
+            onAddStampCopy={() => handleAddStampCopy()}
+            onAddPassportCopy={() => handleAddPassportCopy()}
+            onAutoAlignGrid={handleAutoAlignGrid}
+            onCycleItemPhoto={handleCycleItemPhoto}
           />
         </section>
       </main>
