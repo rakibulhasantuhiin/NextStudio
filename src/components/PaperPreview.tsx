@@ -283,7 +283,7 @@ export const PaperPreview: React.FC<Props> = ({
   return (
     <div
       onClick={() => onSelectItem?.(null)}
-      className="relative flex-1 flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 overflow-auto select-none min-h-full"
+      className="relative flex-1 flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 overflow-auto select-none min-h-full no-print print:hidden"
     >
       {/* Paper Information Banner & Quick Sheet Action Bar */}
       <div className="mb-2 w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-2 px-1">

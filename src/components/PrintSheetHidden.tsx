@@ -45,13 +45,11 @@ export const PrintSheetHidden: React.FC<Props> = ({
         height: `${paperHeightMm}mm`,
         position: 'relative',
         backgroundColor: '#ffffff',
+        background: '#ffffff',
+        boxShadow: 'none',
+        border: 'none',
+        outline: 'none',
         overflow: 'hidden',
-        filter:
-          colorProfile === 'bw'
-            ? 'grayscale(100%)'
-            : colorProfile === 'cmyk'
-            ? 'saturate(0.9) contrast(1.05)'
-            : 'none',
       }}
     >
       {/* 1. Passport Mode Items */}
@@ -66,6 +64,8 @@ export const PrintSheetHidden: React.FC<Props> = ({
               width: `${item.width}mm`,
               height: `${item.height}mm`,
               boxSizing: 'border-box',
+              boxShadow: 'none',
+              border: 'none',
             }}
           >
             <img
@@ -76,6 +76,14 @@ export const PrintSheetHidden: React.FC<Props> = ({
                 height: '100%',
                 objectFit: 'cover',
                 display: 'block',
+                boxShadow: 'none',
+                border: 'none',
+                filter:
+                  colorProfile === 'bw'
+                    ? 'grayscale(100%)'
+                    : colorProfile === 'cmyk'
+                    ? 'saturate(0.9) contrast(1.05)'
+                    : 'none',
               }}
             />
 
@@ -260,6 +268,14 @@ export const PrintSheetHidden: React.FC<Props> = ({
                       height: '100%',
                       objectFit: 'fill',
                       display: 'block',
+                      boxShadow: 'none',
+                      border: 'none',
+                      filter:
+                        colorProfile === 'bw'
+                          ? 'grayscale(100%)'
+                          : colorProfile === 'cmyk'
+                          ? 'saturate(0.9) contrast(1.05)'
+                          : 'none',
                     }}
                   />
                   {cuttingGuide === 'scissors' && (
@@ -269,6 +285,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
                           position: 'absolute',
                           inset: 0,
                           border: '0.2mm dotted #94a3b8',
+                          boxShadow: 'none',
                         }}
                       />
                       <span
@@ -290,6 +307,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
                         position: 'absolute',
                         inset: 0,
                         border: '0.2mm dashed #94a3b8',
+                        boxShadow: 'none',
                       }}
                     />
                   )}
@@ -305,6 +323,8 @@ export const PrintSheetHidden: React.FC<Props> = ({
                     top: `${backYmm}mm`,
                     width: `${cardWidthMm}mm`,
                     height: `${cardHeightMm}mm`,
+                    boxShadow: 'none',
+                    border: 'none',
                   }}
                 >
                   <img
@@ -315,6 +335,14 @@ export const PrintSheetHidden: React.FC<Props> = ({
                       height: '100%',
                       objectFit: 'fill',
                       display: 'block',
+                      boxShadow: 'none',
+                      border: 'none',
+                      filter:
+                        colorProfile === 'bw'
+                          ? 'grayscale(100%)'
+                          : colorProfile === 'cmyk'
+                          ? 'saturate(0.9) contrast(1.05)'
+                          : 'none',
                     }}
                   />
                   {cuttingGuide === 'scissors' && (

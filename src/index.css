@@ -18,36 +18,82 @@
     margin: 0mm;
   }
 
+  /* Force pure white background everywhere, remove all screen shadows, glows, and filters */
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
   body {
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #000000 !important;
-    padding: 0 !important;
     margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* Hide everything except the print canvas container */
+  /* 
+   * CRITICAL: Completely hide all screen interface elements,
+   * sidebars, headers, banners, toolbars, and the on-screen preview canvas
+   */
   .no-print,
-  nav,
+  #screen-ui-root,
   header,
+  main,
   aside,
+  section,
+  nav,
   footer,
-  .print-controls,
   button,
+  input,
   .toast-container {
     display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
   }
 
-  .print-only-container {
+  /*
+   * Dedicated 1:1 Scale Print Container:
+   * Pure #ffffff, exact millimeters, zero shadows, zero borders
+   */
+  .print-only-container,
+  #print-sheet-root {
     display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
-    width: 100% !important;
-    background: transparent !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    outline: none !important;
+    overflow: hidden !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #print-sheet-root * {
+    visibility: visible !important;
     box-shadow: none !important;
   }
 }

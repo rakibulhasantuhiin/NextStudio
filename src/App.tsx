@@ -787,7 +787,10 @@ export default function App() {
 
   // 10. Print & Export Handlers
   const handleDirectPrint = () => {
-    triggerDirectPrint();
+    setSelectedItemId(null);
+    setTimeout(() => {
+      triggerDirectPrint();
+    }, 40);
   };
 
   const handleDownloadPdf = async () => {
@@ -936,8 +939,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
-      {/* 1. Global Navigation Header (Unified Single Bar) */}
-      <Header
+      {/* Complete On-Screen Interface: 100% hidden when printing so zero UI/shadows bleed onto paper */}
+      <div id="screen-ui-root" className="no-print print:hidden flex-1 flex flex-col min-h-screen">
+        {/* 1. Global Navigation Header (Unified Single Bar) */}
+        <Header
         mode={mode}
         setMode={setMode}
         lang={lang}
@@ -1192,19 +1197,6 @@ export default function App() {
         </button>
       </div>
 
-      {/* 4. Dedicated 1:1 Scale Print DOM (Only rendered in @media print) */}
-      <PrintSheetHidden
-        mode={mode}
-        paper={currentPaper}
-        orientation={orientation}
-        margins={mode === 'passport' ? margins : nidMargins}
-        cuttingGuide={cuttingGuide}
-        bleedArea={bleedArea}
-        colorProfile={colorProfile}
-        passportItems={passportItems}
-        nid={nid}
-      />
-
       {/* 5. Photo Enhancement & Background Removal Modal */}
       {editingPhotoIndex !== null && photos[editingPhotoIndex] && (
         <PhotoEditorModal
@@ -1260,6 +1252,20 @@ export default function App() {
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
         lang={lang}
+      />
+      </div>
+
+      {/* 4. Dedicated 1:1 Scale Print DOM (Only rendered in @media print, pure white, no shadows) */}
+      <PrintSheetHidden
+        mode={mode}
+        paper={currentPaper}
+        orientation={orientation}
+        margins={mode === 'passport' ? margins : nidMargins}
+        cuttingGuide={cuttingGuide}
+        bleedArea={bleedArea}
+        colorProfile={colorProfile}
+        passportItems={passportItems}
+        nid={nid}
       />
     </div>
   );

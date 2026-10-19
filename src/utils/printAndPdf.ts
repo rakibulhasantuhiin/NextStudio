@@ -268,8 +268,8 @@ export async function exportToPdf(options: RenderSheetOptions, filename: string)
     compress: true,
   });
 
-  const imgData = canvas.toDataURL('image/jpeg', 0.98);
-  pdf.addImage(imgData, 'JPEG', 0, 0, sheetWidthMm, sheetHeightMm);
+  const imgData = canvas.toDataURL('image/png');
+  pdf.addImage(imgData, 'PNG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
   pdf.save(filename);
 }
 
