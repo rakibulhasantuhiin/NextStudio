@@ -526,6 +526,27 @@ export default function App() {
     });
   };
 
+  // Placed items multi-movement (Mouse Drag & Drop for all or multiple photos)
+  const handleMoveItems = (updates: { id: string; x: number; y: number }[]) => {
+    const updateMap = new Map(updates.map((u) => [u.id, u]));
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      return base.map((item) => {
+        const u = updateMap.get(item.id);
+        return u ? { ...item, x: u.x, y: u.y, customPositioned: true } : item;
+      });
+    });
+  };
+
   // Placed item nudging (Keyboard Arrow Keys: Left, Right, Up, Down)
   const handleNudgeItem = (id: string, deltaX: number, deltaY: number) => {
     setPlacedItems((prev) => {
@@ -548,6 +569,44 @@ export default function App() {
         const clampedX = Math.max(0, Math.min(paperWidthMm - item.width, Math.round((item.x + deltaX) * 2) / 2));
         const clampedY = Math.max(0, Math.min(paperHeightMm - item.height, Math.round((item.y + deltaY) * 2) / 2));
         return { ...item, x: clampedX, y: clampedY, customPositioned: true };
+      });
+    });
+  };
+
+  // Placed items group nudging (all or multiple photos)
+  const handleNudgeItems = (deltaX: number, deltaY: number, itemIds?: string[]) => {
+    setPlacedItems((prev) => {
+      const base = prev.length > 0 ? prev : passportItems.map((p) => ({
+        id: p.id,
+        photoId: p.photoId,
+        x: p.x,
+        y: p.y,
+        width: p.width,
+        height: p.height,
+        preset: p.preset || photoPreset,
+        customPositioned: p.customPositioned,
+      }));
+      const isLandscape = orientation === 'landscape';
+      const paperWidthMm = isLandscape ? currentPaper.height : currentPaper.width;
+      const paperHeightMm = isLandscape ? currentPaper.width : currentPaper.height;
+
+      const idsSet = itemIds && itemIds.length > 0 ? new Set(itemIds) : null;
+      const targetItems = idsSet ? base.filter((i) => idsSet.has(i.id)) : base;
+      if (targetItems.length === 0) return base;
+
+      const minX = Math.min(...targetItems.map((i) => i.x));
+      const maxRight = Math.max(...targetItems.map((i) => i.x + i.width));
+      const minY = Math.min(...targetItems.map((i) => i.y));
+      const maxBottom = Math.max(...targetItems.map((i) => i.y + i.height));
+
+      const effectiveDeltaX = Math.max(-minX, Math.min(paperWidthMm - maxRight, deltaX));
+      const effectiveDeltaY = Math.max(-minY, Math.min(paperHeightMm - maxBottom, deltaY));
+
+      return base.map((item) => {
+        if (idsSet && !idsSet.has(item.id)) return item;
+        const newX = Math.round((item.x + effectiveDeltaX) * 2) / 2;
+        const newY = Math.round((item.y + effectiveDeltaY) * 2) / 2;
+        return { ...item, x: newX, y: newY, customPositioned: true };
       });
     });
   };
@@ -1114,7 +1173,9 @@ export default function App() {
             selectedItemId={selectedItemId}
             onSelectItem={setSelectedItemId}
             onMoveItem={handleMoveItem}
+            onMoveItems={handleMoveItems}
             onNudgeItem={handleNudgeItem}
+            onNudgeItems={handleNudgeItems}
             onToggleItemSize={handleToggleItemSize}
             onDuplicateItem={handleDuplicateItem}
             onDeleteItem={handleDeleteItem}

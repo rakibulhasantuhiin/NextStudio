@@ -1,13 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   Camera,
+  Check,
   Copy,
   CreditCard,
   Edit3,
+  Layers,
+  MousePointer,
   Move,
   Plus,
   RefreshCw,
   Sparkles,
+  Target,
   Trash2,
   Upload,
   ZoomIn,
@@ -49,7 +57,9 @@ interface Props {
   selectedItemId?: string | null;
   onSelectItem?: (id: string | null) => void;
   onMoveItem?: (id: string, newX: number, newY: number) => void;
+  onMoveItems?: (updates: { id: string; x: number; y: number }[]) => void;
   onNudgeItem?: (id: string, deltaX: number, deltaY: number) => void;
+  onNudgeItems?: (deltaX: number, deltaY: number, itemIds?: string[]) => void;
   onToggleItemSize?: (id: string, targetPreset: 'bd-passport' | 'bd-stamp') => void;
   onDuplicateItem?: (id: string) => void;
   onDeleteItem?: (id: string) => void;
@@ -84,7 +94,9 @@ export const PaperPreview: React.FC<Props> = ({
   selectedItemId,
   onSelectItem,
   onMoveItem,
+  onMoveItems,
   onNudgeItem,
+  onNudgeItems,
   onToggleItemSize,
   onDuplicateItem,
   onDeleteItem,
@@ -105,14 +117,37 @@ export const PaperPreview: React.FC<Props> = ({
   const sheetWidthPx = paperWidthMm * mmToPx;
   const sheetHeightPx = paperHeightMm * mmToPx;
 
-  // Mouse / Touch Dragging State
+  // Movement mode: 'all' (all photos move together) or 'single' (only selected photo moves)
+  // Default to 'all' so that when multiple photos are on paper, dragging any photo moves all together!
+  const [moveMode, setMoveMode] = useState<'all' | 'single'>('all');
+  const [isDraggingAll, setIsDraggingAll] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+
+  // Group bounding box around all photos for collective movement
+  const groupBounds = useMemo(() => {
+    if (passportItems.length === 0) return null;
+    const minX = Math.min(...passportItems.map((p) => p.x));
+    const maxX = Math.max(...passportItems.map((p) => p.x + p.width));
+    const minY = Math.min(...passportItems.map((p) => p.y));
+    const maxY = Math.max(...passportItems.map((p) => p.y + p.height));
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+    };
+  }, [passportItems]);
+
   const dragRef = useRef<{
+    isAll: boolean;
     itemId: string;
     startX: number;
     startY: number;
-    originX: number;
-    originY: number;
+    items: { id: string; originX: number; originY: number; width: number; height: number }[];
+    minX: number;
+    maxRight: number;
+    minY: number;
+    maxBottom: number;
   } | null>(null);
 
   // Start mouse drag
@@ -126,14 +161,37 @@ export const PaperPreview: React.FC<Props> = ({
     onSelectItem?.(item.id);
     onSelectPhoto(item.index % Math.max(1, passportItems.length));
 
+    const isAll = moveMode === 'all' || passportItems.length === 1;
+    const itemsToMove = isAll ? passportItems : [item];
+
+    const minX = Math.min(...itemsToMove.map((i) => i.x));
+    const maxRight = Math.max(...itemsToMove.map((i) => i.x + i.width));
+    const minY = Math.min(...itemsToMove.map((i) => i.y));
+    const maxBottom = Math.max(...itemsToMove.map((i) => i.y + i.height));
+
     dragRef.current = {
+      isAll,
       itemId: item.id,
       startX: e.clientX,
       startY: e.clientY,
-      originX: item.x,
-      originY: item.y,
+      items: itemsToMove.map((i) => ({
+        id: i.id,
+        originX: i.x,
+        originY: i.y,
+        width: i.width,
+        height: i.height,
+      })),
+      minX,
+      maxRight,
+      minY,
+      maxBottom,
     };
-    setDraggingItemId(item.id);
+
+    if (isAll) {
+      setIsDraggingAll(true);
+    } else {
+      setDraggingItemId(item.id);
+    }
   };
 
   // Start touch drag
@@ -145,64 +203,141 @@ export const PaperPreview: React.FC<Props> = ({
     onSelectItem?.(item.id);
     onSelectPhoto(item.index % Math.max(1, passportItems.length));
 
+    const isAll = moveMode === 'all' || passportItems.length === 1;
+    const itemsToMove = isAll ? passportItems : [item];
+
+    const minX = Math.min(...itemsToMove.map((i) => i.x));
+    const maxRight = Math.max(...itemsToMove.map((i) => i.x + i.width));
+    const minY = Math.min(...itemsToMove.map((i) => i.y));
+    const maxBottom = Math.max(...itemsToMove.map((i) => i.y + i.height));
+
     dragRef.current = {
+      isAll,
       itemId: item.id,
       startX: touch.clientX,
       startY: touch.clientY,
-      originX: item.x,
-      originY: item.y,
+      items: itemsToMove.map((i) => ({
+        id: i.id,
+        originX: i.x,
+        originY: i.y,
+        width: i.width,
+        height: i.height,
+      })),
+      minX,
+      maxRight,
+      minY,
+      maxBottom,
     };
-    setDraggingItemId(item.id);
+
+    if (isAll) {
+      setIsDraggingAll(true);
+    } else {
+      setDraggingItemId(item.id);
+    }
   };
 
   // Window drag events for mouse & touch
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!dragRef.current || !onMoveItem) return;
-      const { itemId, startX, startY, originX, originY } = dragRef.current;
-      const targetItem = passportItems.find((i) => i.id === itemId);
-      if (!targetItem) return;
+      if (!dragRef.current) return;
+      const { isAll, items, startX, startY, minX, maxRight, minY, maxBottom } = dragRef.current;
+      if (items.length === 0) return;
 
       const deltaX_px = e.clientX - startX;
       const deltaY_px = e.clientY - startY;
-      const deltaX_mm = deltaX_px / mmToPx;
-      const deltaY_mm = deltaY_px / mmToPx;
+      const rawDeltaX_mm = deltaX_px / mmToPx;
+      const rawDeltaY_mm = deltaY_px / mmToPx;
 
-      const newX = Math.max(0, Math.min(paperWidthMm - targetItem.width, originX + deltaX_mm));
-      const newY = Math.max(0, Math.min(paperHeightMm - targetItem.height, originY + deltaY_mm));
+      // Clamping so that no photo goes beyond the sheet boundaries
+      const minDeltaX = -minX;
+      const maxDeltaX = Math.max(minDeltaX, paperWidthMm - maxRight);
+      const clampedDeltaX = Math.max(minDeltaX, Math.min(maxDeltaX, rawDeltaX_mm));
 
-      // Snap to 0.5 mm
-      const snappedX = Math.round(newX * 2) / 2;
-      const snappedY = Math.round(newY * 2) / 2;
+      const minDeltaY = -minY;
+      const maxDeltaY = Math.max(minDeltaY, paperHeightMm - maxBottom);
+      const clampedDeltaY = Math.max(minDeltaY, Math.min(maxDeltaY, rawDeltaY_mm));
 
-      onMoveItem(itemId, snappedX, snappedY);
+      // Snap to 0.5 mm for precise grid spacing
+      const snappedDeltaX = Math.round(clampedDeltaX * 2) / 2;
+      const snappedDeltaY = Math.round(clampedDeltaY * 2) / 2;
+
+      if (isAll) {
+        const updates = items.map((it) => ({
+          id: it.id,
+          x: Math.round((it.originX + snappedDeltaX) * 2) / 2,
+          y: Math.round((it.originY + snappedDeltaY) * 2) / 2,
+        }));
+        if (onMoveItems) {
+          onMoveItems(updates);
+        } else if (onMoveItem) {
+          updates.forEach((u) => onMoveItem(u.id, u.x, u.y));
+        }
+      } else {
+        const singleItem = items[0];
+        if (singleItem) {
+          const newX = Math.round((singleItem.originX + snappedDeltaX) * 2) / 2;
+          const newY = Math.round((singleItem.originY + snappedDeltaY) * 2) / 2;
+          if (onMoveItem) {
+            onMoveItem(singleItem.id, newX, newY);
+          } else if (onMoveItems) {
+            onMoveItems([{ id: singleItem.id, x: newX, y: newY }]);
+          }
+        }
+      }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!dragRef.current || !onMoveItem || e.touches.length !== 1) return;
+      if (!dragRef.current || e.touches.length !== 1) return;
       const touch = e.touches[0];
-      const { itemId, startX, startY, originX, originY } = dragRef.current;
-      const targetItem = passportItems.find((i) => i.id === itemId);
-      if (!targetItem) return;
+      const { isAll, items, startX, startY, minX, maxRight, minY, maxBottom } = dragRef.current;
+      if (items.length === 0) return;
 
       const deltaX_px = touch.clientX - startX;
       const deltaY_px = touch.clientY - startY;
-      const deltaX_mm = deltaX_px / mmToPx;
-      const deltaY_mm = deltaY_px / mmToPx;
+      const rawDeltaX_mm = deltaX_px / mmToPx;
+      const rawDeltaY_mm = deltaY_px / mmToPx;
 
-      const newX = Math.max(0, Math.min(paperWidthMm - targetItem.width, originX + deltaX_mm));
-      const newY = Math.max(0, Math.min(paperHeightMm - targetItem.height, originY + deltaY_mm));
+      const minDeltaX = -minX;
+      const maxDeltaX = Math.max(minDeltaX, paperWidthMm - maxRight);
+      const clampedDeltaX = Math.max(minDeltaX, Math.min(maxDeltaX, rawDeltaX_mm));
 
-      const snappedX = Math.round(newX * 2) / 2;
-      const snappedY = Math.round(newY * 2) / 2;
+      const minDeltaY = -minY;
+      const maxDeltaY = Math.max(minDeltaY, paperHeightMm - maxBottom);
+      const clampedDeltaY = Math.max(minDeltaY, Math.min(maxDeltaY, rawDeltaY_mm));
 
-      onMoveItem(itemId, snappedX, snappedY);
+      const snappedDeltaX = Math.round(clampedDeltaX * 2) / 2;
+      const snappedDeltaY = Math.round(clampedDeltaY * 2) / 2;
+
+      if (isAll) {
+        const updates = items.map((it) => ({
+          id: it.id,
+          x: Math.round((it.originX + snappedDeltaX) * 2) / 2,
+          y: Math.round((it.originY + snappedDeltaY) * 2) / 2,
+        }));
+        if (onMoveItems) {
+          onMoveItems(updates);
+        } else if (onMoveItem) {
+          updates.forEach((u) => onMoveItem(u.id, u.x, u.y));
+        }
+      } else {
+        const singleItem = items[0];
+        if (singleItem) {
+          const newX = Math.round((singleItem.originX + snappedDeltaX) * 2) / 2;
+          const newY = Math.round((singleItem.originY + snappedDeltaY) * 2) / 2;
+          if (onMoveItem) {
+            onMoveItem(singleItem.id, newX, newY);
+          } else if (onMoveItems) {
+            onMoveItems([{ id: singleItem.id, x: newX, y: newY }]);
+          }
+        }
+      }
     };
 
     const handleDragEnd = () => {
       if (dragRef.current) {
         dragRef.current = null;
         setDraggingItemId(null);
+        setIsDraggingAll(false);
       }
     };
 
@@ -217,13 +352,76 @@ export const PaperPreview: React.FC<Props> = ({
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleDragEnd);
     };
-  }, [passportItems, mmToPx, paperWidthMm, paperHeightMm, onMoveItem]);
+  }, [passportItems, mmToPx, paperWidthMm, paperHeightMm, onMoveItem, onMoveItems]);
 
-  // Keyboard navigation for selected photo: Arrow keys to move, Delete to remove, Ctrl+D to duplicate
+  // Nudge all photos together by deltaX and deltaY (in mm)
+  const handleNudgeAll = (deltaX: number, deltaY: number) => {
+    if (passportItems.length === 0) return;
+    const minX = Math.min(...passportItems.map((p) => p.x));
+    const maxRight = Math.max(...passportItems.map((p) => p.x + p.width));
+    const minY = Math.min(...passportItems.map((p) => p.y));
+    const maxBottom = Math.max(...passportItems.map((p) => p.y + p.height));
+
+    const effectiveDeltaX = Math.max(-minX, Math.min(paperWidthMm - maxRight, deltaX));
+    const effectiveDeltaY = Math.max(-minY, Math.min(paperHeightMm - maxBottom, deltaY));
+
+    const updates = passportItems.map((p) => ({
+      id: p.id,
+      x: Math.round((p.x + effectiveDeltaX) * 2) / 2,
+      y: Math.round((p.y + effectiveDeltaY) * 2) / 2,
+    }));
+
+    if (onMoveItems) {
+      onMoveItems(updates);
+    } else if (onMoveItem) {
+      updates.forEach((u) => onMoveItem(u.id, u.x, u.y));
+    }
+  };
+
+  // Quick helper to center all photos on the sheet
+  const handleCenterAll = () => {
+    if (passportItems.length === 0) return;
+    const minX = Math.min(...passportItems.map((p) => p.x));
+    const maxRight = Math.max(...passportItems.map((p) => p.x + p.width));
+    const minY = Math.min(...passportItems.map((p) => p.y));
+    const maxBottom = Math.max(...passportItems.map((p) => p.y + p.height));
+
+    const groupWidth = maxRight - minX;
+    const groupHeight = maxBottom - minY;
+
+    const targetX = Math.max(0, (paperWidthMm - groupWidth) / 2);
+    const targetY = Math.max(0, (paperHeightMm - groupHeight) / 2);
+
+    const deltaX = targetX - minX;
+    const deltaY = targetY - minY;
+
+    const updates = passportItems.map((p) => ({
+      id: p.id,
+      x: Math.round((p.x + deltaX) * 2) / 2,
+      y: Math.round((p.y + deltaY) * 2) / 2,
+    }));
+
+    if (onMoveItems) {
+      onMoveItems(updates);
+    } else if (onMoveItem) {
+      updates.forEach((u) => onMoveItem(u.id, u.x, u.y));
+    }
+  };
+
+  // Unified nudge handler (all or single)
+  const handleNudge = (deltaX: number, deltaY: number) => {
+    if (moveMode === 'all') {
+      handleNudgeAll(deltaX, deltaY);
+    } else if (selectedItemId) {
+      onNudgeItem?.(selectedItemId, deltaX, deltaY);
+    } else if (passportItems.length > 0) {
+      handleNudgeAll(deltaX, deltaY);
+    }
+  };
+
+  // Keyboard navigation for moving photos: Arrow keys (Left, Right, Up, Down), Delete, Duplicate
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!selectedItemId || !onNudgeItem) return;
-
       const activeEl = document.activeElement;
       if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
         return;
@@ -233,26 +431,26 @@ export const PaperPreview: React.FC<Props> = ({
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        onNudgeItem(selectedItemId, -step, 0);
+        handleNudge(-step, 0);
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        onNudgeItem(selectedItemId, step, 0);
+        handleNudge(step, 0);
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        onNudgeItem(selectedItemId, 0, -step);
+        handleNudge(0, -step);
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        onNudgeItem(selectedItemId, 0, step);
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        handleNudge(0, step);
+      } else if (selectedItemId && (e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
         onDeleteItem?.(selectedItemId);
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+      } else if (selectedItemId && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         onDuplicateItem?.(selectedItemId);
-      } else if (e.key.toLowerCase() === 's') {
+      } else if (selectedItemId && e.key.toLowerCase() === 's') {
         e.preventDefault();
         onToggleItemSize?.(selectedItemId, 'bd-stamp');
-      } else if (e.key.toLowerCase() === 'p') {
+      } else if (selectedItemId && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         onToggleItemSize?.(selectedItemId, 'bd-passport');
       }
@@ -260,7 +458,7 @@ export const PaperPreview: React.FC<Props> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedItemId, onNudgeItem, onDeleteItem, onDuplicateItem, onToggleItemSize]);
+  }, [selectedItemId, moveMode, passportItems, paperWidthMm, paperHeightMm, onNudgeItem, onDeleteItem, onDuplicateItem, onToggleItemSize]);
 
   // Breakdown of photos currently on sheet (e.g. 5 Passport, 8 Stamp)
   const passportCount = passportItems.filter(
@@ -304,6 +502,83 @@ export const PaperPreview: React.FC<Props> = ({
         {/* Quick Toolbar for Adding Copies & Auto-Aligning */}
         {mode === 'passport' && passportItems.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
+            {/* Move Mode Toggle: Move All Together vs Single Photo */}
+            <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => setMoveMode('all')}
+                className={`py-1 px-2.5 rounded-md font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                  moveMode === 'all'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? 'যেকোনো একটি ছবি মাউস দিয়ে টানলে সবগুলো ছবি একসাথে নড়বে' : 'Dragging any photo moves all photos together'}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? `একসাথে সরান (${passportItems.length})` : `Move All (${passportItems.length})`}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMoveMode('single')}
+                className={`py-1 px-2 rounded-md font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
+                  moveMode === 'single'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? 'শুধুমাত্র সিলেক্ট করা ছবিটি একা নড়বে' : 'Move only one selected photo'}
+              >
+                <MousePointer className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'একটি ছবি' : 'Single'}</span>
+              </button>
+            </div>
+
+            {/* Quick Center on Sheet */}
+            <button
+              type="button"
+              onClick={handleCenterAll}
+              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+              title={lang === 'bn' ? 'সব ছবি পেপারের মাঝে নিখুঁতভাবে সেন্টারিং করুন' : 'Center all photos on sheet'}
+            >
+              <Target className="w-3.5 h-3.5 text-blue-600" />
+              <span>{lang === 'bn' ? 'মাঝখানে' : 'Center'}</span>
+            </button>
+
+            {/* Micro Nudge Buttons */}
+            <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 p-0.5">
+              <button
+                type="button"
+                onClick={() => handleNudge(0, -2)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? 'সব ছবি ২ মিমি উপরে সরান' : 'Nudge Up 2mm'}
+              >
+                <ArrowUp className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNudge(0, 2)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? 'সব ছবি ২ মিমি নিচে সরান' : 'Nudge Down 2mm'}
+              >
+                <ArrowDown className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNudge(-2, 0)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? 'সব ছবি ২ মিমি বামে সরান' : 'Nudge Left 2mm'}
+              >
+                <ArrowLeft className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNudge(2, 0)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? 'সব ছবি ২ মিমি ডানে সরান' : 'Nudge Right 2mm'}
+              >
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+
             {onAddPassportCopy && (
               <button
                 type="button"
@@ -352,21 +627,52 @@ export const PaperPreview: React.FC<Props> = ({
 
       {/* Movement instruction tip */}
       {mode === 'passport' && passportItems.length > 0 && (
-        <div className="mb-3 text-[11px] text-slate-500 dark:text-slate-400 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/60 rounded-lg px-2.5 sm:px-3 py-1 flex items-center gap-1.5 sm:gap-2 max-w-4xl w-full justify-between flex-wrap">
-          <div className="flex items-center gap-1.5">
+        <div
+          className={`mb-3 text-[11px] rounded-lg px-2.5 sm:px-3 py-1.5 flex items-center gap-1.5 sm:gap-2 max-w-4xl w-full justify-between flex-wrap transition ${
+            moveMode === 'all'
+              ? 'bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 text-blue-900 dark:text-blue-200'
+              : 'bg-slate-100 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 flex-wrap">
             <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span>
-              <strong>{lang === 'bn' ? 'ছবি সরানো:' : 'Move photos:'}</strong>{' '}
-              {lang === 'bn'
-                ? 'ছবিতে ট্যাপ বা ড্র্যাগ করে ইচ্ছামতো সরান।'
-                : 'Drag or tap photos to place anywhere on paper.'}
+              {moveMode === 'all' ? (
+                <>
+                  <strong className="text-blue-700 dark:text-blue-300">
+                    {lang === 'bn' ? '✋ একসাথে মুভ চালু:' : '✋ Move All Active:'}
+                  </strong>{' '}
+                  {lang === 'bn'
+                    ? 'মাউস দিয়ে যেকোনো ছবিতে ড্র্যাগ করুন—সবগুলো ছবি একসাথে ঠিক জায়গায় চলে যাবে।'
+                    : 'Drag any photo with mouse to move all photos together on paper.'}
+                </>
+              ) : (
+                <>
+                  <strong className="text-slate-800 dark:text-slate-200">
+                    {lang === 'bn' ? '👆 একক মুভ:' : '👆 Single Move:'}
+                  </strong>{' '}
+                  {lang === 'bn'
+                    ? 'মাউস দিয়ে শুধুমাত্র একটি নির্বাচিত ছবি সরান।'
+                    : 'Drag one selected photo independently.'}
+                </>
+              )}
             </span>
           </div>
-          <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
-            {selectedItemId
-              ? (lang === 'bn' ? 'সিলেক্টেড ছবি কীবোর্ড দিয়ে মুভ হচ্ছে' : 'Moving selected photo via keyboard')
-              : (lang === 'bn' ? 'ছবিতে ক্লিক করে সিলেক্ট করুন' : 'Click any photo to select')}
-          </span>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] opacity-75 font-mono hidden md:inline">
+              {lang === 'bn' ? 'কীবোর্ড: ← → ↑ ↓ অ্যারো কী' : 'Keys: ← → ↑ ↓'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setMoveMode(moveMode === 'all' ? 'single' : 'all')}
+              className="text-[10px] font-bold underline cursor-pointer text-blue-600 dark:text-blue-400 hover:text-blue-800"
+            >
+              {moveMode === 'all'
+                ? (lang === 'bn' ? 'একক ছবি মুভ করতে চান?' : 'Switch to Single?')
+                : (lang === 'bn' ? 'সব ছবি একসাথে সরাতে চান?' : 'Switch to Move All?')}
+            </button>
+          </div>
         </div>
       )}
 
@@ -455,41 +761,82 @@ export const PaperPreview: React.FC<Props> = ({
                   </div>
                 </div>
               ) : (
-                /* Rendered Draggable & Movable Photos on Sheet */
-                passportItems.map((item, idx) => {
-                  const isSelected = selectedItemId === item.id;
-                  const isDragging = draggingItemId === item.id;
-                  const isStamp = item.width <= 25 || item.preset === 'bd-stamp';
-
-                  return (
+                <>
+                  {/* Group Boundary Highlight when Move All is active */}
+                  {moveMode === 'all' && passportItems.length > 1 && groupBounds && (
                     <div
-                      key={item.id || `${item.photo.id}-${idx}`}
-                      onMouseDown={(e) => handleMouseDownItem(e, item)}
-                      onTouchStart={(e) => handleTouchStartItem(e, item)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectItem?.(item.id);
-                        onSelectPhoto(item.index % passportItems.length);
+                      onMouseDown={(e) => {
+                        if (passportItems.length > 0) {
+                          handleMouseDownItem(e, passportItems[0]);
+                        }
                       }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        onEditPhoto(item.index % passportItems.length);
-                      }}
-                      className={`absolute group select-none transition-shadow ${
-                        isDragging
-                          ? 'cursor-grabbing shadow-2xl z-40 ring-2 ring-blue-600 opacity-95'
-                          : isSelected
-                          ? 'cursor-grab ring-2 ring-blue-500 shadow-lg z-30'
-                          : 'cursor-grab hover:ring-1 hover:ring-blue-400/80 hover:shadow-xs z-10'
+                      className={`absolute rounded-xs transition-all duration-75 cursor-grab ${
+                        isDraggingAll
+                          ? 'border-2 border-dashed border-blue-600 bg-blue-500/10 cursor-grabbing z-30'
+                          : 'border-2 border-dashed border-blue-400/80 hover:border-blue-600 hover:bg-blue-400/5 z-20'
                       }`}
                       style={{
-                        left: `${item.x * mmToPx}px`,
-                        top: `${item.y * mmToPx}px`,
-                        width: `${item.width * mmToPx}px`,
-                        height: `${item.height * mmToPx}px`,
+                        left: `${Math.max(0, groupBounds.x - 1.5) * mmToPx}px`,
+                        top: `${Math.max(0, groupBounds.y - 1.5) * mmToPx}px`,
+                        width: `${(groupBounds.width + 3) * mmToPx}px`,
+                        height: `${(groupBounds.height + 3) * mmToPx}px`,
                       }}
-                      title="মাউস দিয়ে টেনে সরান, অ্যারো কী দিয়ে মুভ করুন, ডাবল ক্লিক করে এডিট করুন"
+                      title={lang === 'bn' ? 'মাউস চেপে ধরে সব ছবি একসাথে সরান' : 'Drag to move all photos together'}
                     >
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center gap-1.5 whitespace-nowrap select-none pointer-events-none">
+                        <Move className="w-3 h-3" />
+                        <span>
+                          {lang === 'bn'
+                            ? `সব ছবি একসাথে নড়বে (${passportItems.length}টি)`
+                            : `Move All Together (${passportItems.length})`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rendered Draggable & Movable Photos on Sheet */}
+                  {passportItems.map((item, idx) => {
+                    const isSelected = selectedItemId === item.id;
+                    const isDragging = draggingItemId === item.id || isDraggingAll;
+                    const isStamp = item.width <= 25 || item.preset === 'bd-stamp';
+
+                    return (
+                      <div
+                        key={item.id || `${item.photo.id}-${idx}`}
+                        onMouseDown={(e) => handleMouseDownItem(e, item)}
+                        onTouchStart={(e) => handleTouchStartItem(e, item)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectItem?.(item.id);
+                          onSelectPhoto(item.index % passportItems.length);
+                        }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          onEditPhoto(item.index % passportItems.length);
+                        }}
+                        className={`absolute group select-none transition-shadow ${
+                          isDraggingAll
+                            ? 'cursor-grabbing shadow-xl ring-2 ring-blue-600 opacity-95 z-30'
+                            : isDragging
+                            ? 'cursor-grabbing shadow-2xl z-40 ring-2 ring-blue-600 opacity-95'
+                            : moveMode === 'all'
+                            ? 'cursor-grab hover:ring-2 hover:ring-blue-500 hover:shadow-md z-20'
+                            : isSelected
+                            ? 'cursor-grab ring-2 ring-blue-500 shadow-lg z-30'
+                            : 'cursor-grab hover:ring-1 hover:ring-blue-400/80 hover:shadow-xs z-10'
+                        }`}
+                        style={{
+                          left: `${item.x * mmToPx}px`,
+                          top: `${item.y * mmToPx}px`,
+                          width: `${item.width * mmToPx}px`,
+                          height: `${item.height * mmToPx}px`,
+                        }}
+                        title={
+                          moveMode === 'all'
+                            ? (lang === 'bn' ? 'মাউস দিয়ে টানুন, সব ছবি একসাথে পেপারের যেকোনো জায়গায় সরবে' : 'Drag with mouse to move all photos together')
+                            : (lang === 'bn' ? 'মাউস দিয়ে টেনে এই ছবিটি সরান' : 'Drag to move this photo')
+                        }
+                      >
                       <img
                         src={item.photo.processedSrc || item.photo.originalSrc}
                         alt="Photo"
@@ -646,10 +993,11 @@ export const PaperPreview: React.FC<Props> = ({
                       </button>
                     </div>
                   );
-                })
-              )}
-            </>
-          )}
+                })}
+              </>
+            )}
+          </>
+        )}
 
           {/* ======================================================== */}
           {/* 2. NID MODE CONTENT                                      */}

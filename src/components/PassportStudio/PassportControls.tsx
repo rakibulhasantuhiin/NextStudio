@@ -772,10 +772,10 @@ export const PassportControls: React.FC<Props> = ({
               <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-normal flex items-start gap-1.5 pt-0.5">
                 <Move className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
                 <span>
-                  <strong>{lang === 'bn' ? 'ছবি ডানে-বামে সরানো:' : 'Move photos:'}</strong>{' '}
+                  <strong>{lang === 'bn' ? 'ছবি সরানো (Move All):' : 'Move photos:'}</strong>{' '}
                   {lang === 'bn'
-                    ? 'মাউস দিয়ে টেনে ইচ্ছামতো সরান অথবা ছবিতে ক্লিক করে কীবোর্ডের অ্যারো কী (← → ↑ ↓) চাপুন।'
-                    : 'Drag with mouse or select and press arrow keys (← → ↑ ↓) on keyboard to move anywhere.'}
+                    ? 'মাউস দিয়ে যেকোনো ছবি টানলে সব ছবি একসাথে নিখুঁতভাবে পেপারের যেকোনো স্থানে চলে আসবে।'
+                    : 'Drag any photo with mouse to move all photos together smoothly across the sheet.'}
                 </span>
               </p>
             </div>
