@@ -66,6 +66,10 @@ interface Props {
   setCustomHeight: (h: number) => void;
   paperSize: PaperSizeType;
   setPaperSize: (size: PaperSizeType) => void;
+  customPaperWidth?: number;
+  setCustomPaperWidth?: (w: number) => void;
+  customPaperHeight?: number;
+  setCustomPaperHeight?: (h: number) => void;
   orientation: PaperOrientation;
   setOrientation: (o: PaperOrientation) => void;
   layoutMode: LayoutMode;
@@ -119,6 +123,10 @@ export const PassportControls: React.FC<Props> = ({
   setCustomHeight,
   paperSize,
   setPaperSize,
+  customPaperWidth = 210,
+  setCustomPaperWidth,
+  customPaperHeight = 297,
+  setCustomPaperHeight,
   orientation,
   setOrientation,
   layoutMode,
@@ -162,7 +170,10 @@ export const PassportControls: React.FC<Props> = ({
 
   const activePhoto = photos[activePhotoIndex] || (photos.length > 0 ? photos[0] : null);
 
-  const currentPaper = PAPER_SIZES[paperSize];
+  const currentPaper =
+    paperSize === 'custom'
+      ? { ...PAPER_SIZES.custom, width: customPaperWidth, height: customPaperHeight }
+      : PAPER_SIZES[paperSize];
   const isLandscape = orientation === 'landscape';
   const paperWidthMm = isLandscape ? currentPaper.height : currentPaper.width;
   const effectivePhotoWidth =
@@ -924,41 +935,72 @@ export const PassportControls: React.FC<Props> = ({
         </div>
 
         {/* Paper Size & Orientation Selector */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="space-y-2.5 text-xs">
           <div>
             <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1 leading-normal">
               {lang === 'en' ? 'Paper Size:' : 'কাগজের সাইজ:'}
             </label>
-            <div className="grid grid-cols-3 gap-1">
-              {(['a4', '4r', 'letter'] as PaperSizeType[]).map((size) => (
+            <div className="grid grid-cols-4 gap-1">
+              {(['a4', 'a5', 'letter', 'legal', 'b5', '4r', 'custom'] as PaperSizeType[]).map((size) => (
                 <button
                   key={size}
                   type="button"
                   onClick={() => setPaperSize(size)}
-                  className={`py-1.5 px-1 rounded-md text-xs font-semibold text-center uppercase transition cursor-pointer ${
+                  className={`py-1.5 px-1.5 rounded-md text-xs font-semibold text-center uppercase transition cursor-pointer ${
                     paperSize === size
                       ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                   }`}
                 >
-                  {size}
+                  {size === 'custom' ? (lang === 'en' ? 'Custom' : 'কাস্টম') : size}
                 </button>
               ))}
             </div>
           </div>
 
+          {paperSize === 'custom' && setCustomPaperWidth && setCustomPaperHeight && (
+            <div className="grid grid-cols-2 gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800">
+              <div>
+                <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">
+                  {lang === 'en' ? 'Width (mm)' : 'প্রস্থ (মিমি)'}
+                </label>
+                <input
+                  type="number"
+                  min="30"
+                  max="1000"
+                  value={customPaperWidth}
+                  onChange={(e) => setCustomPaperWidth(Math.max(30, Number(e.target.value) || 210))}
+                  className="w-full px-2 py-1 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-slate-500 block mb-0.5">
+                  {lang === 'en' ? 'Height (mm)' : 'উচ্চতা (মিমি)'}
+                </label>
+                <input
+                  type="number"
+                  min="30"
+                  max="1000"
+                  value={customPaperHeight}
+                  onChange={(e) => setCustomPaperHeight(Math.max(30, Number(e.target.value) || 297))}
+                  className="w-full px-2 py-1 text-xs rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
+                />
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1 leading-normal">
               {lang === 'en' ? 'Orientation:' : 'কাগজের দিক:'}
             </label>
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
                 onClick={() => setOrientation('portrait')}
-                className={`py-1.5 px-1 rounded-md text-xs font-semibold text-center transition cursor-pointer ${
+                className={`py-1.5 px-2 rounded-md text-xs font-semibold text-center transition cursor-pointer ${
                   orientation === 'portrait'
                     ? 'bg-blue-600 text-white shadow-2xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
                 {lang === 'en' ? 'Portrait' : 'লম্বালম্বি'}
@@ -966,10 +1008,10 @@ export const PassportControls: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setOrientation('landscape')}
-                className={`py-1.5 px-1 rounded-md text-xs font-semibold text-center transition cursor-pointer ${
+                className={`py-1.5 px-2 rounded-md text-xs font-semibold text-center transition cursor-pointer ${
                   orientation === 'landscape'
                     ? 'bg-blue-600 text-white shadow-2xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
                 {lang === 'en' ? 'Landscape' : 'আড়াআড়ি'}

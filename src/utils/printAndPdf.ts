@@ -2,6 +2,8 @@ import jsPDF from 'jspdf';
 import {
   ColorProfile,
   CuttingGuideStyle,
+  DocumentPageItem,
+  DocumentPrintSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
@@ -10,6 +12,7 @@ import {
   StudioMode,
   StudioPhotoItem,
 } from '../types';
+import { calculateDocumentPlacement } from './documentLayout';
 import { loadImage } from './imageProcessing';
 
 export interface RenderSheetOptions {
@@ -26,6 +29,8 @@ export interface RenderSheetOptions {
   itemPositions?: { x: number; y: number; width: number; height: number; photo: StudioPhotoItem }[];
   // NID items
   nid?: NIDCardSettings;
+  // Document / Fit-to-Paper items
+  documentSettings?: DocumentPrintSettings;
 }
 
 /**
@@ -52,6 +57,7 @@ export async function generateHighResSheetCanvas(
     mode,
     itemPositions,
     nid,
+    documentSettings,
   } = options;
 
   const isLandscape = orientation === 'landscape';
@@ -132,9 +138,22 @@ export async function generateHighResSheetCanvas(
       }
       drawCuttingGuides(ctx, px, pyBack, pWidth, pHeight, cuttingGuide, bleedArea * scale, scale);
     }
+  } else if (mode === 'document' && documentSettings && documentSettings.pages.length > 0) {
+    const activeDoc =
+      documentSettings.pages[documentSettings.activePageIndex] || documentSettings.pages[0];
+    if (activeDoc) {
+      await drawDocumentPageOnCanvas(
+        ctx,
+        activeDoc,
+        sheetWidthMm,
+        sheetHeightMm,
+        scale,
+        documentSettings
+      );
+    }
   }
 
-  // Apply color profile if Black & White
+  // Apply color profile if Black & White or CMYK
   if (colorProfile === 'bw') {
     applyGrayscale(ctx, canvas.width, canvas.height);
   } else if (colorProfile === 'cmyk') {
@@ -142,6 +161,54 @@ export async function generateHighResSheetCanvas(
   }
 
   return canvas;
+}
+
+async function drawDocumentPageOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  docPage: DocumentPageItem,
+  sheetWidthMm: number,
+  sheetHeightMm: number,
+  scale: number,
+  documentSettings: DocumentPrintSettings
+) {
+  try {
+    const img = await loadImage(docPage.processedSrc || docPage.originalSrc);
+    const placement = calculateDocumentPlacement({
+      imgWidth: docPage.naturalWidth || img.width || 1000,
+      imgHeight: docPage.naturalHeight || img.height || 1414,
+      paperWidthMm: sheetWidthMm,
+      paperHeightMm: sheetHeightMm,
+      marginMm: documentSettings.marginMm,
+      fitMode: documentSettings.fitMode,
+      autoRotateToFit: documentSettings.autoRotateToFit,
+    });
+
+    const clipX = placement.availXmm * scale;
+    const clipY = placement.availYmm * scale;
+    const clipW = placement.availWmm * scale;
+    const clipH = placement.availHmm * scale;
+
+    const drawX = placement.xMm * scale;
+    const drawY = placement.yMm * scale;
+    const drawW = placement.widthMm * scale;
+    const drawH = placement.heightMm * scale;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clipX, clipY, clipW, clipH);
+    ctx.clip();
+
+    if (placement.shouldRotate90) {
+      ctx.translate(drawX + drawW / 2, drawY + drawH / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(img, -drawH / 2, -drawW / 2, drawH, drawW);
+    } else {
+      ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    }
+    ctx.restore();
+  } catch (err) {
+    console.error('Failed to draw document page on canvas:', err);
+  }
 }
 
 /**
@@ -253,10 +320,9 @@ function applyCmykSimulation(ctx: CanvasRenderingContext2D, w: number, h: number
 }
 
 /**
- * Exports to exact mm-sized PDF using jsPDF
+ * Exports to exact mm-sized PDF using jsPDF (supports multi-page documents)
  */
 export async function exportToPdf(options: RenderSheetOptions, filename: string) {
-  const canvas = await generateHighResSheetCanvas(options);
   const isLandscape = options.orientation === 'landscape';
   const sheetWidthMm = isLandscape ? options.paper.height : options.paper.width;
   const sheetHeightMm = isLandscape ? options.paper.width : options.paper.height;
@@ -268,6 +334,27 @@ export async function exportToPdf(options: RenderSheetOptions, filename: string)
     compress: true,
   });
 
+  if (options.mode === 'document' && options.documentSettings && options.documentSettings.pages.length > 0) {
+    const pages = options.documentSettings.pages;
+    for (let i = 0; i < pages.length; i++) {
+      if (i > 0) {
+        pdf.addPage([sheetWidthMm, sheetHeightMm], isLandscape ? 'landscape' : 'portrait');
+      }
+      const pageCanvas = await generateHighResSheetCanvas({
+        ...options,
+        documentSettings: {
+          ...options.documentSettings,
+          activePageIndex: i,
+        },
+      });
+      const imgData = pageCanvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
+    }
+    pdf.save(filename);
+    return;
+  }
+
+  const canvas = await generateHighResSheetCanvas(options);
   const imgData = canvas.toDataURL('image/png');
   pdf.addImage(imgData, 'PNG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
   pdf.save(filename);

@@ -87,6 +87,16 @@
     box-shadow: none !important;
     border: none !important;
     outline: none !important;
+    overflow: visible !important;
+  }
+
+  #print-sheet-root .print-page {
+    position: relative !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: none !important;
+    border: none !important;
+    outline: none !important;
     overflow: hidden !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;

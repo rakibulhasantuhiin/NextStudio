@@ -1,12 +1,14 @@
 import React from 'react';
 import {
   CuttingGuideStyle,
+  DocumentPrintSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
   PaperOrientation,
   StudioMode,
 } from '../types';
+import { calculateDocumentPlacement } from '../utils/documentLayout';
 import { CalculatedItem } from '../utils/layoutCalculator';
 
 interface Props {
@@ -19,6 +21,7 @@ interface Props {
   colorProfile: 'srgb' | 'cmyk' | 'bw';
   passportItems: CalculatedItem[];
   nid: NIDCardSettings;
+  documentSettings?: DocumentPrintSettings;
 }
 
 export const PrintSheetHidden: React.FC<Props> = ({
@@ -31,10 +34,13 @@ export const PrintSheetHidden: React.FC<Props> = ({
   colorProfile,
   passportItems,
   nid,
+  documentSettings,
 }) => {
   const isLandscape = orientation === 'landscape';
   const paperWidthMm = isLandscape ? paper.height : paper.width;
   const paperHeightMm = isLandscape ? paper.width : paper.height;
+  const docPages = mode === 'document' ? documentSettings?.pages || [] : [];
+  const isMultiDoc = mode === 'document' && docPages.length > 0;
 
   return (
     <div
@@ -42,14 +48,14 @@ export const PrintSheetHidden: React.FC<Props> = ({
       className="print-only-container hidden print:block"
       style={{
         width: `${paperWidthMm}mm`,
-        height: `${paperHeightMm}mm`,
+        height: isMultiDoc ? 'auto' : `${paperHeightMm}mm`,
         position: 'relative',
         backgroundColor: '#ffffff',
         background: '#ffffff',
         boxShadow: 'none',
         border: 'none',
         outline: 'none',
-        overflow: 'hidden',
+        overflow: isMultiDoc ? 'visible' : 'hidden',
       }}
     >
       {/* 1. Passport Mode Items */}
@@ -381,6 +387,114 @@ export const PrintSheetHidden: React.FC<Props> = ({
             </>
           );
         })()}
+
+      {/* 3. Document / Fit-to-Paper Mode Pages (One pure white page per uploaded document) */}
+      {mode === 'document' &&
+        documentSettings &&
+        docPages.map((docPage, idx) => {
+          const placement = calculateDocumentPlacement({
+            imgWidth: docPage.naturalWidth || 1000,
+            imgHeight: docPage.naturalHeight || 1414,
+            paperWidthMm,
+            paperHeightMm,
+            marginMm: documentSettings.marginMm,
+            fitMode: documentSettings.fitMode,
+            autoRotateToFit: documentSettings.autoRotateToFit,
+          });
+
+          const imgFilter =
+            colorProfile === 'bw'
+              ? 'grayscale(100%)'
+              : colorProfile === 'cmyk'
+              ? 'saturate(0.9) contrast(1.05)'
+              : 'none';
+
+          return (
+            <div
+              key={docPage.id}
+              className="print-page"
+              style={{
+                width: `${paperWidthMm}mm`,
+                height: `${paperHeightMm}mm`,
+                position: 'relative',
+                backgroundColor: '#ffffff',
+                background: '#ffffff',
+                boxShadow: 'none',
+                border: 'none',
+                outline: 'none',
+                overflow: 'hidden',
+                pageBreakAfter: idx < docPages.length - 1 ? 'always' : 'auto',
+                breakAfter: idx < docPages.length - 1 ? 'page' : 'auto',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: `${placement.availXmm}mm`,
+                  top: `${placement.availYmm}mm`,
+                  width: `${placement.availWmm}mm`,
+                  height: `${placement.availHmm}mm`,
+                  overflow: 'hidden',
+                  boxShadow: 'none',
+                  border: 'none',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${placement.xMm - placement.availXmm}mm`,
+                    top: `${placement.yMm - placement.availYmm}mm`,
+                    width: `${placement.widthMm}mm`,
+                    height: `${placement.heightMm}mm`,
+                    boxShadow: 'none',
+                    border: 'none',
+                  }}
+                >
+                  {placement.shouldRotate90 ? (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: `${placement.heightMm}mm`,
+                        height: `${placement.widthMm}mm`,
+                        transform: 'translate(-50%, -50%) rotate(90deg)',
+                      }}
+                    >
+                      <img
+                        src={docPage.processedSrc || docPage.originalSrc}
+                        alt=""
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'fill',
+                          display: 'block',
+                          boxShadow: 'none',
+                          border: 'none',
+                          filter: imgFilter,
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <img
+                      src={docPage.processedSrc || docPage.originalSrc}
+                      alt=""
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'fill',
+                        display: 'block',
+                        boxShadow: 'none',
+                        border: 'none',
+                        filter: imgFilter,
+                      }}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
     </div>
   );
 };

@@ -686,6 +686,170 @@ export async function processNIDImage(
 }
 
 /**
+ * Reads natural pixel dimensions (width, height) of an image data URL / source
+ */
+export async function getImageDimensions(
+  src: string
+): Promise<{ width: number; height: number }> {
+  const img = await loadImage(src);
+  return { width: img.width || 1000, height: img.height || 1414 };
+}
+
+/**
+ * Document / Paper Image Processor for Fit-to-Paper Printing:
+ * Handles rotation (90-degree & straighten), flips, crop, brightness, contrast,
+ * and optional Clean White Paper scanner filter.
+ */
+export async function processDocumentImage(
+  src: string,
+  options: {
+    rotation: number;
+    flipH: boolean;
+    flipV: boolean;
+    crop: CropRect | null;
+    autoWhiteDocument: boolean;
+    docThreshold: number;
+    docContrast: number;
+    brightness: number;
+    contrast: number;
+  }
+): Promise<{ processedSrc: string; width: number; height: number }> {
+  const img = await loadImage(src);
+
+  const isUntouched =
+    !options.crop &&
+    (options.rotation % 360) === 0 &&
+    !options.flipH &&
+    !options.flipV &&
+    !options.autoWhiteDocument &&
+    options.brightness === 0 &&
+    options.contrast === 0;
+
+  if (isUntouched) {
+    return {
+      processedSrc: src,
+      width: img.width || 1000,
+      height: img.height || 1414,
+    };
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return { processedSrc: src, width: img.width || 1000, height: img.height || 1414 };
+  }
+
+  let sx = 0;
+  let sy = 0;
+  let sWidth = img.width;
+  let sHeight = img.height;
+
+  if (options.crop) {
+    sx = Math.max(0, (options.crop.x / 100) * img.width);
+    sy = Math.max(0, (options.crop.y / 100) * img.height);
+    sWidth = Math.max(10, (options.crop.width / 100) * img.width);
+    sHeight = Math.max(10, (options.crop.height / 100) * img.height);
+  }
+
+  const normalizedRot = ((options.rotation % 360) + 360) % 360;
+  let rotWidth: number;
+  let rotHeight: number;
+  if (normalizedRot === 90 || normalizedRot === 270) {
+    rotWidth = Math.round(sHeight);
+    rotHeight = Math.round(sWidth);
+  } else if (normalizedRot === 0 || normalizedRot === 180) {
+    rotWidth = Math.round(sWidth);
+    rotHeight = Math.round(sHeight);
+  } else {
+    const rad = (options.rotation * Math.PI) / 180;
+    const sin = Math.abs(Math.sin(rad));
+    const cos = Math.abs(Math.cos(rad));
+    rotWidth = Math.round(sWidth * cos + sHeight * sin);
+    rotHeight = Math.round(sWidth * sin + sHeight * cos);
+  }
+
+  canvas.width = rotWidth;
+  canvas.height = rotHeight;
+
+  // Fill crisp white behind rotated areas
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, rotWidth, rotHeight);
+
+  const rad = (options.rotation * Math.PI) / 180;
+  ctx.save();
+  ctx.translate(rotWidth / 2, rotHeight / 2);
+  ctx.rotate(rad);
+  if (options.flipH || options.flipV) {
+    ctx.scale(options.flipH ? -1 : 1, options.flipV ? -1 : 1);
+  }
+  ctx.drawImage(
+    img,
+    sx,
+    sy,
+    sWidth,
+    sHeight,
+    -sWidth / 2,
+    -sHeight / 2,
+    sWidth,
+    sHeight
+  );
+  ctx.restore();
+
+  if (options.autoWhiteDocument || options.brightness !== 0 || options.contrast !== 0) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+
+    const bShift = options.brightness * 1.5;
+    const cFactor = (options.contrast + 100) / 100;
+    const paperThreshold = 140 + (options.docThreshold / 100) * 80;
+    const boostContrast = 1 + (options.docContrast / 100) * 1.2;
+
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i] + bShift;
+      let g = data[i + 1] + bShift;
+      let b = data[i + 2] + bShift;
+
+      if (options.contrast !== 0) {
+        r = (r - 128) * cFactor + 128;
+        g = (g - 128) * cFactor + 128;
+        b = (b - 128) * cFactor + 128;
+      }
+
+      if (options.autoWhiteDocument) {
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        if (lum >= paperThreshold) {
+          const whiteFactor = Math.min(
+            1,
+            (lum - paperThreshold) / (255 - paperThreshold + 1)
+          );
+          r = r + (255 - r) * (0.8 + 0.2 * whiteFactor);
+          g = g + (255 - g) * (0.8 + 0.2 * whiteFactor);
+          b = b + (255 - b) * (0.8 + 0.2 * whiteFactor);
+        } else {
+          r = (r - 128) * boostContrast + 128;
+          g = (g - 128) * boostContrast + 128;
+          b = (b - 128) * boostContrast + 128;
+        }
+      }
+
+      data[i] = Math.min(255, Math.max(0, r));
+      data[i + 1] = Math.min(255, Math.max(0, g));
+      data[i + 2] = Math.min(255, Math.max(0, b));
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  return {
+    processedSrc: canvas.toDataURL('image/png'),
+    width: canvas.width,
+    height: canvas.height,
+  };
+}
+
+/**
  * 100% OFFLINE PIPELINE TO AUTO-PROCESS AN UPLOADED PHOTO:
  * - Detects face & head size (ICAO / BD passport standards)
  * - Auto-straightens tilt/deskew

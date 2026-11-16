@@ -1,15 +1,18 @@
-import { MarginSettings, PaperDimensions, PaperSizeType, PhotoAdjustments, PhotoPresetConfig, PhotoPresetType } from '../types';
+import {
+  DocumentPrintSettings,
+  MarginSettings,
+  PaperDimensions,
+  PaperSizeType,
+  PhotoAdjustments,
+  PhotoPresetConfig,
+  PhotoPresetType,
+} from '../types';
 
 export const PAPER_SIZES: Record<PaperSizeType, PaperDimensions> = {
   a4: {
     name: 'A4 (210 × 297 mm)',
     width: 210,
     height: 297,
-  },
-  '4r': {
-    name: '4R / 4x6" (102 × 152 mm)',
-    width: 102,
-    height: 152,
   },
   a5: {
     name: 'A5 (148 × 210 mm)',
@@ -21,8 +24,23 @@ export const PAPER_SIZES: Record<PaperSizeType, PaperDimensions> = {
     width: 215.9,
     height: 279.4,
   },
+  legal: {
+    name: 'Legal (215.9 × 355.6 mm)',
+    width: 215.9,
+    height: 355.6,
+  },
+  b5: {
+    name: 'B5 (176 × 250 mm)',
+    width: 176,
+    height: 250,
+  },
+  '4r': {
+    name: '4R / 4x6" (102 × 152 mm)',
+    width: 102,
+    height: 152,
+  },
   custom: {
-    name: 'Custom (কাস্টম)',
+    name: 'Custom Size',
     width: 210,
     height: 297,
   },
@@ -125,3 +143,11 @@ export const DEFAULT_NID_MARGINS: MarginSettings = {
 // Standard Bangladesh Smart NID physical size (ISO/IEC 7810 ID-1 standard)
 export const NID_STANDARD_WIDTH = 85.6; // mm
 export const NID_STANDARD_HEIGHT = 53.98; // mm
+
+export const DEFAULT_DOCUMENT_SETTINGS: DocumentPrintSettings = {
+  pages: [],
+  activePageIndex: 0,
+  fitMode: 'contain',
+  marginMm: 5,
+  autoRotateToFit: false,
+};

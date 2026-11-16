@@ -6,14 +6,19 @@ import {
   ArrowUp,
   Camera,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   CreditCard,
   Edit3,
+  FileText,
   Layers,
+  Maximize2,
   MousePointer,
   Move,
   Plus,
   RefreshCw,
+  RotateCw,
   Sparkles,
   Target,
   Trash2,
@@ -23,12 +28,15 @@ import {
 } from 'lucide-react';
 import {
   CuttingGuideStyle,
+  DocumentFitMode,
+  DocumentPrintSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
   PaperOrientation,
   StudioMode,
 } from '../types';
+import { calculateDocumentPlacement } from '../utils/documentLayout';
 import { CalculatedItem } from '../utils/layoutCalculator';
 import { translations } from '../utils/translations';
 
@@ -68,6 +76,14 @@ interface Props {
   onAutoAlignGrid?: () => void;
   onAutoSpreadWidth?: () => void;
   onCycleItemPhoto?: (id: string) => void;
+  // Document / Fit-to-Paper props
+  documentSettings?: DocumentPrintSettings;
+  onUploadDocumentTrigger?: () => void;
+  onRotateDocumentPage?: (index: number) => void;
+  onEditDocumentPage?: (index: number) => void;
+  onSelectDocumentPage?: (index: number) => void;
+  onChangeDocumentFitMode?: (mode: DocumentFitMode) => void;
+  onToggleDocumentWhiteFilter?: (index: number) => void;
 }
 
 export const PaperPreview: React.FC<Props> = ({
@@ -96,15 +112,20 @@ export const PaperPreview: React.FC<Props> = ({
   onMoveItem,
   onMoveItems,
   onNudgeItem,
-  onNudgeItems,
   onToggleItemSize,
   onDuplicateItem,
   onDeleteItem,
   onAddStampCopy,
   onAddPassportCopy,
   onAutoAlignGrid,
-  onAutoSpreadWidth,
   onCycleItemPhoto,
+  documentSettings,
+  onUploadDocumentTrigger,
+  onRotateDocumentPage,
+  onEditDocumentPage,
+  onSelectDocumentPage,
+  onChangeDocumentFitMode,
+  onToggleDocumentWhiteFilter,
 }) => {
   const t = translations[lang];
 
@@ -491,13 +512,136 @@ export const PaperPreview: React.FC<Props> = ({
           </span>
           <span aria-hidden="true" className="opacity-40">·</span>
           <span className="text-blue-600 dark:text-blue-400 font-semibold">
-            {mode === 'passport' ? countSummary() : nid.frontImage || nid.backImage ? (lang === 'en' ? 'Smart NID Card' : 'এনআইডি স্মার্ট কার্ড') : (lang === 'en' ? 'Empty NID Card' : 'এনআইডি কার্ড (খালি)')}
+            {mode === 'passport'
+              ? countSummary()
+              : mode === 'nid'
+              ? nid.frontImage || nid.backImage
+                ? lang === 'en'
+                  ? 'Smart NID Card'
+                  : 'এনআইডি স্মার্ট কার্ড'
+                : lang === 'en'
+                ? 'Empty NID Card'
+                : 'এনআইডি কার্ড (খালি)'
+              : documentSettings && documentSettings.pages.length > 0
+              ? lang === 'en'
+                ? `Page ${Math.min(documentSettings.activePageIndex + 1, documentSettings.pages.length)} of ${documentSettings.pages.length} · Fit to Paper`
+                : `পেজ ${Math.min(documentSettings.activePageIndex + 1, documentSettings.pages.length)} / ${documentSettings.pages.length} · ফিট টু পেপার`
+              : lang === 'en'
+              ? 'Paper Print (Empty)'
+              : 'পেপার প্রিন্ট (খালি)'}
           </span>
           <span aria-hidden="true" className="opacity-40">·</span>
           <span className="font-mono text-slate-600 dark:text-slate-300">
             {Math.round(zoom * 100)}% {lang === 'en' ? 'Zoom' : 'ডিসপ্লে'}
           </span>
         </div>
+
+        {/* Document Mode Quick Toolbar */}
+        {mode === 'document' && documentSettings && documentSettings.pages.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
+            {documentSettings.pages.length > 1 && (
+              <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 text-xs">
+                <button
+                  type="button"
+                  disabled={documentSettings.activePageIndex <= 0}
+                  onClick={() => onSelectDocumentPage?.(Math.max(0, documentSettings.activePageIndex - 1))}
+                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+                  title={lang === 'en' ? 'Previous Page' : 'আগের পেজ'}
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="px-2 font-mono font-semibold text-slate-700 dark:text-slate-200">
+                  {documentSettings.activePageIndex + 1}/{documentSettings.pages.length}
+                </span>
+                <button
+                  type="button"
+                  disabled={documentSettings.activePageIndex >= documentSettings.pages.length - 1}
+                  onClick={() =>
+                    onSelectDocumentPage?.(
+                      Math.min(documentSettings.pages.length - 1, documentSettings.activePageIndex + 1)
+                    )
+                  }
+                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
+                  title={lang === 'en' ? 'Next Page' : 'পরের পেজ'}
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => onRotateDocumentPage?.(documentSettings.activePageIndex)}
+              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+            >
+              <RotateCw className="w-3.5 h-3.5 text-blue-600" />
+              <span>{t.rotate90}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                onChangeDocumentFitMode?.(
+                  documentSettings.fitMode === 'contain'
+                    ? 'cover'
+                    : documentSettings.fitMode === 'cover'
+                    ? 'stretch'
+                    : 'contain'
+                )
+              }
+              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+              title={lang === 'en' ? 'Cycle Fit / Fill / Stretch' : 'ফিট মোড পরিবর্তন'}
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
+              <span>
+                {documentSettings.fitMode === 'contain'
+                  ? lang === 'en'
+                    ? 'Fit'
+                    : 'ফিট'
+                  : documentSettings.fitMode === 'cover'
+                  ? lang === 'en'
+                    ? 'Fill'
+                    : 'ফিল'
+                  : lang === 'en'
+                  ? 'Stretch'
+                  : 'স্ট্রেচ'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onToggleDocumentWhiteFilter?.(documentSettings.activePageIndex)}
+              className={`py-1 px-2.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer ${
+                documentSettings.pages[documentSettings.activePageIndex]?.autoWhiteDocument
+                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                  : 'bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{lang === 'en' ? 'White Paper' : 'সাদা স্ক্যান'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onEditDocumentPage?.(documentSettings.activePageIndex)}
+              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+              <span>{t.editDocument}</span>
+            </button>
+
+            {onUploadDocumentTrigger && (
+              <button
+                type="button"
+                onClick={onUploadDocumentTrigger}
+                className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{lang === 'en' ? 'Add Page' : 'পেজ যোগ'}</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Quick Toolbar for Adding Copies & Auto-Aligning */}
         {mode === 'passport' && passportItems.length > 0 && (
@@ -695,13 +839,22 @@ export const PaperPreview: React.FC<Props> = ({
         >
           {/* Printable Margin Guidelines (subtle dashed boundary) */}
           <div
-            className="absolute border border-dashed border-blue-400/20 pointer-events-none"
-            style={{
-              top: `${margins.top * mmToPx}px`,
-              left: `${(passportItems.length > 0 ? Math.min(margins.left, Math.min(...passportItems.map((p) => p.x))) : margins.left) * mmToPx}px`,
-              right: `${(passportItems.length > 0 ? Math.min(margins.right, Math.max(0, paperWidthMm - Math.max(...passportItems.map((p) => p.x + p.width)))) : margins.right) * mmToPx}px`,
-              bottom: `${margins.bottom * mmToPx}px`,
-            }}
+            className="absolute border border-dashed border-blue-400/25 pointer-events-none"
+            style={
+              mode === 'document' && documentSettings
+                ? {
+                    top: `${documentSettings.marginMm * mmToPx}px`,
+                    left: `${documentSettings.marginMm * mmToPx}px`,
+                    right: `${documentSettings.marginMm * mmToPx}px`,
+                    bottom: `${documentSettings.marginMm * mmToPx}px`,
+                  }
+                : {
+                    top: `${margins.top * mmToPx}px`,
+                    left: `${(passportItems.length > 0 ? Math.min(margins.left, Math.min(...passportItems.map((p) => p.x))) : margins.left) * mmToPx}px`,
+                    right: `${(passportItems.length > 0 ? Math.min(margins.right, Math.max(0, paperWidthMm - Math.max(...passportItems.map((p) => p.x + p.width)))) : margins.right) * mmToPx}px`,
+                    bottom: `${margins.bottom * mmToPx}px`,
+                  }
+            }
           />
 
           {/* ======================================================== */}
@@ -1153,6 +1306,119 @@ export const PaperPreview: React.FC<Props> = ({
                     )}
                   </div>
                 </>
+              );
+            })()
+          )}
+
+          {/* ======================================================== */}
+          {/* 3. DOCUMENT / FIT-TO-PAPER MODE CONTENT                  */}
+          {/* ======================================================== */}
+          {mode === 'document' && (
+            (() => {
+              const pages = documentSettings?.pages || [];
+              const activeDoc =
+                pages[documentSettings?.activePageIndex ?? 0] || pages[0] || null;
+
+              if (!activeDoc || !documentSettings) {
+                return (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
+                    <div className="relative z-10 max-w-sm p-6 rounded-2xl bg-white/95 border border-slate-200 shadow-lg text-center space-y-3">
+                      <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+                          {lang === 'en' ? 'Upload Any Paper or Document' : 'যেকোনো পেপার বা ডকুমেন্ট আপলোড করুন'}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                          {t.noDocumentsYet}
+                        </p>
+                      </div>
+                      {onUploadDocumentTrigger && (
+                        <button
+                          type="button"
+                          onClick={onUploadDocumentTrigger}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition cursor-pointer"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>{t.uploadDocument}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              const placement = calculateDocumentPlacement({
+                imgWidth: activeDoc.naturalWidth || 1000,
+                imgHeight: activeDoc.naturalHeight || 1414,
+                paperWidthMm,
+                paperHeightMm,
+                marginMm: documentSettings.marginMm,
+                fitMode: documentSettings.fitMode,
+                autoRotateToFit: documentSettings.autoRotateToFit,
+              });
+
+              return (
+                <div
+                  className="absolute overflow-hidden pointer-events-none"
+                  style={{
+                    left: `${placement.availXmm * mmToPx}px`,
+                    top: `${placement.availYmm * mmToPx}px`,
+                    width: `${placement.availWmm * mmToPx}px`,
+                    height: `${placement.availHmm * mmToPx}px`,
+                  }}
+                >
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEditDocumentPage?.(documentSettings.activePageIndex);
+                    }}
+                    className="absolute group pointer-events-auto cursor-pointer"
+                    style={{
+                      left: `${(placement.xMm - placement.availXmm) * mmToPx}px`,
+                      top: `${(placement.yMm - placement.availYmm) * mmToPx}px`,
+                      width: `${placement.widthMm * mmToPx}px`,
+                      height: `${placement.heightMm * mmToPx}px`,
+                    }}
+                  >
+                    {placement.shouldRotate90 ? (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: '50%',
+                          top: '50%',
+                          width: `${placement.heightMm * mmToPx}px`,
+                          height: `${placement.widthMm * mmToPx}px`,
+                          transform: 'translate(-50%, -50%) rotate(90deg)',
+                        }}
+                      >
+                        <img
+                          src={activeDoc.processedSrc || activeDoc.originalSrc}
+                          alt={activeDoc.name}
+                          className="w-full h-full object-fill block select-none"
+                        />
+                      </div>
+                    ) : (
+                      <img
+                        src={activeDoc.processedSrc || activeDoc.originalSrc}
+                        alt={activeDoc.name}
+                        className="w-full h-full object-fill block select-none"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditDocumentPage?.(documentSettings.activePageIndex);
+                      }}
+                      className="absolute bottom-2 right-2 px-2 py-1 bg-black/75 hover:bg-blue-600 text-white text-[11px] font-semibold rounded-md opacity-0 group-hover:opacity-100 transition flex items-center gap-1 cursor-pointer shadow"
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>{t.editDocument}</span>
+                    </button>
+                  </div>
+                </div>
               );
             })()
           )}

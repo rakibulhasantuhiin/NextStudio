@@ -1,4 +1,4 @@
-export type StudioMode = 'passport' | 'nid';
+export type StudioMode = 'passport' | 'nid' | 'document';
 
 export type PhotoPresetType =
   | 'bd-passport'
@@ -9,7 +9,9 @@ export type PhotoPresetType =
   | 'us-passport'
   | 'custom';
 
-export type PaperSizeType = 'a4' | '4r' | 'a5' | 'letter' | 'custom';
+export type PaperSizeType = 'a4' | 'a5' | 'letter' | 'legal' | 'b5' | '4r' | 'custom';
+
+export type DocumentFitMode = 'contain' | 'stretch' | 'cover';
 
 export type PaperOrientation = 'portrait' | 'landscape';
 
@@ -117,6 +119,32 @@ export interface NIDCardSettings {
   backBrightness: number;
 }
 
+export interface DocumentPageItem {
+  id: string;
+  name: string;
+  originalSrc: string;
+  processedSrc: string;
+  rotation: number; // degrees
+  flipH: boolean;
+  flipV: boolean;
+  autoWhiteDocument: boolean;
+  docThreshold: number; // 0 to 100
+  docContrast: number; // 0 to 100
+  brightness: number; // -50 to 50
+  contrast: number; // -50 to 50
+  crop: CropRect | null;
+  naturalWidth?: number;
+  naturalHeight?: number;
+}
+
+export interface DocumentPrintSettings {
+  pages: DocumentPageItem[];
+  activePageIndex: number;
+  fitMode: DocumentFitMode;
+  marginMm: number;
+  autoRotateToFit: boolean;
+}
+
 export interface StudioState {
   mode: StudioMode;
   lang: 'bn' | 'en';
@@ -145,4 +173,6 @@ export interface StudioState {
   // NID state
   nid: NIDCardSettings;
   nidMargins: MarginSettings;
+  // Document / Fit-to-Paper state
+  documentSettings?: DocumentPrintSettings;
 }

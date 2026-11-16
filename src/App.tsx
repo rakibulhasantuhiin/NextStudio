@@ -5,6 +5,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Edit3, FileDown, Printer } from 'lucide-react';
+import { DocumentControls } from './components/DocumentStudio/DocumentControls';
+import { DocumentEditorModal } from './components/DocumentStudio/DocumentEditorModal';
 import { Header } from './components/Header';
 import { NidControls } from './components/NidStudio/NidControls';
 import { NidEditorModal } from './components/NidStudio/NidEditorModal';
@@ -14,7 +16,11 @@ import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
 import { PrintSheetHidden } from './components/PrintSheetHidden';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import {
+  CropRect,
   CuttingGuideStyle,
+  DocumentFitMode,
+  DocumentPageItem,
+  DocumentPrintSettings,
   LayoutMode,
   MarginSettings,
   NIDCardSettings,
@@ -29,6 +35,7 @@ import {
 } from './types';
 import {
   DEFAULT_ADJUSTMENTS,
+  DEFAULT_DOCUMENT_SETTINGS,
   DEFAULT_MARGINS,
   DEFAULT_NID_MARGINS,
   NID_STANDARD_HEIGHT,
@@ -37,9 +44,8 @@ import {
   PHOTO_PRESETS,
 } from './utils/constants';
 import {
-  autoProcessUploadedPhoto,
-  detectPassportFramingAndStraighten,
-  loadImage,
+  getImageDimensions,
+  processDocumentImage,
   processStudioPhoto,
 } from './utils/imageProcessing';
 import {
@@ -49,7 +55,6 @@ import {
   generateDefaultPlacedItems,
 } from './utils/layoutCalculator';
 import { exportToImage, exportToPdf, triggerDirectPrint } from './utils/printAndPdf';
-import { getSampleNidBack, getSampleNidFront, getSamplePassportPhoto } from './utils/sampleImages';
 import { exportProjectAsJson, importProjectFromJson, loadStateFromLocal, saveStateToLocal } from './utils/storage';
 
 export default function App() {
@@ -103,6 +108,8 @@ export default function App() {
   const [customPhotoWidth, setCustomPhotoWidth] = useState(35);
   const [customPhotoHeight, setCustomPhotoHeight] = useState(45);
   const [paperSize, setPaperSize] = useState<PaperSizeType>('a4');
+  const [customPaperWidth, setCustomPaperWidth] = useState<number>(210);
+  const [customPaperHeight, setCustomPaperHeight] = useState<number>(297);
   const [orientation, setOrientation] = useState<PaperOrientation>('portrait');
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('top-5');
   const [manualCount, setManualCount] = useState<number>(5);
@@ -146,10 +153,17 @@ export default function App() {
   const [nidMargins, setNidMargins] = useState<MarginSettings>(DEFAULT_NID_MARGINS);
   const [nidEditingSide, setNidEditingSide] = useState<'front' | 'back' | null>(null);
 
+  // Document / Fit-to-Paper Print State
+  const [documentSettings, setDocumentSettings] = useState<DocumentPrintSettings>(
+    DEFAULT_DOCUMENT_SETTINGS
+  );
+  const [editingDocumentPageIndex, setEditingDocumentPageIndex] = useState<number | null>(null);
+
   // File upload trigger refs for paper preview click-to-upload
   const passportUploadInputRef = useRef<HTMLInputElement>(null);
   const nidFrontInputRef = useRef<HTMLInputElement>(null);
   const nidBackInputRef = useRef<HTMLInputElement>(null);
+  const documentUploadInputRef = useRef<HTMLInputElement>(null);
 
   // 2. Restore State from Local Storage if present (filters out any old dummy demo photos)
   useEffect(() => {
@@ -169,6 +183,8 @@ export default function App() {
       if (saved.theme) setTheme(saved.theme);
       if (saved.photoPreset) setPhotoPreset(saved.photoPreset);
       if (saved.paperSize) setPaperSize(saved.paperSize);
+      if (saved.customPaperWidth) setCustomPaperWidth(saved.customPaperWidth);
+      if (saved.customPaperHeight) setCustomPaperHeight(saved.customPaperHeight);
       if (saved.orientation) setOrientation(saved.orientation);
       if (saved.layoutMode) setLayoutMode(saved.layoutMode);
       if (saved.manualCount) setManualCount(saved.manualCount);
@@ -201,6 +217,12 @@ export default function App() {
         });
       }
       if (saved.nidMargins) setNidMargins(saved.nidMargins);
+      if (saved.documentSettings) {
+        setDocumentSettings({
+          ...DEFAULT_DOCUMENT_SETTINGS,
+          ...saved.documentSettings,
+        });
+      }
     }
   }, []);
 
@@ -231,8 +253,8 @@ export default function App() {
         customPhotoWidth,
         customPhotoHeight,
         paperSize,
-        customPaperWidth: 210,
-        customPaperHeight: 297,
+        customPaperWidth,
+        customPaperHeight,
         orientation,
         layoutMode,
         manualCount,
@@ -249,6 +271,7 @@ export default function App() {
         selectedItemId,
         nid,
         nidMargins,
+        documentSettings,
       };
       saveStateToLocal(currentState);
       setIsSaved(true);
@@ -265,6 +288,8 @@ export default function App() {
     customPhotoWidth,
     customPhotoHeight,
     paperSize,
+    customPaperWidth,
+    customPaperHeight,
     orientation,
     layoutMode,
     manualCount,
@@ -279,6 +304,7 @@ export default function App() {
     selectedItemId,
     nid,
     nidMargins,
+    documentSettings,
   ]);
 
   // 5. Dimension Resolutions
@@ -286,7 +312,28 @@ export default function App() {
     photoPreset === 'custom' ? customPhotoWidth : PHOTO_PRESETS[photoPreset].width;
   const effectivePhotoHeight =
     photoPreset === 'custom' ? customPhotoHeight : PHOTO_PRESETS[photoPreset].height;
-  const currentPaper = PAPER_SIZES[paperSize];
+  const currentPaper =
+    paperSize === 'custom'
+      ? {
+          name: `${lang === 'en' ? 'Custom' : 'কাস্টম'} (${customPaperWidth} × ${customPaperHeight} mm)`,
+          width: customPaperWidth,
+          height: customPaperHeight,
+        }
+      : PAPER_SIZES[paperSize];
+
+  // Dynamically sync CSS @page size & orientation to selected paper sheet
+  useEffect(() => {
+    const isLand = orientation === 'landscape';
+    const wMm = isLand ? currentPaper.height : currentPaper.width;
+    const hMm = isLand ? currentPaper.width : currentPaper.height;
+    let styleEl = document.getElementById('dynamic-print-page-size') as HTMLStyleElement | null;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'dynamic-print-page-size';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `@media print { @page { size: ${wMm}mm ${hMm}mm; margin: 0mm; } }`;
+  }, [currentPaper.width, currentPaper.height, orientation]);
 
   // 6. Calculate items for passport grid (syncs placedItems with calculated coordinates)
   const passportItems = useMemo(() => {
@@ -844,6 +891,138 @@ export default function App() {
     setEditingPhotoIndex(null);
   };
 
+  // 9B. Document / Fit-to-Paper Handlers
+  const handleUploadDocuments = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    setIsUploading(true);
+    const filesArray = Array.from(files);
+    const newPages: DocumentPageItem[] = [];
+
+    try {
+      for (const file of filesArray) {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const dims = await getImageDimensions(dataUrl);
+        newPages.push({
+          id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          name: file.name || `Paper ${newPages.length + 1}`,
+          originalSrc: dataUrl,
+          processedSrc: dataUrl,
+          rotation: 0,
+          flipH: false,
+          flipV: false,
+          autoWhiteDocument: false,
+          docThreshold: 45,
+          docContrast: 25,
+          brightness: 0,
+          contrast: 0,
+          crop: null,
+          naturalWidth: dims.width,
+          naturalHeight: dims.height,
+        });
+      }
+
+      setDocumentSettings((prev) => {
+        const firstNewIdx = prev.pages.length;
+        return {
+          ...prev,
+          pages: [...prev.pages, ...newPages],
+          activePageIndex: firstNewIdx,
+        };
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const reprocessDocumentPage = async (page: DocumentPageItem): Promise<DocumentPageItem> => {
+    const res = await processDocumentImage(page.originalSrc, {
+      rotation: page.rotation,
+      flipH: page.flipH,
+      flipV: page.flipV,
+      crop: page.crop,
+      autoWhiteDocument: page.autoWhiteDocument,
+      docThreshold: page.docThreshold,
+      docContrast: page.docContrast,
+      brightness: page.brightness,
+      contrast: page.contrast,
+    });
+    return {
+      ...page,
+      processedSrc: res.processedSrc,
+      naturalWidth: res.width,
+      naturalHeight: res.height,
+    };
+  };
+
+  const handleRotateDocumentPage = async (index: number) => {
+    const target = documentSettings.pages[index];
+    if (!target) return;
+    const updatedTarget: DocumentPageItem = {
+      ...target,
+      rotation: (target.rotation + 90) % 360,
+    };
+    const processed = await reprocessDocumentPage(updatedTarget);
+    setDocumentSettings((prev) => ({
+      ...prev,
+      pages: prev.pages.map((p, idx) => (idx === index ? processed : p)),
+    }));
+  };
+
+  const handleToggleDocumentWhiteFilter = async (index: number) => {
+    const target = documentSettings.pages[index];
+    if (!target) return;
+    const updatedTarget: DocumentPageItem = {
+      ...target,
+      autoWhiteDocument: !target.autoWhiteDocument,
+    };
+    const processed = await reprocessDocumentPage(updatedTarget);
+    setDocumentSettings((prev) => ({
+      ...prev,
+      pages: prev.pages.map((p, idx) => (idx === index ? processed : p)),
+    }));
+  };
+
+  const handleRemoveDocumentPage = (index: number) => {
+    setDocumentSettings((prev) => {
+      const nextPages = prev.pages.filter((_, idx) => idx !== index);
+      const nextActive = Math.max(0, Math.min(prev.activePageIndex, nextPages.length - 1));
+      return {
+        ...prev,
+        pages: nextPages,
+        activePageIndex: nextActive,
+      };
+    });
+  };
+
+  const handleSaveDocumentEdits = (updated: {
+    rotation: number;
+    flipH: boolean;
+    flipV: boolean;
+    autoWhiteDocument: boolean;
+    docThreshold: number;
+    docContrast: number;
+    brightness: number;
+    contrast: number;
+    crop: CropRect | null;
+    processedSrc: string;
+    naturalWidth: number;
+    naturalHeight: number;
+  }) => {
+    if (editingDocumentPageIndex === null) return;
+    const targetIdx = editingDocumentPageIndex;
+    setDocumentSettings((prev) => ({
+      ...prev,
+      pages: prev.pages.map((p, idx) => (idx === targetIdx ? { ...p, ...updated } : p)),
+    }));
+    setEditingDocumentPageIndex(null);
+  };
+
   // 10. Print & Export Handlers
   const handleDirectPrint = () => {
     setSelectedItemId(null);
@@ -853,10 +1032,13 @@ export default function App() {
   };
 
   const handleDownloadPdf = async () => {
+    const paperTag = paperSize === 'custom' ? `${customPaperWidth}x${customPaperHeight}mm` : paperSize.toUpperCase();
     const filename =
       mode === 'passport'
-        ? `Passport_Photo_Sheet_${currentPaper.name.split(' ')[0]}_300DPI.pdf`
-        : `NID_Smart_Card_Print_${currentPaper.name.split(' ')[0]}.pdf`;
+        ? `Passport_Photo_Sheet_${paperTag}_300DPI.pdf`
+        : mode === 'nid'
+        ? `NID_Smart_Card_Print_${paperTag}.pdf`
+        : `Paper_FitToPage_${paperTag}.pdf`;
 
     await exportToPdf(
       {
@@ -871,6 +1053,7 @@ export default function App() {
         photos,
         itemPositions: passportItems,
         nid,
+        documentSettings,
       },
       filename
     );
@@ -881,7 +1064,9 @@ export default function App() {
     const filename =
       mode === 'passport'
         ? `Passport_Photo_Sheet_${paperSize}.${ext}`
-        : `NID_Print_Sheet_${paperSize}.${ext}`;
+        : mode === 'nid'
+        ? `NID_Print_Sheet_${paperSize}.${ext}`
+        : `Paper_Print_${paperSize}.${ext}`;
 
     await exportToImage(
       {
@@ -896,6 +1081,7 @@ export default function App() {
         photos,
         itemPositions: passportItems,
         nid,
+        documentSettings,
       },
       format,
       filename
@@ -912,8 +1098,8 @@ export default function App() {
       customPhotoWidth,
       customPhotoHeight,
       paperSize,
-      customPaperWidth: 210,
-      customPaperHeight: 297,
+      customPaperWidth,
+      customPaperHeight,
       orientation,
       layoutMode,
       manualCount,
@@ -928,6 +1114,7 @@ export default function App() {
       selectedItemId,
       nid,
       nidMargins,
+      documentSettings,
     };
     exportProjectAsJson(currentState);
   };
@@ -940,9 +1127,17 @@ export default function App() {
       if (imported.nid) setNid(imported.nid);
       if (imported.margins) setMargins(imported.margins);
       if (imported.paperSize) setPaperSize(imported.paperSize);
+      if (imported.customPaperWidth) setCustomPaperWidth(imported.customPaperWidth);
+      if (imported.customPaperHeight) setCustomPaperHeight(imported.customPaperHeight);
       if (imported.photoPreset) setPhotoPreset(imported.photoPreset);
       if (imported.layoutMode) setLayoutMode(imported.layoutMode);
       if (imported.manualCount) setManualCount(imported.manualCount);
+      if (imported.documentSettings) {
+        setDocumentSettings({
+          ...DEFAULT_DOCUMENT_SETTINGS,
+          ...imported.documentSettings,
+        });
+      }
     } catch (err) {
       console.error('Failed to restore project from file:', err);
     }
@@ -954,6 +1149,8 @@ export default function App() {
     setPhotoPreset('bd-passport');
     setCuttingGuide('none');
     setPaperSize('a4');
+    setCustomPaperWidth(210);
+    setCustomPaperHeight(297);
     setOrientation('portrait');
     setPrintQuality(300);
     setColorProfile('srgb');
@@ -962,6 +1159,7 @@ export default function App() {
     setActivePhotoIndex(0);
     setPlacedItems([]);
     setSelectedItemId(null);
+    setDocumentSettings(DEFAULT_DOCUMENT_SETTINGS);
     setNid((prev) => ({
       ...prev,
       frontImage: '',
@@ -1034,11 +1232,18 @@ export default function App() {
             }`}
           >
             <span>{lang === 'bn' ? '📄 পেপার প্রিভিউ' : '📄 Paper Preview'}</span>
-            {placedItems.length > 0 && (
+            {mode === 'passport' && placedItems.length > 0 && (
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                 mobileTab === 'preview' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
               }`}>
                 {placedItems.length}
+              </span>
+            )}
+            {mode === 'document' && documentSettings.pages.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                mobileTab === 'preview' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+              }`}>
+                {documentSettings.pages.length}
               </span>
             )}
           </button>
@@ -1051,11 +1256,18 @@ export default function App() {
             }`}
           >
             <span>{lang === 'bn' ? '⚙️ কন্ট্রোল ও সেটিংস' : '⚙️ Controls & Settings'}</span>
-            {photos.length > 0 && (
+            {mode === 'passport' && photos.length > 0 && (
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                 mobileTab === 'controls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
               }`}>
                 {photos.length}
+              </span>
+            )}
+            {mode === 'document' && documentSettings.pages.length > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                mobileTab === 'controls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+              }`}>
+                {documentSettings.pages.length}
               </span>
             )}
           </button>
@@ -1089,6 +1301,10 @@ export default function App() {
               setCustomHeight={setCustomPhotoHeight}
               paperSize={paperSize}
               setPaperSize={setPaperSize}
+              customPaperWidth={customPaperWidth}
+              setCustomPaperWidth={setCustomPaperWidth}
+              customPaperHeight={customPaperHeight}
+              setCustomPaperHeight={setCustomPaperHeight}
               orientation={orientation}
               setOrientation={setOrientation}
               layoutMode={layoutMode}
@@ -1120,7 +1336,7 @@ export default function App() {
               onDuplicateItem={handleDuplicateItem}
               onDeleteItem={handleDeleteItem}
             />
-          ) : (
+          ) : mode === 'nid' ? (
             <NidControls
               lang={lang}
               nid={nid}
@@ -1129,12 +1345,40 @@ export default function App() {
               setMargins={setNidMargins}
               paperSize={paperSize}
               setPaperSize={setPaperSize}
+              customPaperWidth={customPaperWidth}
+              setCustomPaperWidth={setCustomPaperWidth}
+              customPaperHeight={customPaperHeight}
+              setCustomPaperHeight={setCustomPaperHeight}
               orientation={orientation}
               setOrientation={setOrientation}
               cuttingGuide={cuttingGuide}
               setCuttingGuide={setCuttingGuide}
               bleedArea={bleedArea}
               setBleedArea={setBleedArea}
+              colorProfile={colorProfile}
+              setColorProfile={setColorProfile}
+              dpi={printQuality}
+              setDpi={setPrintQuality}
+            />
+          ) : (
+            <DocumentControls
+              lang={lang}
+              documentSettings={documentSettings}
+              setDocumentSettings={setDocumentSettings}
+              onUploadDocuments={handleUploadDocuments}
+              onRotatePage={handleRotateDocumentPage}
+              onToggleWhiteFilter={handleToggleDocumentWhiteFilter}
+              onOpenEditor={(idx) => setEditingDocumentPageIndex(idx)}
+              onRemovePage={handleRemoveDocumentPage}
+              isUploading={isUploading}
+              paperSize={paperSize}
+              setPaperSize={setPaperSize}
+              customPaperWidth={customPaperWidth}
+              setCustomPaperWidth={setCustomPaperWidth}
+              customPaperHeight={customPaperHeight}
+              setCustomPaperHeight={setCustomPaperHeight}
+              orientation={orientation}
+              setOrientation={setOrientation}
               colorProfile={colorProfile}
               setColorProfile={setColorProfile}
               dpi={printQuality}
@@ -1183,6 +1427,17 @@ export default function App() {
             onAddPassportCopy={() => handleAddPassportCopy()}
             onAutoAlignGrid={handleAutoAlignGrid}
             onCycleItemPhoto={handleCycleItemPhoto}
+            documentSettings={documentSettings}
+            onUploadDocumentTrigger={() => documentUploadInputRef.current?.click()}
+            onRotateDocumentPage={handleRotateDocumentPage}
+            onEditDocumentPage={(idx) => setEditingDocumentPageIndex(idx)}
+            onSelectDocumentPage={(idx) =>
+              setDocumentSettings((prev) => ({ ...prev, activePageIndex: idx }))
+            }
+            onChangeDocumentFitMode={(fitMode: DocumentFitMode) =>
+              setDocumentSettings((prev) => ({ ...prev, fitMode }))
+            }
+            onToggleDocumentWhiteFilter={handleToggleDocumentWhiteFilter}
           />
         </section>
       </main>
@@ -1230,6 +1485,17 @@ export default function App() {
         }}
         className="hidden"
       />
+      <input
+        ref={documentUploadInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        onChange={(e) => {
+          handleUploadDocuments(e.target.files);
+          e.target.value = '';
+        }}
+        className="hidden"
+      />
 
       {/* Mobile Sticky Bottom Action Bar (Mobile Only) */}
       <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2 px-3 flex items-center justify-between gap-2 shadow-2xl">
@@ -1240,6 +1506,15 @@ export default function App() {
           >
             <Edit3 className="w-3.5 h-3.5 text-blue-600" />
             <span className="truncate">{lang === 'bn' ? 'ছবি এডিট' : 'Edit Photo'}</span>
+          </button>
+        )}
+        {mode === 'document' && documentSettings.pages.length > 0 && (
+          <button
+            onClick={() => setEditingDocumentPageIndex(documentSettings.activePageIndex)}
+            className="flex-1 py-2 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95"
+          >
+            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+            <span className="truncate">{lang === 'bn' ? 'এডিট ও ক্রপ' : 'Edit Paper'}</span>
           </button>
         )}
         <button
@@ -1308,6 +1583,17 @@ export default function App() {
         />
       )}
 
+      {/* 6B. Document / Fit-to-Paper Editor Modal */}
+      {editingDocumentPageIndex !== null && documentSettings.pages[editingDocumentPageIndex] && (
+        <DocumentEditorModal
+          isOpen={true}
+          page={documentSettings.pages[editingDocumentPageIndex]}
+          onClose={() => setEditingDocumentPageIndex(null)}
+          onSave={handleSaveDocumentEdits}
+          lang={lang}
+        />
+      )}
+
       {/* 7. Keyboard Shortcuts Cheat Sheet Modal */}
       <ShortcutsModal
         isOpen={isShortcutsOpen}
@@ -1327,6 +1613,7 @@ export default function App() {
         colorProfile={colorProfile}
         passportItems={passportItems}
         nid={nid}
+        documentSettings={documentSettings}
       />
     </div>
   );
