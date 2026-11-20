@@ -441,16 +441,16 @@ export async function exportToPdf(options: RenderSheetOptions, filename: string)
           activePageIndex: i,
         },
       });
-      const imgData = pageCanvas.toDataURL('image/png');
-      pdf.addImage(imgData, 'PNG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
+      const imgData = pageCanvas.toDataURL('image/jpeg', 0.94);
+      pdf.addImage(imgData, 'JPEG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
     }
     pdf.save(filename);
     return;
   }
 
   const canvas = await generateHighResSheetCanvas(options);
-  const imgData = canvas.toDataURL('image/png');
-  pdf.addImage(imgData, 'PNG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
+  const imgData = canvas.toDataURL('image/jpeg', 0.95);
+  pdf.addImage(imgData, 'JPEG', 0, 0, sheetWidthMm, sheetHeightMm, undefined, 'FAST');
   pdf.save(filename);
 }
 

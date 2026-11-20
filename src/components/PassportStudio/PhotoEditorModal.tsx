@@ -85,10 +85,10 @@ export const PhotoEditorModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-1.5 sm:p-4 md:p-6 overflow-y-auto">
-      <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[96vh] sm:max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-md p-1.5 sm:p-4 md:p-6 overflow-y-auto">
+      <div className="w-full max-w-4xl glass-modal rounded-2xl flex flex-col max-h-[96vh] sm:max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3.5 border-b border-slate-200/60 dark:border-white/10 shrink-0">
           <div className="flex items-center gap-2">
             <Sliders className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
             <div>
@@ -102,7 +102,7 @@ export const PhotoEditorModal: React.FC<Props> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+            className="p-1 sm:p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10 transition cursor-pointer"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
@@ -165,15 +165,15 @@ export const PhotoEditorModal: React.FC<Props> = ({
           </div>
 
           {/* Controls Panel */}
-          <div className="md:col-span-5 p-4 sm:p-5 flex flex-col bg-slate-50 dark:bg-slate-900/60 border-t md:border-t-0 md:border-l border-slate-200 dark:border-slate-800">
+          <div className="md:col-span-5 p-4 sm:p-5 flex flex-col bg-white/35 dark:bg-slate-950/35 border-t md:border-t-0 md:border-l border-slate-200/60 dark:border-white/10">
             {/* Tabs: ONLY 2 Tabs (Adjustments & Crop) */}
-            <div className="flex rounded-xl bg-slate-200 dark:bg-slate-800 p-1 mb-4 text-xs font-semibold border border-slate-200 dark:border-slate-700">
+            <div className="flex rounded-xl glass-track p-1 mb-4 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => setActiveTab('adjust')}
                 className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
                   activeTab === 'adjust'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                    ? 'glass-tab-active font-bold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -185,7 +185,7 @@ export const PhotoEditorModal: React.FC<Props> = ({
                 onClick={() => setActiveTab('crop')}
                 className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
                   activeTab === 'crop'
-                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs font-bold'
+                    ? 'glass-tab-active font-bold'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
@@ -415,11 +415,11 @@ export const PhotoEditorModal: React.FC<Props> = ({
             )}
 
             {/* Bottom Actions */}
-            <div className="mt-auto pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div className="mt-auto pt-4 border-t border-slate-200/60 dark:border-white/10 flex items-center justify-between gap-2">
               <button
                 type="button"
                 onClick={handleReset}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10 rounded-xl transition cursor-pointer"
               >
                 {t.reset}
               </button>
@@ -428,14 +428,14 @@ export const PhotoEditorModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800 rounded-lg transition cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-white/10 rounded-xl transition cursor-pointer"
                 >
                   {t.cancel}
                 </button>
                 <button
                   type="button"
                   onClick={() => onSave(adjustments)}
-                  className="px-4 py-2 text-xs sm:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-md shadow-blue-500/20 flex items-center gap-1.5 transition cursor-pointer"
+                  className="px-4 py-2 text-xs sm:text-sm font-semibold glass-btn-primary text-white rounded-xl flex items-center gap-1.5 transition cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
                   <span>{t.applyChanges}</span>

@@ -14,6 +14,7 @@ import {
   PaperSizeType,
 } from '../../types';
 import { NID_STANDARD_HEIGHT, NID_STANDARD_WIDTH } from '../../utils/constants';
+import { processNIDImage } from '../../utils/imageProcessing';
 import {
   InspectorHeader,
   InspectorSection,
@@ -72,38 +73,77 @@ export const NidControls: React.FC<Props> = ({
   const backInputRef = useRef<HTMLInputElement>(null);
   const [editorSide, setEditorSide] = useState<'front' | 'back' | null>(null);
 
-  const handleUploadFront = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadSide = (side: 'front' | 'back', e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         const src = ev.target?.result as string;
-        setNid((prev) => ({
-          ...prev,
-          frontImage: src,
-          processedFrontImage: src,
-        }));
+        const processed = nid.autoWhiteDocument
+          ? await processNIDImage(src, {
+              straightenAngle: 0,
+              crop: null,
+              autoWhiteDocument: true,
+              docThreshold: nid.docThreshold,
+              docContrast: nid.docContrast,
+              brightness: 0,
+            })
+          : src;
+
+        setNid((prev) =>
+          side === 'front'
+            ? {
+                ...prev,
+                frontImage: src,
+                processedFrontImage: processed,
+                frontStraighten: 0,
+                frontCrop: null,
+                frontBrightness: 0,
+              }
+            : {
+                ...prev,
+                backImage: src,
+                processedBackImage: processed,
+                backStraighten: 0,
+                backCrop: null,
+                backBrightness: 0,
+              }
+        );
       };
       reader.readAsDataURL(file);
       e.target.value = '';
     }
   };
 
-  const handleUploadBack = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const src = ev.target?.result as string;
-        setNid((prev) => ({
-          ...prev,
-          backImage: src,
-          processedBackImage: src,
-        }));
-      };
-      reader.readAsDataURL(file);
-      e.target.value = '';
-    }
+  const handleToggleWhiteFilter = async (enabled: boolean) => {
+    setNid((prev) => ({ ...prev, autoWhiteDocument: enabled }));
+    const nextFront = nid.frontImage
+      ? await processNIDImage(nid.frontImage, {
+          straightenAngle: nid.frontStraighten,
+          crop: nid.frontCrop,
+          autoWhiteDocument: enabled,
+          docThreshold: nid.docThreshold,
+          docContrast: nid.docContrast,
+          brightness: nid.frontBrightness,
+        })
+      : '';
+    const nextBack = nid.backImage
+      ? await processNIDImage(nid.backImage, {
+          straightenAngle: nid.backStraighten,
+          crop: nid.backCrop,
+          autoWhiteDocument: enabled,
+          docThreshold: nid.docThreshold,
+          docContrast: nid.docContrast,
+          brightness: nid.backBrightness,
+        })
+      : '';
+
+    setNid((prev) => ({
+      ...prev,
+      autoWhiteDocument: enabled,
+      processedFrontImage: prev.frontImage ? nextFront : '',
+      processedBackImage: prev.backImage ? nextBack : '',
+    }));
   };
 
   return (
@@ -146,7 +186,7 @@ export const NidControls: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setEditorSide('front')}
-                        className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950 rounded cursor-pointer"
+                        className="p-1 text-blue-600 dark:text-blue-400 hover:bg-white/60 dark:hover:bg-white/10 rounded cursor-pointer"
                         title={lang === 'en' ? 'Edit Front' : 'এডিট'}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
@@ -170,23 +210,23 @@ export const NidControls: React.FC<Props> = ({
                 </div>
                 <div
                   onClick={() => frontInputRef.current?.click()}
-                  className="relative aspect-[85.6/54] rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 overflow-hidden flex items-center justify-center bg-slate-50/70 dark:bg-slate-900 cursor-pointer transition-colors group"
+                  className="relative aspect-[85.6/54] rounded-2xl glass-dropzone overflow-hidden flex items-center justify-center cursor-pointer group"
                 >
                   <input
                     ref={frontInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={handleUploadFront}
+                    onChange={(e) => handleUploadSide('front', e)}
                     className="hidden"
                   />
                   {nid.processedFrontImage || nid.frontImage ? (
                     <img
                       src={(nid.processedFrontImage || nid.frontImage) || undefined}
                       alt="Front Side"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-fill"
                     />
                   ) : (
-                    <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-blue-600 p-2 text-center">
+                    <div className="flex flex-col items-center gap-1 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 p-2 text-center">
                       <Upload className="w-4 h-4" />
                       <span className="text-xs font-semibold">
                         {lang === 'en' ? 'Upload Front' : 'সামনের ছবি'}
@@ -207,7 +247,7 @@ export const NidControls: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setEditorSide('back')}
-                        className="p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950 rounded cursor-pointer"
+                        className="p-1 text-blue-600 dark:text-blue-400 hover:bg-white/60 dark:hover:bg-white/10 rounded cursor-pointer"
                         title={lang === 'en' ? 'Edit Back' : 'এডিট'}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
@@ -231,23 +271,23 @@ export const NidControls: React.FC<Props> = ({
                 </div>
                 <div
                   onClick={() => backInputRef.current?.click()}
-                  className="relative aspect-[85.6/54] rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 overflow-hidden flex items-center justify-center bg-slate-50/70 dark:bg-slate-900 cursor-pointer transition-colors group"
+                  className="relative aspect-[85.6/54] rounded-2xl glass-dropzone overflow-hidden flex items-center justify-center cursor-pointer group"
                 >
                   <input
                     ref={backInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={handleUploadBack}
+                    onChange={(e) => handleUploadSide('back', e)}
                     className="hidden"
                   />
                   {nid.processedBackImage || nid.backImage ? (
                     <img
                       src={(nid.processedBackImage || nid.backImage) || undefined}
                       alt="Back Side"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-fill"
                     />
                   ) : (
-                    <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-blue-600 p-2 text-center">
+                    <div className="flex flex-col items-center gap-1 text-slate-500 dark:text-slate-400 group-hover:text-blue-600 p-2 text-center">
                       <Upload className="w-4 h-4" />
                       <span className="text-xs font-semibold">
                         {lang === 'en' ? 'Upload Back' : 'পেছনের ছবি'}
@@ -258,14 +298,14 @@ export const NidControls: React.FC<Props> = ({
               </div>
             </div>
 
-            <label className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/60 flex items-center justify-between gap-3 cursor-pointer">
+            <label className="p-3 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/12 border border-emerald-500/25 flex items-center justify-between gap-3 cursor-pointer">
               <div className="flex items-center gap-2.5">
-                <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
+                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <div>
                   <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
                     {lang === 'en' ? 'Clean White Document Filter' : 'সাদা ডকুমেন্ট স্ক্যানার ফিল্টার'}
                   </span>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
+                  <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
                     {lang === 'en'
                       ? 'Removes table shadows & brightens paper background'
                       : 'টেবিলের ছায়া দূর করে পরিষ্কার সাদা প্রিন্ট তৈরি করে'}
@@ -275,9 +315,7 @@ export const NidControls: React.FC<Props> = ({
               <input
                 type="checkbox"
                 checked={nid.autoWhiteDocument}
-                onChange={(e) =>
-                  setNid((prev) => ({ ...prev, autoWhiteDocument: e.target.checked }))
-                }
+                onChange={(e) => void handleToggleWhiteFilter(e.target.checked)}
                 className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
               />
             </label>
@@ -302,16 +340,22 @@ export const NidControls: React.FC<Props> = ({
                     cardHeight: NID_STANDARD_HEIGHT,
                   }))
                 }
-                className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
+                className={`p-3 rounded-xl text-left transition-all cursor-pointer ${
                   Math.abs(nid.cardWidth - NID_STANDARD_WIDTH) < 0.5
-                    ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100'
-                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-blue-400'
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-800 dark:text-slate-100'
                 }`}
               >
                 <span className="text-xs font-bold block">
                   {lang === 'en' ? 'Smart NID (ID-1)' : 'স্মার্ট এনআইডি (ID-1)'}
                 </span>
-                <span className="text-[11px] text-slate-400 font-mono block mt-0.5 tabular-nums">
+                <span
+                  className={`text-[11px] font-mono block mt-0.5 tabular-nums ${
+                    Math.abs(nid.cardWidth - NID_STANDARD_WIDTH) < 0.5
+                      ? 'text-blue-100'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
                   85.6 × 54 mm
                 </span>
               </button>
@@ -325,24 +369,30 @@ export const NidControls: React.FC<Props> = ({
                     cardHeight: 60,
                   }))
                 }
-                className={`p-3 rounded-lg border text-left transition-colors cursor-pointer ${
+                className={`p-3 rounded-xl text-left transition-all cursor-pointer ${
                   Math.abs(nid.cardWidth - 92) < 0.5
-                    ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100'
-                    : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-blue-400'
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-800 dark:text-slate-100'
                 }`}
               >
                 <span className="text-xs font-bold block">
                   {lang === 'en' ? 'Old Voter ID' : 'পুরাতন ভোটার আইডি'}
                 </span>
-                <span className="text-[11px] text-slate-400 font-mono block mt-0.5 tabular-nums">
+                <span
+                  className={`text-[11px] font-mono block mt-0.5 tabular-nums ${
+                    Math.abs(nid.cardWidth - 92) < 0.5
+                      ? 'text-blue-100'
+                      : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
                   92 × 60 mm
                 </span>
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+            <div className="grid grid-cols-2 gap-2.5 p-3 rounded-xl glass-track">
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
                   {lang === 'en' ? 'Width (mm)' : 'প্রস্থ (মিমি)'}
                 </label>
                 <input
@@ -357,11 +407,11 @@ export const NidControls: React.FC<Props> = ({
                       cardWidth: Math.max(40, Math.min(180, Number(e.target.value) || 85.6)),
                     }))
                   }
-                  className="w-full px-2.5 py-1.5 text-xs rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono tabular-nums"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-lg glass-input text-slate-900 dark:text-slate-100 font-mono tabular-nums"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
                   {lang === 'en' ? 'Height (mm)' : 'উচ্চতা (মিমি)'}
                 </label>
                 <input
@@ -376,17 +426,17 @@ export const NidControls: React.FC<Props> = ({
                       cardHeight: Math.max(30, Math.min(180, Number(e.target.value) || 54)),
                     }))
                   }
-                  className="w-full px-2.5 py-1.5 text-xs rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 font-mono tabular-nums"
+                  className="w-full px-2.5 py-1.5 text-xs rounded-lg glass-input text-slate-900 dark:text-slate-100 font-mono tabular-nums"
                 />
               </div>
             </div>
           </InspectorSection>
 
           <InspectorSection title={lang === 'en' ? 'Placement & Spacing' : 'অবস্থান ও গ্যাপ'}>
-            <label className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer">
+            <label className="p-3 rounded-xl glass-tile flex items-center justify-between cursor-pointer">
               <div className="flex items-center gap-2">
                 <AlignCenter className="w-4 h-4 text-slate-500" />
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">
                   {lang === 'en' ? 'Center Vertically on Page' : 'পেজের মাঝখানে বসান'}
                 </span>
               </div>
@@ -402,7 +452,7 @@ export const NidControls: React.FC<Props> = ({
 
             <div className="space-y-1.5 text-xs">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600 dark:text-slate-400">
+                <span className="text-slate-600 dark:text-slate-300">
                   {lang === 'en' ? 'Gap between Front & Back' : 'উপর-নিচ মধ্যবর্তী গ্যাপ'}
                 </span>
                 <span className="font-mono font-semibold text-blue-600 dark:text-blue-400 tabular-nums">

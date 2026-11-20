@@ -587,7 +587,167 @@ function applySharpen(
 }
 
 /**
- * Document Scanner & Whitener for NID cards
+ * Detects tight bounding box of an ID card inside an image by trimming uniform
+ * white/near-white or transparent outer margins. Returns a CropRect in percentages
+ * (0-100) or null if no significant uniform border exists.
+ */
+export async function detectCardContentBounds(src: string): Promise<CropRect | null> {
+  const img = await loadImage(src);
+  const maxDim = 480;
+  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+
+  ctx.drawImage(img, 0, 0, w, h);
+  const { data } = ctx.getImageData(0, 0, w, h);
+
+  // Determine if pixel is uniform light-paper/white or transparent border
+  const isMarginPixel = (x: number, y: number): boolean => {
+    const idx = (y * w + x) * 4;
+    const a = data[idx + 3];
+    if (a < 20) return true;
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    const maxDiff = Math.max(Math.abs(r - g), Math.abs(g - b), Math.abs(r - b));
+    return lum >= 242 && maxDiff <= 14;
+  };
+
+  // Require at least 2% non-margin pixels along a scanline to count as card content
+  const isContentRow = (y: number): boolean => {
+    let nonMargin = 0;
+    const minNeeded = Math.max(3, Math.floor(w * 0.025));
+    for (let x = 0; x < w; x++) {
+      if (!isMarginPixel(x, y)) {
+        nonMargin++;
+        if (nonMargin >= minNeeded) return true;
+      }
+    }
+    return false;
+  };
+
+  const isContentCol = (x: number, topY: number, bottomY: number): boolean => {
+    let nonMargin = 0;
+    const span = Math.max(1, bottomY - topY + 1);
+    const minNeeded = Math.max(3, Math.floor(span * 0.025));
+    for (let y = topY; y <= bottomY; y++) {
+      if (!isMarginPixel(x, y)) {
+        nonMargin++;
+        if (nonMargin >= minNeeded) return true;
+      }
+    }
+    return false;
+  };
+
+  let top = 0;
+  while (top < h - 1 && !isContentRow(top)) top++;
+  let bottom = h - 1;
+  while (bottom > top && !isContentRow(bottom)) bottom--;
+
+  let left = 0;
+  while (left < w - 1 && !isContentCol(left, top, bottom)) left++;
+  let right = w - 1;
+  while (right > left && !isContentCol(right, top, bottom)) right--;
+
+  const boxW = right - left + 1;
+  const boxH = bottom - top + 1;
+
+  // Guardrail: never crop away more than 65% of either axis or if trim is negligible (<1.2%)
+  if (boxW < w * 0.35 || boxH < h * 0.35) return null;
+  const trimmedTotal = (w - boxW) / w + (h - boxH) / h;
+  if (trimmedTotal < 0.015) return null;
+
+  return {
+    x: Math.round((left / w) * 1000) / 10,
+    y: Math.round((top / h) * 1000) / 10,
+    width: Math.round((boxW / w) * 1000) / 10,
+    height: Math.round((boxH / h) * 1000) / 10,
+  };
+}
+
+/**
+ * Prepares an uploaded ID card image for Lamination so both Front and Back
+ * match the exact physical slot orientation & fill edge-to-edge equally.
+ */
+export async function prepareLaminationCardImage(
+  src: string,
+  options: {
+    targetWidthMm: number;
+    targetHeightMm: number;
+    autoWhiteDocument: boolean;
+    docThreshold: number;
+    docContrast: number;
+    brightness?: number;
+    autoTrim?: boolean;
+    autoOrient?: boolean;
+  }
+): Promise<{
+  processedSrc: string;
+  crop: CropRect | null;
+  straightenAngle: number;
+}> {
+  const autoTrim = options.autoTrim ?? true;
+  const autoOrient = options.autoOrient ?? true;
+  const brightness = options.brightness ?? 0;
+
+  const img = await loadImage(src);
+  const detectedCrop = autoTrim ? await detectCardContentBounds(src) : null;
+
+  const effW = detectedCrop ? (detectedCrop.width / 100) * img.width : img.width;
+  const effH = detectedCrop ? (detectedCrop.height / 100) * img.height : img.height;
+
+  const slotIsLandscape = options.targetWidthMm >= options.targetHeightMm;
+  const imgIsPortrait = effH > effW * 1.15;
+  const imgIsLandscape = effW > effH * 1.15;
+
+  let straightenAngle = 0;
+  if (autoOrient) {
+    if (slotIsLandscape && imgIsPortrait) {
+      straightenAngle = 90;
+    } else if (!slotIsLandscape && imgIsLandscape) {
+      straightenAngle = 90;
+    }
+  }
+
+  const needsProcessing =
+    Boolean(detectedCrop) ||
+    straightenAngle !== 0 ||
+    options.autoWhiteDocument ||
+    brightness !== 0;
+
+  if (!needsProcessing) {
+    return {
+      processedSrc: src,
+      crop: null,
+      straightenAngle: 0,
+    };
+  }
+
+  const processedSrc = await processNIDImage(src, {
+    straightenAngle,
+    crop: detectedCrop,
+    autoWhiteDocument: options.autoWhiteDocument,
+    docThreshold: options.docThreshold,
+    docContrast: options.docContrast,
+    brightness,
+  });
+
+  return {
+    processedSrc,
+    crop: detectedCrop,
+    straightenAngle,
+  };
+}
+
+/**
+ * Document Scanner & Whitener for NID & Lamination ID cards
  */
 export async function processNIDImage(
   src: string,
@@ -602,6 +762,14 @@ export async function processNIDImage(
 ): Promise<string> {
   const img = await loadImage(src);
 
+  const normalizedAngle = ((options.straightenAngle % 360) + 360) % 360;
+  const isUntouched =
+    !options.crop &&
+    normalizedAngle === 0 &&
+    !options.autoWhiteDocument &&
+    options.brightness === 0;
+  if (isUntouched) return src;
+
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return src;
@@ -612,21 +780,36 @@ export async function processNIDImage(
   let sHeight = img.height;
 
   if (options.crop) {
-    sx = (options.crop.x / 100) * img.width;
-    sy = (options.crop.y / 100) * img.height;
-    sWidth = (options.crop.width / 100) * img.width;
-    sHeight = (options.crop.height / 100) * img.height;
+    sx = Math.max(0, (options.crop.x / 100) * img.width);
+    sy = Math.max(0, (options.crop.y / 100) * img.height);
+    sWidth = Math.max(10, (options.crop.width / 100) * img.width);
+    sHeight = Math.max(10, (options.crop.height / 100) * img.height);
   }
 
-  const rad = (options.straightenAngle * Math.PI) / 180;
-  const sin = Math.abs(Math.sin(rad));
-  const cos = Math.abs(Math.cos(rad));
-  const rotWidth = Math.round(sWidth * cos + sHeight * sin);
-  const rotHeight = Math.round(sWidth * sin + sHeight * cos);
+  let rotWidth: number;
+  let rotHeight: number;
+  if (normalizedAngle === 90 || normalizedAngle === 270) {
+    rotWidth = Math.round(sHeight);
+    rotHeight = Math.round(sWidth);
+  } else if (normalizedAngle === 0 || normalizedAngle === 180) {
+    rotWidth = Math.round(sWidth);
+    rotHeight = Math.round(sHeight);
+  } else {
+    const rad = (options.straightenAngle * Math.PI) / 180;
+    const sin = Math.abs(Math.sin(rad));
+    const cos = Math.abs(Math.cos(rad));
+    rotWidth = Math.round(sWidth * cos + sHeight * sin);
+    rotHeight = Math.round(sWidth * sin + sHeight * cos);
+  }
 
   canvas.width = rotWidth;
   canvas.height = rotHeight;
 
+  // Always paint pure white before rotating so corners never turn black
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, rotWidth, rotHeight);
+
+  const rad = (options.straightenAngle * Math.PI) / 180;
   ctx.save();
   ctx.translate(rotWidth / 2, rotHeight / 2);
   ctx.rotate(rad);
@@ -643,7 +826,7 @@ export async function processNIDImage(
   );
   ctx.restore();
 
-  if (options.autoWhiteDocument) {
+  if (options.autoWhiteDocument || options.brightness !== 0) {
     const w = canvas.width;
     const h = canvas.height;
     const imgData = ctx.getImageData(0, 0, w, h);
@@ -658,20 +841,22 @@ export async function processNIDImage(
       let g = data[i + 1] + bShift;
       let b = data[i + 2] + bShift;
 
-      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (options.autoWhiteDocument) {
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
 
-      if (lum >= paperThreshold) {
-        const whiteFactor = Math.min(
-          1,
-          (lum - paperThreshold) / (255 - paperThreshold + 1)
-        );
-        r = r + (255 - r) * (0.8 + 0.2 * whiteFactor);
-        g = g + (255 - g) * (0.8 + 0.2 * whiteFactor);
-        b = b + (255 - b) * (0.8 + 0.2 * whiteFactor);
-      } else {
-        r = (r - 128) * boostContrast + 128;
-        g = (g - 128) * boostContrast + 128;
-        b = (b - 128) * boostContrast + 128;
+        if (lum >= paperThreshold) {
+          const whiteFactor = Math.min(
+            1,
+            (lum - paperThreshold) / (255 - paperThreshold + 1)
+          );
+          r = r + (255 - r) * (0.8 + 0.2 * whiteFactor);
+          g = g + (255 - g) * (0.8 + 0.2 * whiteFactor);
+          b = b + (255 - b) * (0.8 + 0.2 * whiteFactor);
+        } else {
+          r = (r - 128) * boostContrast + 128;
+          g = (g - 128) * boostContrast + 128;
+          b = (b - 128) * boostContrast + 128;
+        }
       }
 
       data[i] = Math.min(255, Math.max(0, r));
@@ -682,7 +867,7 @@ export async function processNIDImage(
     ctx.putImageData(imgData, 0, 0);
   }
 
-  return canvas.toDataURL('image/jpeg', 0.95);
+  return canvas.toDataURL('image/jpeg', 0.96);
 }
 
 /**

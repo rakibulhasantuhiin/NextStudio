@@ -14,17 +14,23 @@ import {
   Copy,
   CreditCard,
   Edit3,
+  FileDown,
   FileText,
   Layers,
+  LayoutList,
+  Loader2,
   Lock,
   Maximize2,
+  Mouse,
   MousePointer,
   Move,
   Plus,
+  Printer,
   RefreshCw,
   RotateCw,
   Scissors,
   Sparkles,
+  Square,
   Target,
   Trash2,
   Upload,
@@ -90,6 +96,10 @@ interface Props {
   onSelectDocumentPage?: (index: number) => void;
   onChangeDocumentFitMode?: (mode: DocumentFitMode) => void;
   onToggleDocumentWhiteFilter?: (index: number) => void;
+  onRemoveDocumentPage?: (index: number) => void;
+  onPrintAll?: () => void;
+  onDownloadAllPdf?: () => void;
+  isExporting?: boolean;
   // Lamination Side-by-Side ID Card props
   lamination?: LaminationCardSettings;
   onMoveLamination?: (coords: { frontX: number; frontY: number; backX: number; backY: number }) => void;
@@ -101,6 +111,7 @@ interface Props {
   onSnapLaminationLevel?: () => void;
   onSwapLaminationSides?: () => void;
   onToggleLaminationFoldLine?: () => void;
+  onRotateLaminationSide?: (side: 'front' | 'back') => void;
 }
 
 export const PaperPreview: React.FC<Props> = ({
@@ -143,6 +154,10 @@ export const PaperPreview: React.FC<Props> = ({
   onSelectDocumentPage,
   onChangeDocumentFitMode,
   onToggleDocumentWhiteFilter,
+  onRemoveDocumentPage,
+  onPrintAll,
+  onDownloadAllPdf,
+  isExporting,
   lamination,
   onMoveLamination,
   onEditLaminationSide,
@@ -153,6 +168,7 @@ export const PaperPreview: React.FC<Props> = ({
   onSnapLaminationLevel,
   onSwapLaminationSides,
   onToggleLaminationFoldLine,
+  onRotateLaminationSide,
 }) => {
   const t = translations[lang];
 
@@ -164,6 +180,42 @@ export const PaperPreview: React.FC<Props> = ({
   const mmToPx = 3.5 * zoom;
   const sheetWidthPx = paperWidthMm * mmToPx;
   const sheetHeightPx = paperHeightMm * mmToPx;
+
+  // Hover mouse-wheel zoom over the paper preview stage
+  const [wheelZoomEnabled, setWheelZoomEnabled] = useState<boolean>(true);
+  const [zoomHudVisible, setZoomHudVisible] = useState<boolean>(false);
+  const zoomHudTimerRef = useRef<number | null>(null);
+  const paperStageRef = useRef<HTMLDivElement>(null);
+
+  // Multi-page Document view mode: 'all' shows all uploaded pages stacked, 'single' focuses active page
+  const [docViewMode, setDocViewMode] = useState<'all' | 'single'>('all');
+
+  useEffect(() => {
+    const stageEl = paperStageRef.current;
+    if (!stageEl || !setZoom) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!wheelZoomEnabled && !e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const step = e.shiftKey ? 0.14 : 0.08;
+      setZoom((prev) => {
+        const next = Math.round((prev + direction * step) * 100) / 100;
+        return Math.max(0.3, Math.min(2.2, next));
+      });
+      setZoomHudVisible(true);
+      if (zoomHudTimerRef.current) window.clearTimeout(zoomHudTimerRef.current);
+      zoomHudTimerRef.current = window.setTimeout(() => {
+        setZoomHudVisible(false);
+      }, 900);
+    };
+
+    stageEl.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      stageEl.removeEventListener('wheel', handleWheel);
+      if (zoomHudTimerRef.current) window.clearTimeout(zoomHudTimerRef.current);
+    };
+  }, [setZoom, wheelZoomEnabled]);
 
   // Movement mode: 'all' (all photos move together) or 'single' (only selected photo moves)
   // Default to 'all' so that when multiple photos are on paper, dragging any photo moves all together!
@@ -720,8 +772,8 @@ export const PaperPreview: React.FC<Props> = ({
       className="relative flex-1 flex flex-col items-center justify-start p-3 sm:p-5 lg:p-6 overflow-auto select-none min-h-full no-print print:hidden"
     >
       {/* Unified Canvas Top Strip: Paper Metadata + Desktop Zoom Controls */}
-      <div className="mb-3 w-full max-w-5xl rounded-xl bg-white/90 dark:bg-[#0F172A]/90 backdrop-blur-sm border border-slate-200/90 dark:border-slate-800 px-3.5 py-2 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center sm:justify-start gap-2 flex-wrap text-center sm:text-left">
+      <div className="mb-3 w-full max-w-5xl rounded-2xl glass-strip px-3.5 py-2 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center justify-center sm:justify-start gap-2 flex-wrap text-center sm:text-left">
           <span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
             {paper.name} · {paperWidthMm} × {paperHeightMm} mm
           </span>
@@ -751,47 +803,78 @@ export const PaperPreview: React.FC<Props> = ({
           </span>
         </div>
 
-        {/* Integrated Precision Zoom Bar */}
+        {/* Integrated Precision Zoom Bar + Hover Wheel Zoom Toggle */}
         {setZoom && (
-          <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-900 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100));
+                setWheelZoomEnabled((v) => !v);
               }}
-              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title={t.zoomOut}
+              className={`px-2 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+                wheelZoomEnabled
+                  ? 'glass-tile text-blue-600 dark:text-blue-400 border-blue-400/50'
+                  : 'glass-track text-slate-500 dark:text-slate-400'
+              }`}
+              title={
+                lang === 'en'
+                  ? 'Mouse wheel over page zooms In/Out (click to toggle)'
+                  : 'পেজের ওপর মাউস স্ক্রল করলেই জুম ইন/আউট হবে (চালু/বন্ধ করুন)'
+              }
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              <Mouse className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">
+                {lang === 'en'
+                  ? wheelZoomEnabled
+                    ? 'Scroll Zoom'
+                    : 'Scroll Off'
+                  : wheelZoomEnabled
+                  ? 'স্ক্রল জুম'
+                  : 'স্ক্রল বন্ধ'}
+              </span>
             </button>
-            <span className="px-2 text-[11px] font-mono font-semibold text-slate-700 dark:text-slate-200 min-w-11 text-center tabular-nums">
-              {Math.round(zoom * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setZoom((z) => Math.min(2.0, Math.round((z + 0.1) * 100) / 100));
-              }}
-              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title={t.zoomIn}
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-            {onFitZoom && (
+
+            <div className="flex items-center gap-0.5 glass-track rounded-xl p-0.5 shrink-0">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onFitZoom();
+                  setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100));
                 }}
-                className="px-2 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-700 cursor-pointer"
-                title={t.zoomFit}
+                className="p-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-white/75 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                title={t.zoomOut}
               >
-                {lang === 'en' ? 'Fit' : 'ফিট'}
+                <ZoomOut className="w-3.5 h-3.5" />
               </button>
-            )}
+              <span className="px-2 text-[11px] font-mono font-semibold text-slate-800 dark:text-slate-100 min-w-11 text-center tabular-nums">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setZoom((z) => Math.min(2.2, Math.round((z + 0.1) * 100) / 100));
+                }}
+                className="p-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded-lg hover:bg-white/75 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                title={t.zoomIn}
+              >
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              {onFitZoom && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onFitZoom();
+                  }}
+                  className="px-2 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 rounded-lg hover:bg-white/75 dark:hover:bg-white/10 transition-colors border-l border-slate-300/60 dark:border-white/10 cursor-pointer"
+                  title={t.zoomFit}
+                >
+                  {lang === 'en' ? 'Fit' : 'ফিট'}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -802,13 +885,13 @@ export const PaperPreview: React.FC<Props> = ({
         {mode === 'lamination' && lamination && (
           <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
             {/* Move Mode Toggle: Move Both Together vs Single */}
-            <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
+            <div className="flex items-center glass-track p-0.5 rounded-xl text-xs">
               <button
                 type="button"
                 onClick={() => setLamMoveMode('both')}
-                className={`py-1 px-2.5 rounded-md font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                className={`py-1 px-2.5 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
                   lamMoveMode === 'both'
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'glass-btn-primary text-white'
                     : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
                 title={lang === 'bn' ? 'যেকোনো কার্ড টানলে ফ্রন্ট ও ব্যাক একসাথে সরবে' : 'Drag either card to move Front & Back together'}
@@ -819,9 +902,9 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setLamMoveMode('single')}
-                className={`py-1 px-2 rounded-md font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
+                className={`py-1 px-2 rounded-lg font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
                   lamMoveMode === 'single'
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'glass-btn-primary text-white'
                     : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
                 title={lang === 'bn' ? 'ফ্রন্ট অথবা ব্যাক আলাদাভাবে সিঙ্গেল টেনে সরান' : 'Move Front or Back independently'}
@@ -835,10 +918,10 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={onAlignLaminationTopCenter}
-                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={lang === 'bn' ? 'উপরে মাঝামাঝি বরাবর বসাবে' : 'Snap Front & Back to Top Center'}
               >
-                <AlignCenterHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                <AlignCenterHorizontal className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>{t.laminationTopCenter}</span>
               </button>
             )}
@@ -847,10 +930,10 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={onSnapLaminationLevel}
-                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={lang === 'bn' ? 'ফ্রন্ট ও ব্যাককে পাশাপাশি একদম সমান লাইনে বসাবে' : 'Align Back level next to Front'}
               >
-                <Columns2 className="w-3.5 h-3.5 text-blue-600" />
+                <Columns2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>{t.laminationSnapLevel}</span>
               </button>
             )}
@@ -859,19 +942,19 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={onCenterLaminationPage}
-                className="py-1 px-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={lang === 'bn' ? 'পেজের মাঝখানে সেন্টার করুন' : 'Center on sheet'}
               >
-                <Target className="w-3.5 h-3.5 text-blue-600" />
+                <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               </button>
             )}
 
             {/* Micro Nudge Arrows */}
-            <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 p-0.5">
+            <div className="flex items-center glass-tile rounded-xl p-0.5">
               <button
                 type="button"
                 onClick={() => handleNudgeLamination(0, -2)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? '২ মিমি উপরে' : 'Nudge Up 2mm'}
               >
                 <ArrowUp className="w-3 h-3" />
@@ -879,7 +962,7 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => handleNudgeLamination(0, 2)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? '২ মিমি নিচে' : 'Nudge Down 2mm'}
               >
                 <ArrowDown className="w-3 h-3" />
@@ -887,7 +970,7 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => handleNudgeLamination(-2, 0)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? '২ মিমি বামে' : 'Nudge Left 2mm'}
               >
                 <ArrowLeft className="w-3 h-3" />
@@ -895,7 +978,7 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => handleNudgeLamination(2, 0)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? '২ মিমি ডানে' : 'Nudge Right 2mm'}
               >
                 <ArrowRight className="w-3 h-3" />
@@ -906,10 +989,10 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={onSwapLaminationSides}
-                className="py-1 px-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={t.laminationSwapSides}
               >
-                <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
+                <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               </button>
             )}
 
@@ -917,10 +1000,10 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={onToggleLaminationFoldLine}
-                className={`py-1 px-2 rounded-lg border text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer ${
+                className={`py-1 px-2.5 rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer ${
                   lamination.showFoldLine
-                    ? 'bg-blue-600 border-blue-600 text-white'
-                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
                 }`}
                 title={t.laminationFoldLine}
               >
@@ -933,108 +1016,181 @@ export const PaperPreview: React.FC<Props> = ({
 
         {/* Document Mode Quick Toolbar */}
         {mode === 'document' && documentSettings && documentSettings.pages.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
-            {documentSettings.pages.length > 1 && (
-              <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 p-0.5 text-xs">
-                <button
-                  type="button"
-                  disabled={documentSettings.activePageIndex <= 0}
-                  onClick={() => onSelectDocumentPage?.(Math.max(0, documentSettings.activePageIndex - 1))}
-                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
-                  title={lang === 'en' ? 'Previous Page' : 'আগের পেজ'}
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <span className="px-2 font-mono font-semibold text-slate-700 dark:text-slate-200">
-                  {documentSettings.activePageIndex + 1}/{documentSettings.pages.length}
-                </span>
-                <button
-                  type="button"
-                  disabled={documentSettings.activePageIndex >= documentSettings.pages.length - 1}
-                  onClick={() =>
-                    onSelectDocumentPage?.(
-                      Math.min(documentSettings.pages.length - 1, documentSettings.activePageIndex + 1)
-                    )
-                  }
-                  className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-40 cursor-pointer"
-                  title={lang === 'en' ? 'Next Page' : 'পরের পেজ'}
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
+          <div className="w-full flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-start">
+              {/* All Pages vs Single Page View Switcher */}
+              {documentSettings.pages.length > 1 && (
+                <div className="flex items-center glass-track p-0.5 rounded-xl text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setDocViewMode('all')}
+                    className={`py-1 px-2.5 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                      docViewMode === 'all'
+                        ? 'glass-btn-primary text-white'
+                        : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <LayoutList className="w-3.5 h-3.5" />
+                    <span>
+                      {lang === 'en'
+                        ? `All Pages (${documentSettings.pages.length})`
+                        : `সব পেজ (${documentSettings.pages.length})`}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDocViewMode('single')}
+                    className={`py-1 px-2 rounded-lg font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
+                      docViewMode === 'single'
+                        ? 'glass-btn-primary text-white'
+                        : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Square className="w-3 h-3" />
+                    <span>{lang === 'en' ? 'Single' : 'একটি'}</span>
+                  </button>
+                </div>
+              )}
 
-            <button
-              type="button"
-              onClick={() => onRotateDocumentPage?.(documentSettings.activePageIndex)}
-              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-            >
-              <RotateCw className="w-3.5 h-3.5 text-blue-600" />
-              <span>{t.rotate90}</span>
-            </button>
+              {documentSettings.pages.length > 1 && docViewMode === 'single' && (
+                <div className="flex items-center glass-tile rounded-xl p-0.5 text-xs">
+                  <button
+                    type="button"
+                    disabled={documentSettings.activePageIndex <= 0}
+                    onClick={() => onSelectDocumentPage?.(Math.max(0, documentSettings.activePageIndex - 1))}
+                    className="p-1 rounded-lg hover:bg-white/70 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer"
+                    title={lang === 'en' ? 'Previous Page' : 'আগের পেজ'}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="px-2 font-mono font-semibold text-slate-700 dark:text-slate-200">
+                    {documentSettings.activePageIndex + 1}/{documentSettings.pages.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={documentSettings.activePageIndex >= documentSettings.pages.length - 1}
+                    onClick={() =>
+                      onSelectDocumentPage?.(
+                        Math.min(documentSettings.pages.length - 1, documentSettings.activePageIndex + 1)
+                      )
+                    }
+                    className="p-1 rounded-lg hover:bg-white/70 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer"
+                    title={lang === 'en' ? 'Next Page' : 'পরের পেজ'}
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
 
-            <button
-              type="button"
-              onClick={() =>
-                onChangeDocumentFitMode?.(
-                  documentSettings.fitMode === 'contain'
-                    ? 'cover'
-                    : documentSettings.fitMode === 'cover'
-                    ? 'stretch'
-                    : 'contain'
-                )
-              }
-              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-              title={lang === 'en' ? 'Cycle Fit / Fill / Stretch' : 'ফিট মোড পরিবর্তন'}
-            >
-              <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
-              <span>
-                {documentSettings.fitMode === 'contain'
-                  ? lang === 'en'
-                    ? 'Fit'
-                    : 'ফিট'
-                  : documentSettings.fitMode === 'cover'
-                  ? lang === 'en'
-                    ? 'Fill'
-                    : 'ফিল'
-                  : lang === 'en'
-                  ? 'Stretch'
-                  : 'স্ট্রেচ'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onToggleDocumentWhiteFilter?.(documentSettings.activePageIndex)}
-              className={`py-1 px-2.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer ${
-                documentSettings.pages[documentSettings.activePageIndex]?.autoWhiteDocument
-                  ? 'bg-emerald-600 border-emerald-600 text-white'
-                  : 'bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{lang === 'en' ? 'White Paper' : 'সাদা স্ক্যান'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onEditDocumentPage?.(documentSettings.activePageIndex)}
-              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-blue-600" />
-              <span>{t.editDocument}</span>
-            </button>
-
-            {onUploadDocumentTrigger && (
               <button
                 type="button"
-                onClick={onUploadDocumentTrigger}
-                className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                onClick={() => onRotateDocumentPage?.(documentSettings.activePageIndex)}
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>{lang === 'en' ? 'Add Page' : 'পেজ যোগ'}</span>
+                <RotateCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>{t.rotate90}</span>
               </button>
-            )}
+
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeDocumentFitMode?.(
+                    documentSettings.fitMode === 'contain'
+                      ? 'cover'
+                      : documentSettings.fitMode === 'cover'
+                      ? 'stretch'
+                      : 'contain'
+                  )
+                }
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                title={lang === 'en' ? 'Cycle Fit / Fill / Stretch' : 'ফিট মোড পরিবর্তন'}
+              >
+                <Maximize2 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>
+                  {documentSettings.fitMode === 'contain'
+                    ? lang === 'en'
+                      ? 'Fit'
+                      : 'ফিট'
+                    : documentSettings.fitMode === 'cover'
+                    ? lang === 'en'
+                      ? 'Fill'
+                      : 'ফিল'
+                    : lang === 'en'
+                    ? 'Stretch'
+                    : 'স্ট্রেচ'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onToggleDocumentWhiteFilter?.(documentSettings.activePageIndex)}
+                className={`py-1 px-2.5 rounded-xl border text-xs font-semibold flex items-center gap-1 transition cursor-pointer ${
+                  documentSettings.pages[documentSettings.activePageIndex]?.autoWhiteDocument
+                    ? 'glass-btn-emerald text-white border-emerald-400/50'
+                    : 'glass-tile text-slate-800 dark:text-slate-100'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{lang === 'en' ? 'White Paper' : 'সাদা স্ক্যান'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onEditDocumentPage?.(documentSettings.activePageIndex)}
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>{t.editDocument}</span>
+              </button>
+
+              {onUploadDocumentTrigger && (
+                <button
+                  type="button"
+                  onClick={onUploadDocumentTrigger}
+                  className="py-1 px-2.5 rounded-xl glass-tile text-blue-700 dark:text-blue-300 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{lang === 'en' ? 'Add Pages' : 'পেজ যোগ'}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Direct Multi-Page Print All & Save PDF CTA Buttons */}
+            <div className="flex items-center gap-1.5">
+              {onDownloadAllPdf && (
+                <button
+                  type="button"
+                  disabled={isExporting}
+                  onClick={onDownloadAllPdf}
+                  className="py-1.5 px-3 rounded-xl glass-btn-emerald text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-60"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <FileDown className="w-3.5 h-3.5" />
+                  )}
+                  <span>
+                    {lang === 'en'
+                      ? `Save PDF (${documentSettings.pages.length})`
+                      : `সব পেজ PDF (${documentSettings.pages.length})`}
+                  </span>
+                </button>
+              )}
+              {onPrintAll && (
+                <button
+                  type="button"
+                  onClick={onPrintAll}
+                  className="py-1.5 px-3 rounded-xl glass-btn-primary text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>
+                    {lang === 'en'
+                      ? `Print All (${documentSettings.pages.length})`
+                      : `সব প্রিন্ট (${documentSettings.pages.length})`}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -1042,13 +1198,13 @@ export const PaperPreview: React.FC<Props> = ({
         {mode === 'passport' && passportItems.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
             {/* Move Mode Toggle: Move All Together vs Single Photo */}
-            <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
+            <div className="flex items-center glass-track p-0.5 rounded-xl text-xs">
               <button
                 type="button"
                 onClick={() => setMoveMode('all')}
-                className={`py-1 px-2.5 rounded-md font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                className={`py-1 px-2.5 rounded-lg font-bold text-xs flex items-center gap-1.5 transition cursor-pointer ${
                   moveMode === 'all'
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'glass-btn-primary text-white'
                     : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
                 title={lang === 'bn' ? 'যেকোনো একটি ছবি মাউস দিয়ে টানলে সবগুলো ছবি একসাথে নড়বে' : 'Dragging any photo moves all photos together'}
@@ -1059,9 +1215,9 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setMoveMode('single')}
-                className={`py-1 px-2 rounded-md font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
+                className={`py-1 px-2 rounded-lg font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
                   moveMode === 'single'
-                    ? 'bg-blue-600 text-white shadow-xs'
+                    ? 'glass-btn-primary text-white'
                     : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                 }`}
                 title={lang === 'bn' ? 'শুধুমাত্র সিলেক্ট করা ছবিটি একা নড়বে' : 'Move only one selected photo'}
@@ -1075,19 +1231,19 @@ export const PaperPreview: React.FC<Props> = ({
             <button
               type="button"
               onClick={handleCenterAll}
-              className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+              className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
               title={lang === 'bn' ? 'সব ছবি পেপারের মাঝে নিখুঁতভাবে সেন্টারিং করুন' : 'Center all photos on sheet'}
             >
-              <Target className="w-3.5 h-3.5 text-blue-600" />
+              <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <span>{lang === 'bn' ? 'মাঝখানে' : 'Center'}</span>
             </button>
 
             {/* Micro Nudge Buttons */}
-            <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 p-0.5">
+            <div className="flex items-center glass-tile rounded-xl p-0.5">
               <button
                 type="button"
                 onClick={() => handleNudge(0, -2)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? 'সব ছবি ২ মিমি উপরে সরান' : 'Nudge Up 2mm'}
               >
                 <ArrowUp className="w-3 h-3" />
@@ -1095,7 +1251,7 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => handleNudge(0, 2)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? 'সব ছবি ২ মিমি নিচে সরান' : 'Nudge Down 2mm'}
               >
                 <ArrowDown className="w-3 h-3" />
@@ -1103,7 +1259,7 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => handleNudge(-2, 0)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? 'সব ছবি ২ মিমি বামে সরান' : 'Nudge Left 2mm'}
               >
                 <ArrowLeft className="w-3 h-3" />
@@ -1111,7 +1267,7 @@ export const PaperPreview: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => handleNudge(2, 0)}
-                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
                 title={lang === 'bn' ? 'সব ছবি ২ মিমি ডানে সরান' : 'Nudge Right 2mm'}
               >
                 <ArrowRight className="w-3 h-3" />
@@ -1125,7 +1281,7 @@ export const PaperPreview: React.FC<Props> = ({
                   e.stopPropagation();
                   onAddPassportCopy();
                 }}
-                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 text-blue-600 dark:text-blue-400 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2.5 rounded-xl glass-tile text-blue-600 dark:text-blue-400 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={lang === 'en' ? 'Add 1 Passport photo (35x45mm) to sheet' : 'পেপারে ১টি পাসপোর্ট সাইজ ছবি (৩৫ × ৪৫ মিমি) যোগ করুন'}
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1139,7 +1295,7 @@ export const PaperPreview: React.FC<Props> = ({
                   e.stopPropagation();
                   onAddStampCopy();
                 }}
-                className="py-1 px-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/35 backdrop-blur-md text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={lang === 'en' ? 'Add 1 Stamp photo (20x25mm) to sheet' : 'পেপারে ১টি স্ট্যাম্প সাইজ ছবি (২০ × ২৫ মিমি) যোগ করুন'}
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -1153,10 +1309,10 @@ export const PaperPreview: React.FC<Props> = ({
                   e.stopPropagation();
                   onAutoAlignGrid();
                 }}
-                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
                 title={lang === 'bn' ? 'সব ছবি গ্রিড লাইনে সোজা করে সারিবদ্ধ করুন' : 'Align all photos into neat rows'}
               >
-                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                 <span>{lang === 'bn' ? 'গ্রিডে সাজান' : 'Align Grid'}</span>
               </button>
             )}
@@ -1167,19 +1323,19 @@ export const PaperPreview: React.FC<Props> = ({
       {/* Movement instruction tip */}
       {mode === 'passport' && passportItems.length > 0 && (
         <div
-          className={`mb-3 text-[11px] rounded-lg px-2.5 sm:px-3 py-1.5 flex items-center gap-1.5 sm:gap-2 max-w-4xl w-full justify-between flex-wrap transition ${
+          className={`mb-3 text-[11px] rounded-xl glass-banner px-3 py-1.5 flex items-center gap-1.5 sm:gap-2 max-w-5xl w-full justify-between flex-wrap transition ${
             moveMode === 'all'
-              ? 'bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 text-blue-900 dark:text-blue-200'
-              : 'bg-slate-100 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+              ? 'text-slate-800 dark:text-slate-100'
+              : 'text-slate-700 dark:text-slate-200'
           }`}
         >
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <Move className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>
               {moveMode === 'all' ? (
                 <>
                   <strong className="text-blue-700 dark:text-blue-300">
-                    {lang === 'bn' ? '✋ একসাথে মুভ চালু:' : '✋ Move All Active:'}
+                    {lang === 'bn' ? 'একসাথে মুভ চালু:' : 'Move All Active:'}
                   </strong>{' '}
                   {lang === 'bn'
                     ? 'মাউস দিয়ে যেকোনো ছবিতে ড্র্যাগ করুন—সবগুলো ছবি একসাথে ঠিক জায়গায় চলে যাবে।'
@@ -1187,8 +1343,8 @@ export const PaperPreview: React.FC<Props> = ({
                 </>
               ) : (
                 <>
-                  <strong className="text-slate-800 dark:text-slate-200">
-                    {lang === 'bn' ? '👆 একক মুভ:' : '👆 Single Move:'}
+                  <strong className="text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'একক মুভ:' : 'Single Move:'}
                   </strong>{' '}
                   {lang === 'bn'
                     ? 'মাউস দিয়ে শুধুমাত্র একটি নির্বাচিত ছবি সরান।'
@@ -1200,7 +1356,7 @@ export const PaperPreview: React.FC<Props> = ({
 
           <div className="flex items-center gap-2">
             <span className="text-[10px] opacity-75 font-mono hidden md:inline">
-              {lang === 'bn' ? 'কীবোর্ড: ← → ↑ ↓ অ্যারো কী' : 'Keys: ← → ↑ ↓'}
+              {lang === 'bn' ? 'কীবোর্ড: ← → ↑ ↓ · মাউস হুইল: জুম' : 'Keys: ← → ↑ ↓ · Wheel: Zoom'}
             </span>
             <button
               type="button"
@@ -1218,19 +1374,15 @@ export const PaperPreview: React.FC<Props> = ({
       {/* Lamination Drag & Fold Instruction Banner */}
       {mode === 'lamination' && lamination && (
         <div
-          className={`mb-3 text-[11px] rounded-lg px-2.5 sm:px-3 py-1.5 flex items-center gap-1.5 sm:gap-2 max-w-4xl w-full justify-between flex-wrap transition ${
-            lamMoveMode === 'both'
-              ? 'bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 text-blue-900 dark:text-blue-200'
-              : 'bg-slate-100 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-          }`}
+          className="mb-3 text-[11px] rounded-xl glass-banner px-3 py-1.5 flex items-center gap-1.5 sm:gap-2 max-w-5xl w-full justify-between flex-wrap transition text-slate-800 dark:text-slate-100"
         >
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <Move className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>
               {lamMoveMode === 'both' ? (
                 <>
                   <strong className="text-blue-700 dark:text-blue-300">
-                    {lang === 'bn' ? '✋ দুইটা একসাথে মুভ:' : '✋ Move Both Active:'}
+                    {lang === 'bn' ? 'দুইটা একসাথে মুভ:' : 'Move Both Active:'}
                   </strong>{' '}
                   {lang === 'bn'
                     ? 'মাউস দিয়ে টেনে বাম ফ্রন্ট ও ডান ব্যাক একসাথে পেপারের যেকোনো জায়গায় সরান। উভয় কার্ডের সাইজ সমান লক করা।'
@@ -1238,8 +1390,8 @@ export const PaperPreview: React.FC<Props> = ({
                 </>
               ) : (
                 <>
-                  <strong className="text-slate-800 dark:text-slate-200">
-                    {lang === 'bn' ? '👆 সিঙ্গেল মুভ চালু:' : '👆 Single Card Move:'}
+                  <strong className="text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'সিঙ্গেল মুভ চালু:' : 'Single Card Move:'}
                   </strong>{' '}
                   {lang === 'bn'
                     ? 'ফ্রন্ট বা ব্যাক যেকোনো একটি আলাদাভাবে টেনে জায়গা পরিবর্তন করুন।'
@@ -1270,23 +1422,255 @@ export const PaperPreview: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Realistic Paper Sheet Canvas */}
-      <div className="relative pb-16">
-        <div
-          className="relative bg-white shadow-xl transition-all duration-150 border border-slate-300 dark:border-slate-700 overflow-hidden rounded-xs"
-          style={{
-            width: `${sheetWidthPx}px`,
-            height: `${sheetHeightPx}px`,
-            minWidth: `${sheetWidthPx}px`,
-            minHeight: `${sheetHeightPx}px`,
-            filter:
-              colorProfile === 'bw'
-                ? 'grayscale(100%)'
-                : colorProfile === 'cmyk'
-                ? 'saturate(0.85) contrast(1.05)'
-                : 'none',
-          }}
-        >
+      {/* Multi-Page Document Batch Ready Banner */}
+      {mode === 'document' && documentSettings && documentSettings.pages.length > 1 && (
+        <div className="mb-3 text-[11px] rounded-xl glass-banner px-3 py-1.5 flex items-center gap-2 max-w-5xl w-full justify-between flex-wrap text-slate-800 dark:text-slate-100">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Layers className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span>
+              <strong className="text-blue-700 dark:text-blue-300">
+                {lang === 'en'
+                  ? `${documentSettings.pages.length} Pages Ready:`
+                  : `${documentSettings.pages.length}টি পেজ প্রস্তুত:`}
+              </strong>{' '}
+              {lang === 'en'
+                ? 'All pages auto-fitted to paper. Print all together or download a single combined PDF.'
+                : 'সব পেজ অটো-ফিট করা হয়েছে। এক ক্লিকে সবগুলো একসাথে প্রিন্ট বা একসাথে PDF ডাউনলোড করুন।'}
+            </span>
+          </div>
+          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 hidden sm:inline">
+            {lang === 'en' ? 'Hover paper + Scroll = Zoom' : 'পেজে মাউস স্ক্রল = জুম'}
+          </span>
+        </div>
+      )}
+
+      {/* Floating Liquid Glass Zoom HUD (briefly visible during hover wheel-zoom) */}
+      {zoomHudVisible && (
+        <div className="fixed bottom-16 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 glass-hud text-white px-4 py-1.5 rounded-full text-xs font-mono font-bold flex items-center gap-2 pointer-events-none select-none">
+          <ZoomIn className="w-3.5 h-3.5 text-blue-400" />
+          <span>{Math.round(zoom * 100)}%</span>
+        </div>
+      )}
+
+      {/* Realistic Paper Sheet Canvas Stage (Supports Hover Mouse-Wheel Zoom In/Out) */}
+      <div ref={paperStageRef} className="relative pb-16">
+        {mode === 'document' &&
+        documentSettings &&
+        documentSettings.pages.length > 1 &&
+        docViewMode === 'all' ? (
+          /* MULTI-PAGE STACKED DOCUMENT PREVIEW (All Uploaded Pages) */
+          <div className="flex flex-col items-center gap-6">
+            {documentSettings.pages.map((docPage, idx) => {
+              const isActive = idx === documentSettings.activePageIndex;
+              const placement = calculateDocumentPlacement({
+                imgWidth: docPage.naturalWidth || 1000,
+                imgHeight: docPage.naturalHeight || 1414,
+                paperWidthMm,
+                paperHeightMm,
+                marginMm: documentSettings.marginMm,
+                fitMode: documentSettings.fitMode,
+                autoRotateToFit: documentSettings.autoRotateToFit,
+              });
+
+              return (
+                <div
+                  key={docPage.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectDocumentPage?.(idx);
+                  }}
+                  className="flex flex-col items-center gap-2"
+                >
+                  {/* Liquid Glass Per-Page Header Strip */}
+                  <div
+                    className="w-full flex items-center justify-between gap-2 glass-strip rounded-xl px-3 py-1.5 text-xs"
+                    style={{ width: `${sheetWidthPx + 20}px`, maxWidth: '92vw' }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`px-2 py-0.5 rounded-lg font-mono font-bold text-[11px] shrink-0 ${
+                          isActive
+                            ? 'glass-btn-primary text-white'
+                            : 'glass-track text-slate-700 dark:text-slate-200'
+                        }`}
+                      >
+                        #{idx + 1} / {documentSettings.pages.length}
+                      </span>
+                      <span className="truncate font-semibold text-slate-700 dark:text-slate-200">
+                        {docPage.name}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectDocumentPage?.(idx);
+                          onRotateDocumentPage?.(idx);
+                        }}
+                        className="p-1 rounded-lg glass-tile text-slate-700 dark:text-slate-200 cursor-pointer"
+                        title={t.rotate90}
+                      >
+                        <RotateCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectDocumentPage?.(idx);
+                          onToggleDocumentWhiteFilter?.(idx);
+                        }}
+                        className={`p-1 rounded-lg transition cursor-pointer ${
+                          docPage.autoWhiteDocument
+                            ? 'glass-btn-emerald text-white'
+                            : 'glass-tile text-slate-700 dark:text-slate-200'
+                        }`}
+                        title={lang === 'en' ? 'Clean White Paper' : 'সাদা স্ক্যান'}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectDocumentPage?.(idx);
+                          onEditDocumentPage?.(idx);
+                        }}
+                        className="p-1 rounded-lg glass-tile text-slate-700 dark:text-slate-200 cursor-pointer"
+                        title={t.editDocument}
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      </button>
+                      {onRemoveDocumentPage && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveDocumentPage(idx);
+                          }}
+                          className="p-1 rounded-lg glass-tile text-red-500 hover:bg-red-500/15 cursor-pointer"
+                          title={lang === 'en' ? 'Remove Page' : 'পেজ মুছুন'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Liquid Glass Bezel + Crisp White Printable Paper Sheet */}
+                  <div
+                    className={`glass-stage p-2 sm:p-2.5 rounded-2xl transition-all ${
+                      isActive ? 'ring-2 ring-blue-500/70' : ''
+                    }`}
+                  >
+                    <div
+                      className="relative bg-white shadow-md transition-all duration-150 border border-slate-300/80 overflow-hidden rounded-xs"
+                      style={{
+                        width: `${sheetWidthPx}px`,
+                        height: `${sheetHeightPx}px`,
+                        minWidth: `${sheetWidthPx}px`,
+                        minHeight: `${sheetHeightPx}px`,
+                        filter:
+                          colorProfile === 'bw'
+                            ? 'grayscale(100%)'
+                            : colorProfile === 'cmyk'
+                            ? 'saturate(0.85) contrast(1.05)'
+                            : 'none',
+                      }}
+                    >
+                      <div
+                        className="absolute border border-dashed border-blue-400/25 pointer-events-none"
+                        style={{
+                          top: `${documentSettings.marginMm * mmToPx}px`,
+                          left: `${documentSettings.marginMm * mmToPx}px`,
+                          right: `${documentSettings.marginMm * mmToPx}px`,
+                          bottom: `${documentSettings.marginMm * mmToPx}px`,
+                        }}
+                      />
+                      <div
+                        className="absolute overflow-hidden pointer-events-none"
+                        style={{
+                          left: `${placement.availXmm * mmToPx}px`,
+                          top: `${placement.availYmm * mmToPx}px`,
+                          width: `${placement.availWmm * mmToPx}px`,
+                          height: `${placement.availHmm * mmToPx}px`,
+                        }}
+                      >
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectDocumentPage?.(idx);
+                            onEditDocumentPage?.(idx);
+                          }}
+                          className="absolute group pointer-events-auto cursor-pointer"
+                          style={{
+                            left: `${(placement.xMm - placement.availXmm) * mmToPx}px`,
+                            top: `${(placement.yMm - placement.availYmm) * mmToPx}px`,
+                            width: `${placement.widthMm * mmToPx}px`,
+                            height: `${placement.heightMm * mmToPx}px`,
+                          }}
+                        >
+                          {placement.shouldRotate90 ? (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: '50%',
+                                top: '50%',
+                                width: `${placement.heightMm * mmToPx}px`,
+                                height: `${placement.widthMm * mmToPx}px`,
+                                transform: 'translate(-50%, -50%) rotate(90deg)',
+                              }}
+                            >
+                              <img
+                                src={docPage.processedSrc || docPage.originalSrc}
+                                alt={docPage.name}
+                                className="w-full h-full object-fill block select-none"
+                              />
+                            </div>
+                          ) : (
+                            <img
+                              src={docPage.processedSrc || docPage.originalSrc}
+                              alt={docPage.name}
+                              className="w-full h-full object-fill block select-none"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onSelectDocumentPage?.(idx);
+                              onEditDocumentPage?.(idx);
+                            }}
+                            className="absolute bottom-2 right-2 px-2.5 py-1 glass-hud text-white text-[11px] font-semibold rounded-lg opacity-0 group-hover:opacity-100 transition flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>{t.editDocument}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="glass-stage p-2.5 sm:p-3 rounded-2xl">
+            <div
+              className="relative bg-white shadow-md transition-all duration-150 border border-slate-300/80 overflow-hidden rounded-xs"
+              style={{
+                width: `${sheetWidthPx}px`,
+                height: `${sheetHeightPx}px`,
+                minWidth: `${sheetWidthPx}px`,
+                minHeight: `${sheetHeightPx}px`,
+                filter:
+                  colorProfile === 'bw'
+                    ? 'grayscale(100%)'
+                    : colorProfile === 'cmyk'
+                    ? 'saturate(0.85) contrast(1.05)'
+                    : 'none',
+              }}
+            >
           {/* Printable Margin Guidelines (subtle dashed boundary) */}
           <div
             className="absolute border border-dashed border-blue-400/25 pointer-events-none"
@@ -1337,15 +1721,15 @@ export const PaperPreview: React.FC<Props> = ({
                     ))}
                   </div>
 
-                  <div className="relative z-10 max-w-sm p-6 rounded-2xl bg-white/95 border border-slate-200 shadow-lg text-center space-y-3">
-                    <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                  <div className="relative z-10 max-w-sm p-6 rounded-2xl glass-card text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-500/15 border border-blue-400/30 text-blue-600 flex items-center justify-center mx-auto">
                       <Camera className="w-6 h-6" />
                     </div>
                     <div>
                       <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
                         {lang === 'en' ? 'No photos selected yet' : 'কোনো ছবি নির্বাচন করা হয়নি'}
                       </h3>
-                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
                         {lang === 'en'
                           ? 'Upload photos from the left panel or click below. Uploaded photos will be automatically placed on this paper sheet.'
                           : 'বাম পাশের প্যানেল থেকে ছবি আপলোড করুন অথবা নিচের বাটনে ক্লিক করুন। আপলোড করলেই তা পেপারে সাজানো হবে।'}
@@ -1355,7 +1739,7 @@ export const PaperPreview: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={onUploadPassportTrigger}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl glass-btn-primary text-white font-semibold text-xs transition cursor-pointer"
                       >
                         <Upload className="w-3.5 h-3.5" />
                         <span>{lang === 'en' ? 'Upload Photos' : 'ছবি আপলোড করুন'}</span>
@@ -1481,7 +1865,7 @@ export const PaperPreview: React.FC<Props> = ({
                       {isSelected && (
                         <div
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute -top-9 left-1/2 -translate-x-1/2 bg-slate-900/95 text-white rounded-lg px-1.5 py-1 flex items-center gap-1 shadow-xl z-50 text-[10px] whitespace-nowrap border border-slate-700 animate-in fade-in zoom-in-95 duration-100"
+                          className="absolute -top-9 left-1/2 -translate-x-1/2 glass-hud text-white rounded-xl px-1.5 py-1 flex items-center gap-1 z-50 text-[10px] whitespace-nowrap animate-in fade-in zoom-in-95 duration-100"
                         >
                           {/* Size toggle */}
                           {onToggleItemSize && (
@@ -1633,10 +2017,10 @@ export const PaperPreview: React.FC<Props> = ({
                         onUploadNidFrontTrigger();
                       }
                     }}
-                    className={`absolute rounded-xs overflow-hidden transition cursor-pointer group shadow-2xs ${
+                    className={`absolute rounded-lg overflow-hidden transition cursor-pointer group ${
                       nid.frontImage
-                        ? 'border border-slate-300 bg-slate-50 hover:ring-2 hover:ring-blue-500'
-                        : 'border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20'
+                        ? 'border border-slate-300 bg-slate-50 hover:ring-2 hover:ring-blue-500 shadow-2xs'
+                        : 'glass-dropzone'
                     }`}
                     style={{
                       left: `${frontXpx}px`,
@@ -1699,10 +2083,10 @@ export const PaperPreview: React.FC<Props> = ({
                         onUploadNidBackTrigger();
                       }
                     }}
-                    className={`absolute rounded-xs overflow-hidden transition cursor-pointer group shadow-2xs ${
+                    className={`absolute rounded-lg overflow-hidden transition cursor-pointer group ${
                       nid.backImage
-                        ? 'border border-slate-300 bg-slate-50 hover:ring-2 hover:ring-blue-500'
-                        : 'border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20'
+                        ? 'border border-slate-300 bg-slate-50 hover:ring-2 hover:ring-blue-500 shadow-2xs'
+                        : 'glass-dropzone'
                     }`}
                     style={{
                       left: `${frontXpx}px`,
@@ -1881,7 +2265,7 @@ export const PaperPreview: React.FC<Props> = ({
                         onEditLaminationSide('front');
                       }
                     }}
-                    className={`absolute group select-none transition-shadow ${
+                    className={`absolute group select-none overflow-hidden box-border transition-shadow ${
                       draggingLamTarget === 'front' || draggingLamTarget === 'both'
                         ? 'cursor-grabbing ring-2 ring-blue-600 shadow-xl z-30'
                         : lamMoveMode === 'single' && selectedLamSide === 'front'
@@ -1890,7 +2274,7 @@ export const PaperPreview: React.FC<Props> = ({
                     } ${
                       lamination.frontImage
                         ? 'bg-white'
-                        : 'border-2 border-dashed border-blue-400/70 bg-blue-50/40'
+                        : 'glass-dropzone rounded-md'
                     }`}
                     style={{
                       left: `${frontXpx}px`,
@@ -1924,18 +2308,35 @@ export const PaperPreview: React.FC<Props> = ({
                       {lang === 'en' ? 'FRONT (LEFT)' : 'ফ্রন্ট (বাম)'}
                     </span>
 
-                    {lamination.frontImage && onEditLaminationSide && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditLaminationSide('front');
-                        }}
-                        className="absolute bottom-1 right-1 p-1 bg-black/75 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                        title={lang === 'en' ? 'Edit Front' : 'ফ্রন্ট এডিট'}
-                      >
-                        <Edit3 className="w-3 h-3" />
-                      </button>
+                    {lamination.frontImage && (onEditLaminationSide || onRotateLaminationSide) && (
+                      <div className="absolute bottom-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                        {onRotateLaminationSide && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRotateLaminationSide('front');
+                            }}
+                            className="p-1 bg-black/75 hover:bg-blue-600 text-white rounded cursor-pointer"
+                            title={lang === 'en' ? 'Rotate Front 90°' : 'ফ্রন্ট ৯০° ঘোরান'}
+                          >
+                            <RotateCw className="w-3 h-3" />
+                          </button>
+                        )}
+                        {onEditLaminationSide && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditLaminationSide('front');
+                            }}
+                            className="p-1 bg-black/75 hover:bg-blue-600 text-white rounded cursor-pointer"
+                            title={lang === 'en' ? 'Edit & Crop Front' : 'ফ্রন্ট এডিট ও ক্রপ'}
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {(draggingLamTarget === 'front' || draggingLamTarget === 'both') && (
@@ -1972,7 +2373,7 @@ export const PaperPreview: React.FC<Props> = ({
                         onEditLaminationSide('back');
                       }
                     }}
-                    className={`absolute group select-none transition-shadow ${
+                    className={`absolute group select-none overflow-hidden box-border transition-shadow ${
                       draggingLamTarget === 'back' || draggingLamTarget === 'both'
                         ? 'cursor-grabbing ring-2 ring-indigo-600 shadow-xl z-30'
                         : lamMoveMode === 'single' && selectedLamSide === 'back'
@@ -1981,7 +2382,7 @@ export const PaperPreview: React.FC<Props> = ({
                     } ${
                       lamination.backImage
                         ? 'bg-white'
-                        : 'border-2 border-dashed border-indigo-400/70 bg-indigo-50/40'
+                        : 'glass-dropzone rounded-md'
                     }`}
                     style={{
                       left: `${backXpx}px`,
@@ -2018,18 +2419,35 @@ export const PaperPreview: React.FC<Props> = ({
                       {lang === 'en' ? 'BACK (RIGHT)' : 'ব্যাক (ডান)'}
                     </span>
 
-                    {lamination.backImage && onEditLaminationSide && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEditLaminationSide('back');
-                        }}
-                        className="absolute bottom-1 right-1 p-1 bg-black/75 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
-                        title={lang === 'en' ? 'Edit Back' : 'ব্যাক এডিট'}
-                      >
-                        <Edit3 className="w-3 h-3" />
-                      </button>
+                    {lamination.backImage && (onEditLaminationSide || onRotateLaminationSide) && (
+                      <div className="absolute bottom-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                        {onRotateLaminationSide && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRotateLaminationSide('back');
+                            }}
+                            className="p-1 bg-black/75 hover:bg-indigo-600 text-white rounded cursor-pointer"
+                            title={lang === 'en' ? 'Rotate Back 90°' : 'ব্যাক ৯০° ঘোরান'}
+                          >
+                            <RotateCw className="w-3 h-3" />
+                          </button>
+                        )}
+                        {onEditLaminationSide && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditLaminationSide('back');
+                            }}
+                            className="p-1 bg-black/75 hover:bg-indigo-600 text-white rounded cursor-pointer"
+                            title={lang === 'en' ? 'Edit & Crop Back' : 'ব্যাক এডিট ও ক্রপ'}
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     )}
 
                     {(draggingLamTarget === 'back' || draggingLamTarget === 'both') && (
@@ -2073,23 +2491,27 @@ export const PaperPreview: React.FC<Props> = ({
               if (!activeDoc || !documentSettings) {
                 return (
                   <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                    <div className="relative z-10 max-w-sm p-6 rounded-2xl bg-white/95 border border-slate-200 shadow-lg text-center space-y-3">
-                      <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                    <div className="relative z-10 max-w-sm p-6 rounded-2xl glass-card text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-500/15 border border-blue-400/30 text-blue-600 flex items-center justify-center mx-auto">
                         <FileText className="w-6 h-6" />
                       </div>
                       <div>
                         <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                          {lang === 'en' ? 'Upload Any Paper or Document' : 'যেকোনো পেপার বা ডকুমেন্ট আপলোড করুন'}
+                          {lang === 'en'
+                            ? 'Upload Single or Multiple Papers'
+                            : 'এক বা একাধিক পেপার একসাথে আপলোড করুন'}
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                          {t.noDocumentsYet}
+                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                          {lang === 'en'
+                            ? 'Select 1 or many pages — every page auto-fits cleanly for instant Print All or combined PDF download.'
+                            : 'একটি বা অনেকগুলো পেপার একসাথে আপলোড করুন—সব পেজ অটো-ফিট হয়ে এক ক্লিকে প্রিন্ট বা PDF সেভ হবে।'}
                         </p>
                       </div>
                       {onUploadDocumentTrigger && (
                         <button
                           type="button"
                           onClick={onUploadDocumentTrigger}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition cursor-pointer"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl glass-btn-primary text-white font-semibold text-xs transition cursor-pointer"
                         >
                           <Upload className="w-3.5 h-3.5" />
                           <span>{t.uploadDocument}</span>
@@ -2163,7 +2585,7 @@ export const PaperPreview: React.FC<Props> = ({
                         e.stopPropagation();
                         onEditDocumentPage?.(documentSettings.activePageIndex);
                       }}
-                      className="absolute bottom-2 right-2 px-2 py-1 bg-black/75 hover:bg-blue-600 text-white text-[11px] font-semibold rounded-md opacity-0 group-hover:opacity-100 transition flex items-center gap-1 cursor-pointer shadow"
+                      className="absolute bottom-2 right-2 px-2.5 py-1 glass-hud text-white text-[11px] font-semibold rounded-lg opacity-0 group-hover:opacity-100 transition flex items-center gap-1 cursor-pointer"
                     >
                       <Edit3 className="w-3 h-3" />
                       <span>{t.editDocument}</span>
@@ -2173,40 +2595,10 @@ export const PaperPreview: React.FC<Props> = ({
               );
             })()
           )}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
-
-      {/* Floating Canvas Zoom Pill (Bottom Center) */}
-      {setZoom && (
-        <div className="sticky bottom-3 z-30 flex items-center bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-full px-2 py-1 shadow-lg border border-slate-200 dark:border-slate-800 gap-1 text-xs">
-          <button
-            onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
-            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-            title={lang === 'en' ? 'Zoom Out' : 'জুম ছোট'}
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="px-1.5 font-mono font-semibold text-slate-700 dark:text-slate-300 text-xs min-w-10 text-center">
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            onClick={() => setZoom((z) => Math.min(2.0, z + 0.1))}
-            className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-            title={lang === 'en' ? 'Zoom In' : 'জুম বড়'}
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-          {onFitZoom && (
-            <button
-              onClick={onFitZoom}
-              className="px-2 py-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/60 rounded-full transition border-l border-slate-200 dark:border-slate-800 cursor-pointer ml-0.5"
-              title={lang === 'en' ? 'Fit Screen' : 'স্ক্রিনে ফিট করুন'}
-            >
-              {lang === 'en' ? 'Fit' : 'ফিট'}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 };

@@ -1,8 +1,13 @@
 import React, { useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Crop,
   Edit3,
+  FileDown,
+  Loader2,
   Maximize2,
+  Printer,
   RotateCw,
   Scan,
   Sparkles,
@@ -32,9 +37,17 @@ interface Props {
   onUploadDocuments: (files: FileList | null) => void;
   onRotatePage: (index: number) => void;
   onToggleWhiteFilter: (index: number) => void;
+  onToggleAllWhiteFilter: () => void;
+  onReorderPage: (index: number, direction: 'up' | 'down') => void;
+  onClearAllPages: () => void;
   onOpenEditor: (index: number) => void;
   onRemovePage: (index: number) => void;
+  onPrintAll: () => void;
+  onDownloadAllPdf: () => void;
+  autoPdfOnUpload: boolean;
+  setAutoPdfOnUpload: (enabled: boolean) => void;
   isUploading?: boolean;
+  isExporting?: boolean;
   paperSize: PaperSizeType;
   setPaperSize: (size: PaperSizeType) => void;
   customPaperWidth: number;
@@ -58,9 +71,17 @@ export const DocumentControls: React.FC<Props> = ({
   onUploadDocuments,
   onRotatePage,
   onToggleWhiteFilter,
+  onToggleAllWhiteFilter,
+  onReorderPage,
+  onClearAllPages,
   onOpenEditor,
   onRemovePage,
+  onPrintAll,
+  onDownloadAllPdf,
+  autoPdfOnUpload,
+  setAutoPdfOnUpload,
   isUploading = false,
+  isExporting = false,
   paperSize,
   setPaperSize,
   customPaperWidth,
@@ -79,6 +100,7 @@ export const DocumentControls: React.FC<Props> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { pages, activePageIndex, fitMode, marginMm, autoRotateToFit } = documentSettings;
   const activePage = pages[activePageIndex] || pages[0] || null;
+  const allPagesWhite = pages.length > 0 && pages.every((p) => p.autoWhiteDocument);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -116,11 +138,11 @@ export const DocumentControls: React.FC<Props> = ({
   return (
     <div className="space-y-4 text-slate-800 dark:text-slate-100">
       <InspectorHeader
-        title={lang === 'bn' ? 'পেপার প্রিন্ট (ফিট টু পেজ)' : 'Paper Print Studio'}
+        title={lang === 'bn' ? 'পেপার প্রিন্ট ও মাল্টি-পেজ PDF' : 'Multi-Paper Print & PDF'}
         description={
           lang === 'bn'
-            ? 'যেকোনো ডকুমেন্ট বা পেপার আপলোড করলেই A4, A5 বা যেকোনো পেজে ফিট হবে'
-            : 'Auto-fit any paper scan or image cleanly to A4, A5, Letter, Legal, or custom sheets.'
+            ? 'একসাথে একাধিক পেপার বা ছবি আপলোড করে ফিট করুন, সব পেজ একসাথে প্রিন্ট বা PDF ডাউনলোড করুন'
+            : 'Upload multiple papers at once, auto-fit every page to A4/A5/Letter, print all together, or save one combined PDF.'
         }
         meta={`${pages.length} ${lang === 'bn' ? 'পেজ' : pages.length === 1 ? 'page' : 'pages'}`}
       />
@@ -129,7 +151,7 @@ export const DocumentControls: React.FC<Props> = ({
         activeTab={activeTab}
         onChange={setActiveTab}
         tabs={[
-          { id: 'pages', label: lang === 'bn' ? 'পেপার আপলোড' : 'Papers' },
+          { id: 'pages', label: lang === 'bn' ? 'মাল্টি পেপার ও PDF' : 'Papers & PDF' },
           { id: 'fit', label: lang === 'bn' ? 'ফিট ও মার্জিন' : 'Fit & Margin' },
           { id: 'paper', label: lang === 'bn' ? 'পেপার ও প্রিন্ট' : 'Paper & Print' },
         ]}
@@ -139,18 +161,29 @@ export const DocumentControls: React.FC<Props> = ({
         <div className="space-y-4">
           <InspectorSection
             first
-            title={t.uploadDocument}
+            title={lang === 'bn' ? 'মাল্টিপল পেপার আপলোড' : 'Upload Multiple Papers'}
             meta={
               pages.length > 0
                 ? `${pages.length} ${lang === 'en' ? (pages.length === 1 ? 'Page' : 'Pages') : 'টি পেজ'}`
                 : undefined
+            }
+            action={
+              pages.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={onClearAllPages}
+                  className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer"
+                >
+                  {lang === 'en' ? 'Clear All' : 'সব মুছুন'}
+                </button>
+              ) : undefined
             }
           >
             <div
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 bg-slate-50/70 dark:bg-slate-900 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 p-5 text-center cursor-pointer transition-colors group"
+              className="rounded-2xl glass-dropzone p-5 text-center cursor-pointer group"
             >
               <input
                 ref={fileInputRef}
@@ -164,28 +197,97 @@ export const DocumentControls: React.FC<Props> = ({
                 className="hidden"
               />
               <div className="flex flex-col items-center gap-1.5">
-                <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center">
-                  <Upload className="w-4 h-4" />
+                <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-inner border border-blue-400/25 group-hover:scale-105 transition-transform">
+                  {isUploading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
                 </div>
                 <p className="text-xs font-bold text-slate-900 dark:text-slate-100">
                   {isUploading
                     ? lang === 'en'
-                      ? 'Loading document...'
-                      : 'পেপার লোড হচ্ছে...'
+                      ? 'Loading & fitting papers...'
+                      : 'পেপার লোড ও ফিট হচ্ছে...'
                     : pages.length > 0
-                    ? t.addMoreDocuments
+                    ? lang === 'en'
+                      ? 'Add More Papers / Images (Multi-Select)'
+                      : 'আরও পেপার বা ছবি যোগ করুন (একাধিক)'
                     : lang === 'en'
-                    ? 'Click or drop any paper / document'
-                    : 'যেকোনো পেপার বা ডকুমেন্ট দিন'}
+                    ? 'Drop or Select Single / Multiple Papers'
+                    : 'একসাথে ১টি বা অনেকগুলো পেপার আপলোড করুন'}
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   {lang === 'en'
-                    ? 'Automatically scales to fit selected paper size'
-                    : 'আপলোড করলেই নির্বাচিত পেজে স্বয়ংক্রিয়ভাবে ফিট হয়ে যাবে'}
+                    ? 'Every uploaded photo auto-fits cleanly for batch printing & PDF'
+                    : 'আপলোড করলেই প্রতিটি ছবি পেজে ফিট হয়ে একসাথে প্রিন্ট ও PDF তৈরি হবে'}
                 </p>
               </div>
             </div>
 
+            {/* Auto-Download PDF Immediately on Upload Toggle */}
+            <label className="p-2.5 rounded-xl glass-tile flex items-center justify-between gap-2.5 cursor-pointer">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileDown className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div className="min-w-0">
+                  <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block leading-tight">
+                    {lang === 'en' ? 'Instant PDF Download on Upload' : 'আপলোড দিলেই সাথে সাথে PDF ডাউনলোড'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block leading-snug mt-0.5">
+                    {lang === 'en'
+                      ? 'Automatically saves all uploaded pages as one PDF right after upload'
+                      : 'চালু রাখলে ছবিগুলো আপলোড করা মাত্রই সব পেজের PDF অটো ডাউনলোড হবে'}
+                  </span>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={autoPdfOnUpload}
+                onChange={(e) => setAutoPdfOnUpload(e.target.checked)}
+                className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+              />
+            </label>
+
+            {/* Primary Batch Actions: Print All Together & Download All Pages as One PDF */}
+            {pages.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={onPrintAll}
+                  className="py-2.5 px-3 rounded-xl glass-btn-primary text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {lang === 'en'
+                      ? `Print All (${pages.length})`
+                      : `সব প্রিন্ট (${pages.length})`}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onDownloadAllPdf}
+                  disabled={isExporting}
+                  className="py-2.5 px-3 rounded-xl glass-btn-emerald text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-60"
+                >
+                  {isExporting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  ) : (
+                    <FileDown className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {isExporting
+                      ? lang === 'en'
+                        ? 'Building PDF...'
+                        : 'PDF তৈরি হচ্ছে...'
+                      : lang === 'en'
+                      ? `Save PDF (${pages.length})`
+                      : `PDF সেভ (${pages.length})`}
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* Uploaded Pages Queue with Reorder, Rotate, Edit, Remove */}
             {pages.length > 0 && (
               <div className="space-y-2 max-h-64 overflow-y-auto pr-0.5">
                 {pages.map((p, idx) => {
@@ -196,13 +298,13 @@ export const DocumentControls: React.FC<Props> = ({
                       onClick={() =>
                         setDocumentSettings((prev) => ({ ...prev, activePageIndex: idx }))
                       }
-                      className={`p-2 rounded-lg border flex items-center gap-2.5 cursor-pointer transition-colors ${
+                      className={`p-2 rounded-xl flex items-center gap-2 cursor-pointer transition-all ${
                         isActive
-                          ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/30'
-                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
+                          ? 'bg-blue-500/15 border border-blue-500/55 dark:border-blue-400/55 shadow-sm'
+                          : 'glass-tile'
                       }`}
                     >
-                      <div className="w-10 h-12 rounded border border-slate-200 dark:border-slate-700 bg-white overflow-hidden shrink-0 flex items-center justify-center">
+                      <div className="w-9 h-11 rounded-lg border border-white/70 dark:border-white/15 bg-white overflow-hidden shrink-0 flex items-center justify-center">
                         <img
                           src={p.processedSrc || p.originalSrc}
                           alt={p.name}
@@ -210,8 +312,8 @@ export const DocumentControls: React.FC<Props> = ({
                         />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-mono font-bold text-slate-500 tabular-nums">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[11px] font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
                             #{idx + 1}
                           </span>
                           <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 truncate">
@@ -224,7 +326,7 @@ export const DocumentControls: React.FC<Props> = ({
                           </span>
                           {p.autoWhiteDocument && (
                             <span className="text-emerald-600 dark:text-emerald-400 font-sans font-semibold">
-                              · {lang === 'en' ? 'Clean White' : 'সাদা স্ক্যান'}
+                              · {lang === 'en' ? 'White' : 'সাদা'}
                             </span>
                           )}
                         </div>
@@ -233,10 +335,32 @@ export const DocumentControls: React.FC<Props> = ({
                         className="flex items-center gap-0.5 shrink-0"
                         onClick={(e) => e.stopPropagation()}
                       >
+                        {pages.length > 1 && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => onReorderPage(idx, 'up')}
+                              className="p-1 rounded-md text-slate-500 hover:text-blue-600 hover:bg-white/60 dark:hover:bg-white/10 disabled:opacity-30 cursor-pointer"
+                              title={lang === 'en' ? 'Move page up' : 'উপরে নিন'}
+                            >
+                              <ArrowUp className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === pages.length - 1}
+                              onClick={() => onReorderPage(idx, 'down')}
+                              className="p-1 rounded-md text-slate-500 hover:text-blue-600 hover:bg-white/60 dark:hover:bg-white/10 disabled:opacity-30 cursor-pointer"
+                              title={lang === 'en' ? 'Move page down' : 'নিচে নিন'}
+                            >
+                              <ArrowDown className="w-3 h-3" />
+                            </button>
+                          </>
+                        )}
                         <button
                           type="button"
                           onClick={() => onRotatePage(idx)}
-                          className="p-1.5 rounded-md text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          className="p-1 rounded-md text-slate-500 hover:text-blue-600 hover:bg-white/60 dark:hover:bg-white/10 cursor-pointer"
                           title={t.rotate90}
                         >
                           <RotateCw className="w-3.5 h-3.5" />
@@ -244,7 +368,7 @@ export const DocumentControls: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => onOpenEditor(idx)}
-                          className="p-1.5 rounded-md text-slate-500 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          className="p-1 rounded-md text-slate-500 hover:text-blue-600 hover:bg-white/60 dark:hover:bg-white/10 cursor-pointer"
                           title={t.editDocument}
                         >
                           <Edit3 className="w-3.5 h-3.5" />
@@ -252,7 +376,7 @@ export const DocumentControls: React.FC<Props> = ({
                         <button
                           type="button"
                           onClick={() => onRemovePage(idx)}
-                          className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                          className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-white/60 dark:hover:bg-white/10 cursor-pointer"
                           title={lang === 'en' ? 'Remove page' : 'পেজ মুছুন'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -264,28 +388,52 @@ export const DocumentControls: React.FC<Props> = ({
               </div>
             )}
 
+            {/* White Paper Scanner: Single Page + Batch All Pages */}
             {activePage && (
-              <label className="p-3 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-900/60 flex items-center justify-between gap-3 cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <div>
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
-                      {lang === 'en' ? 'Clean White Paper Scanner' : 'সাদা কাগজ স্ক্যানার ফিল্টার'}
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 block">
-                      {lang === 'en'
-                        ? 'Removes gray camera shadow for crisp white print'
-                        : 'ছবি তোলা কাগজের ছায়া মুছে ধবধবে সাদা প্রিন্ট দেয়'}
-                    </span>
+              <div className="space-y-2">
+                <label className="p-3 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/12 border border-emerald-500/25 backdrop-blur-md flex items-center justify-between gap-3 cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                        {lang === 'en'
+                          ? `Clean White Scanner (Page #${activePageIndex + 1})`
+                          : `সাদা কাগজ স্ক্যানার (পেজ #${activePageIndex + 1})`}
+                      </span>
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400 block">
+                        {lang === 'en'
+                          ? 'Removes gray camera shadow for crisp white print'
+                          : 'ছবি তোলা কাগজের ছায়া মুছে ধবধবে সাদা প্রিন্ট দেয়'}
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={activePage.autoWhiteDocument}
-                  onChange={() => onToggleWhiteFilter(activePageIndex)}
-                  className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
-                />
-              </label>
+                  <input
+                    type="checkbox"
+                    checked={activePage.autoWhiteDocument}
+                    onChange={() => onToggleWhiteFilter(activePageIndex)}
+                    className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+                  />
+                </label>
+
+                {pages.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={onToggleAllWhiteFilter}
+                    className="w-full py-2 px-3 rounded-xl glass-tile text-xs font-semibold text-emerald-700 dark:text-emerald-300 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>
+                      {allPagesWhite
+                        ? lang === 'en'
+                          ? `Disable White Scanner on All ${pages.length} Pages`
+                          : `সব ${pages.length}টি পেজ থেকে সাদা স্ক্যান সরান`
+                        : lang === 'en'
+                        ? `Apply Clean White Scanner to All ${pages.length} Pages`
+                        : `সব ${pages.length}টি পেজে একসাথে সাদা স্ক্যান দিন`}
+                    </span>
+                  </button>
+                )}
+              </div>
             )}
           </InspectorSection>
         </div>
@@ -319,24 +467,28 @@ export const DocumentControls: React.FC<Props> = ({
                     onClick={() =>
                       setDocumentSettings((prev) => ({ ...prev, fitMode: opt.id }))
                     }
-                    className={`p-2.5 rounded-lg border text-left transition-colors flex items-center gap-2.5 cursor-pointer ${
+                    className={`p-2.5 rounded-xl text-left transition-all flex items-center gap-2.5 cursor-pointer ${
                       active
-                        ? 'border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:border-blue-400'
+                        ? 'glass-btn-primary text-white'
+                        : 'glass-tile text-slate-800 dark:text-slate-100'
                     }`}
                   >
                     <div
-                      className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                         active
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-slate-900/5 dark:bg-white/10 text-slate-600 dark:text-slate-300'
                       }`}
                     >
                       {opt.icon}
                     </div>
                     <div className="min-w-0">
                       <span className="text-xs font-bold block leading-tight">{opt.title}</span>
-                      <span className="text-[11px] text-slate-500 dark:text-slate-400 block leading-tight mt-0.5">
+                      <span
+                        className={`text-[11px] block leading-tight mt-0.5 ${
+                          active ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
                         {opt.desc}
                       </span>
                     </div>
@@ -355,10 +507,10 @@ export const DocumentControls: React.FC<Props> = ({
                   onClick={() =>
                     setDocumentSettings((prev) => ({ ...prev, marginMm: m }))
                   }
-                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition-colors cursor-pointer ${
+                  className={`py-1.5 px-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     marginMm === m
-                      ? 'bg-blue-600 border-blue-600 text-white'
-                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      ? 'glass-btn-primary text-white'
+                      : 'glass-tile text-slate-700 dark:text-slate-200'
                   }`}
                 >
                   {m === 0 ? (lang === 'en' ? '0 (Full)' : '০ (ফুল)') : `${m} mm`}
@@ -377,9 +529,9 @@ export const DocumentControls: React.FC<Props> = ({
               className="w-full accent-blue-600 cursor-pointer"
             />
 
-            <label className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-between cursor-pointer">
+            <label className="p-3 rounded-xl glass-tile flex items-center justify-between cursor-pointer">
               <div>
-                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 block">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 block">
                   {t.autoRotateLabel}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 block">

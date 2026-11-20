@@ -474,6 +474,8 @@ export const PrintSheetHidden: React.FC<Props> = ({
                     top: `${lamination.frontY}mm`,
                     width: `${cardW}mm`,
                     height: `${cardH}mm`,
+                    overflow: 'hidden',
+                    boxSizing: 'border-box',
                     boxShadow: 'none',
                     border: 'none',
                   }}
@@ -503,6 +505,8 @@ export const PrintSheetHidden: React.FC<Props> = ({
                     top: `${lamination.backY}mm`,
                     width: `${cardW}mm`,
                     height: `${cardH}mm`,
+                    overflow: 'hidden',
+                    boxSizing: 'border-box',
                     boxShadow: 'none',
                     border: 'none',
                   }}

@@ -266,7 +266,7 @@ export const DEFAULT_LAMINATION_SETTINGS: LaminationCardSettings = {
   backY: 10,
   foldGap: 0,
   showFoldLine: true,
-  outerCutGuide: 'dashed',
+  outerCutGuide: 'none',
   imageFit: 'fill',
   backRotate180: false,
   autoWhiteDocument: false,

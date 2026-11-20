@@ -22,9 +22,15 @@ export const ShortcutsModal: React.FC<Props> = ({ isOpen, onClose, lang }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 backdrop-blur-md p-4 animate-in fade-in duration-200"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-2xl glass-modal overflow-hidden"
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-white/10">
           <div className="flex items-center gap-2">
             <Keyboard className="w-5 h-5 text-blue-600 dark:text-blue-400" />
             <h3 className="font-bold text-slate-900 dark:text-white">
@@ -32,33 +38,35 @@ export const ShortcutsModal: React.FC<Props> = ({ isOpen, onClose, lang }) => {
             </h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="p-5 space-y-3">
+        <div className="p-5 space-y-2.5">
           {shortcutsList.map((sc, i) => (
             <div
               key={i}
-              className="flex items-center justify-between gap-4 py-2 border-b border-slate-100 dark:border-slate-800/60 last:border-0"
+              className="flex items-center justify-between gap-4 py-2 border-b border-slate-200/50 dark:border-white/10 last:border-0"
             >
-              <span className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+              <span className="text-xs sm:text-sm text-slate-700 dark:text-slate-200">
                 {lang === 'bn' ? sc.descBn : sc.descEn}
               </span>
-              <kbd className="px-2.5 py-1 text-xs font-mono font-semibold rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xs">
+              <kbd className="px-2.5 py-1 text-xs font-mono font-semibold rounded-lg glass-tile text-slate-800 dark:text-slate-100 shrink-0">
                 {sc.key}
               </kbd>
             </div>
           ))}
         </div>
 
-        <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+        <div className="px-5 py-3 bg-white/30 dark:bg-white/5 border-t border-slate-200/60 dark:border-white/10 flex justify-end">
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-xs font-medium rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition"
+            className="px-4 py-1.5 text-xs font-semibold rounded-xl glass-btn-primary text-white transition cursor-pointer"
           >
             {t.cancel}
           </button>

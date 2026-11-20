@@ -50,6 +50,7 @@ import {
 } from './utils/constants';
 import {
   getImageDimensions,
+  prepareLaminationCardImage,
   processDocumentImage,
   processNIDImage,
   processStudioPhoto,
@@ -137,6 +138,7 @@ export default function App() {
   const [printQuality, setPrintQuality] = useState<150 | 300 | 600>(300);
 
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   // Photos State - Starts completely empty (no dummy photos)
   const [photos, setPhotos] = useState<StudioPhotoItem[]>([]);
@@ -175,6 +177,22 @@ export default function App() {
     DEFAULT_DOCUMENT_SETTINGS
   );
   const [editingDocumentPageIndex, setEditingDocumentPageIndex] = useState<number | null>(null);
+  const [autoPdfOnUpload, setAutoPdfOnUpload] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('nextstudio_auto_pdf_upload') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleSetAutoPdfOnUpload = (enabled: boolean) => {
+    setAutoPdfOnUpload(enabled);
+    try {
+      localStorage.setItem('nextstudio_auto_pdf_upload', enabled ? '1' : '0');
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   // Lamination Fold Side-by-Side ID Card State
   const [lamination, setLamination] = useState<LaminationCardSettings>(DEFAULT_LAMINATION_SETTINGS);
@@ -253,9 +271,22 @@ export default function App() {
           });
         }
         if (saved.lamination) {
+          let migratedCutGuide = saved.lamination.outerCutGuide;
+          try {
+            const migratedFlag = localStorage.getItem('nextstudio_lam_cut_none_v1');
+            if (!migratedFlag) {
+              if (!migratedCutGuide || migratedCutGuide === 'dashed') {
+                migratedCutGuide = 'none';
+              }
+              localStorage.setItem('nextstudio_lam_cut_none_v1', '1');
+            }
+          } catch {
+            // ignore storage errors
+          }
           setLamination({
             ...DEFAULT_LAMINATION_SETTINGS,
             ...saved.lamination,
+            outerCutGuide: migratedCutGuide ?? 'none',
           });
         }
       }
@@ -478,6 +509,24 @@ export default function App() {
           setManualCount((c) => Math.max(1, c - 1));
         }
       }
+      // Close any open modal: 'Escape'
+      if (e.key === 'Escape') {
+        if (
+          isShortcutsOpen ||
+          editingPhotoIndex !== null ||
+          nidEditingSide !== null ||
+          laminationEditingSide !== null ||
+          editingDocumentPageIndex !== null
+        ) {
+          e.preventDefault();
+          setIsShortcutsOpen(false);
+          setEditingPhotoIndex(null);
+          setNidEditingSide(null);
+          setLaminationEditingSide(null);
+          setEditingDocumentPageIndex(null);
+          return;
+        }
+      }
       // Help: '?'
       if (e.key === '?') {
         if (!['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase())) {
@@ -489,7 +538,16 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [photos, mode, nid]);
+  }, [
+    photos,
+    mode,
+    nid,
+    isShortcutsOpen,
+    editingPhotoIndex,
+    nidEditingSide,
+    laminationEditingSide,
+    editingDocumentPageIndex,
+  ]);
 
   // 8. Photo Upload Handler: Supports Multiple Pictures at once (Clean, Original Quality, No unwanted AI/Bg edits)
   const handleUploadPhotos = async (files: FileList | null) => {
@@ -996,14 +1054,18 @@ export default function App() {
         });
       }
 
-      setDocumentSettings((prev) => {
-        const firstNewIdx = prev.pages.length;
-        return {
-          ...prev,
-          pages: [...prev.pages, ...newPages],
-          activePageIndex: firstNewIdx,
-        };
-      });
+      const firstNewIdx = documentSettings.pages.length;
+      const nextPages = [...documentSettings.pages, ...newPages];
+      setDocumentSettings((prev) => ({
+        ...prev,
+        pages: [...prev.pages, ...newPages],
+        activePageIndex: prev.pages.length === 0 ? 0 : firstNewIdx,
+      }));
+
+      // Instant PDF download right after upload when enabled
+      if (autoPdfOnUpload && nextPages.length > 0) {
+        void handleDownloadPdf(nextPages);
+      }
     } finally {
       setIsUploading(false);
     }
@@ -1054,6 +1116,52 @@ export default function App() {
     setDocumentSettings((prev) => ({
       ...prev,
       pages: prev.pages.map((p, idx) => (idx === index ? processed : p)),
+    }));
+  };
+
+  const handleToggleAllDocumentWhiteFilter = async () => {
+    if (documentSettings.pages.length === 0) return;
+    const allEnabled = documentSettings.pages.every((p) => p.autoWhiteDocument);
+    const targetValue = !allEnabled;
+    setIsUploading(true);
+    try {
+      const processedPages = await Promise.all(
+        documentSettings.pages.map((p) =>
+          reprocessDocumentPage({
+            ...p,
+            autoWhiteDocument: targetValue,
+          })
+        )
+      );
+      setDocumentSettings((prev) => ({
+        ...prev,
+        pages: processedPages,
+      }));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleReorderDocumentPage = (index: number, direction: 'up' | 'down') => {
+    setDocumentSettings((prev) => {
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.pages.length) return prev;
+      const nextPages = [...prev.pages];
+      const [moved] = nextPages.splice(index, 1);
+      nextPages.splice(targetIndex, 0, moved);
+      return {
+        ...prev,
+        pages: nextPages,
+        activePageIndex: targetIndex,
+      };
+    });
+  };
+
+  const handleClearAllDocumentPages = () => {
+    setDocumentSettings((prev) => ({
+      ...prev,
+      pages: [],
+      activePageIndex: 0,
     }));
   };
 
@@ -1224,37 +1332,100 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const src = ev.target?.result as string;
-      const processed = lamination.autoWhiteDocument
-        ? await processNIDImage(src, {
-            straightenAngle: 0,
-            crop: null,
-            autoWhiteDocument: true,
-            docThreshold: lamination.docThreshold,
-            docContrast: lamination.docContrast,
-            brightness: 0,
-          })
-        : src;
+      const prepared = await prepareLaminationCardImage(src, {
+        targetWidthMm: lamination.cardWidth,
+        targetHeightMm: lamination.cardHeight,
+        autoWhiteDocument: lamination.autoWhiteDocument,
+        docThreshold: lamination.docThreshold,
+        docContrast: lamination.docContrast,
+        brightness: 0,
+      });
       setLamination((prev) =>
         side === 'front'
           ? {
               ...prev,
               frontImage: src,
-              processedFrontImage: processed,
-              frontStraighten: 0,
-              frontCrop: null,
+              processedFrontImage: prepared.processedSrc,
+              frontStraighten: prepared.straightenAngle,
+              frontCrop: prepared.crop,
               frontBrightness: 0,
             }
           : {
               ...prev,
               backImage: src,
-              processedBackImage: processed,
-              backStraighten: 0,
-              backCrop: null,
+              processedBackImage: prepared.processedSrc,
+              backStraighten: prepared.straightenAngle,
+              backCrop: prepared.crop,
               backBrightness: 0,
             }
       );
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleRotateLaminationSide = async (side: 'front' | 'back') => {
+    const src = side === 'front' ? lamination.frontImage : lamination.backImage;
+    if (!src) return;
+    const currentAngle = side === 'front' ? lamination.frontStraighten : lamination.backStraighten;
+    const nextAngle = (currentAngle + 90) % 360;
+    const crop = side === 'front' ? lamination.frontCrop : lamination.backCrop;
+    const brightness = side === 'front' ? lamination.frontBrightness : lamination.backBrightness;
+    const processed = await processNIDImage(src, {
+      straightenAngle: nextAngle,
+      crop,
+      autoWhiteDocument: lamination.autoWhiteDocument,
+      docThreshold: lamination.docThreshold,
+      docContrast: lamination.docContrast,
+      brightness,
+    });
+    setLamination((prev) =>
+      side === 'front'
+        ? { ...prev, frontStraighten: nextAngle, processedFrontImage: processed }
+        : { ...prev, backStraighten: nextAngle, processedBackImage: processed }
+    );
+  };
+
+  const handleAutoFitLaminationCards = async () => {
+    const [frontPrepared, backPrepared] = await Promise.all([
+      lamination.frontImage
+        ? prepareLaminationCardImage(lamination.frontImage, {
+            targetWidthMm: lamination.cardWidth,
+            targetHeightMm: lamination.cardHeight,
+            autoWhiteDocument: lamination.autoWhiteDocument,
+            docThreshold: lamination.docThreshold,
+            docContrast: lamination.docContrast,
+            brightness: lamination.frontBrightness,
+          })
+        : Promise.resolve(null),
+      lamination.backImage
+        ? prepareLaminationCardImage(lamination.backImage, {
+            targetWidthMm: lamination.cardWidth,
+            targetHeightMm: lamination.cardHeight,
+            autoWhiteDocument: lamination.autoWhiteDocument,
+            docThreshold: lamination.docThreshold,
+            docContrast: lamination.docContrast,
+            brightness: lamination.backBrightness,
+          })
+        : Promise.resolve(null),
+    ]);
+
+    setLamination((prev) => ({
+      ...prev,
+      ...(frontPrepared
+        ? {
+            processedFrontImage: frontPrepared.processedSrc,
+            frontCrop: frontPrepared.crop,
+            frontStraighten: frontPrepared.straightenAngle,
+          }
+        : {}),
+      ...(backPrepared
+        ? {
+            processedBackImage: backPrepared.processedSrc,
+            backCrop: backPrepared.crop,
+            backStraighten: backPrepared.straightenAngle,
+          }
+        : {}),
+    }));
   };
 
   // 10. Print & Export Handlers
@@ -1265,35 +1436,48 @@ export default function App() {
     }, 40);
   };
 
-  const handleDownloadPdf = async () => {
+  const handleDownloadPdf = async (overrideDocPages?: DocumentPageItem[]) => {
+    const effectiveMode: StudioMode = overrideDocPages ? 'document' : mode;
+    const effectiveDocSettings: DocumentPrintSettings = overrideDocPages
+      ? { ...documentSettings, pages: overrideDocPages, activePageIndex: 0 }
+      : documentSettings;
     const paperTag = paperSize === 'custom' ? `${customPaperWidth}x${customPaperHeight}mm` : paperSize.toUpperCase();
+    const pageSuffix =
+      effectiveMode === 'document' && effectiveDocSettings.pages.length > 1
+        ? `_${effectiveDocSettings.pages.length}Pages`
+        : '';
     const filename =
-      mode === 'passport'
+      effectiveMode === 'passport'
         ? `NextStudio_Passport_${paperTag}_${printQuality}DPI.pdf`
-        : mode === 'nid'
+        : effectiveMode === 'nid'
         ? `NextStudio_NID_${paperTag}.pdf`
-        : mode === 'lamination'
+        : effectiveMode === 'lamination'
         ? `NextStudio_LaminateID_${paperTag}.pdf`
-        : `NextStudio_PaperPrint_${paperTag}.pdf`;
+        : `NextStudio_PaperPrint_${paperTag}${pageSuffix}.pdf`;
 
-    await exportToPdf(
-      {
-        mode,
-        paper: currentPaper,
-        orientation,
-        margins: mode === 'passport' ? margins : nidMargins,
-        cuttingGuide,
-        bleedArea,
-        colorProfile,
-        dpi: printQuality,
-        photos,
-        itemPositions: passportItems,
-        nid,
-        lamination,
-        documentSettings,
-      },
-      filename
-    );
+    setIsExporting(true);
+    try {
+      await exportToPdf(
+        {
+          mode: effectiveMode,
+          paper: currentPaper,
+          orientation,
+          margins: effectiveMode === 'passport' ? margins : nidMargins,
+          cuttingGuide,
+          bleedArea,
+          colorProfile,
+          dpi: printQuality,
+          photos,
+          itemPositions: passportItems,
+          nid,
+          lamination,
+          documentSettings: effectiveDocSettings,
+        },
+        filename
+      );
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleDownloadImage = async (format: 'png' | 'jpeg') => {
@@ -1307,25 +1491,30 @@ export default function App() {
         ? `NextStudio_LaminateID_${paperSize}.${ext}`
         : `NextStudio_PaperPrint_${paperSize}.${ext}`;
 
-    await exportToImage(
-      {
-        mode,
-        paper: currentPaper,
-        orientation,
-        margins: mode === 'passport' ? margins : nidMargins,
-        cuttingGuide,
-        bleedArea,
-        colorProfile,
-        dpi: printQuality,
-        photos,
-        itemPositions: passportItems,
-        nid,
-        lamination,
-        documentSettings,
-      },
-      format,
-      filename
-    );
+    setIsExporting(true);
+    try {
+      await exportToImage(
+        {
+          mode,
+          paper: currentPaper,
+          orientation,
+          margins: mode === 'passport' ? margins : nidMargins,
+          cuttingGuide,
+          bleedArea,
+          colorProfile,
+          dpi: printQuality,
+          photos,
+          itemPositions: passportItems,
+          nid,
+          lamination,
+          documentSettings,
+        },
+        format,
+        filename
+      );
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   // 11. Project Backup & Restore
@@ -1443,7 +1632,7 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<'preview' | 'controls'>('preview');
 
   return (
-    <div className="min-h-screen bg-[#F4F6F9] dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
+    <div className="min-h-screen studio-ambient-bg text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
       {/* Complete On-Screen Interface: 100% hidden when printing so zero UI/shadows bleed onto paper */}
       <div id="screen-ui-root" className="no-print print:hidden flex-1 flex flex-col min-h-screen">
         {/* 1. Global Navigation Header */}
@@ -1456,8 +1645,9 @@ export default function App() {
           setTheme={setTheme}
           onOpenShortcuts={() => setIsShortcutsOpen(true)}
           isSaved={isSaved}
+          isProcessing={isExporting}
           onPrint={handleDirectPrint}
-          onDownloadPdf={handleDownloadPdf}
+          onDownloadPdf={() => void handleDownloadPdf()}
           onDownloadPng={() => handleDownloadImage('png')}
           onDownloadJpg={() => handleDownloadImage('jpeg')}
           onReset={handleReset}
@@ -1469,15 +1659,15 @@ export default function App() {
         />
 
         {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}
-        <div className="lg:hidden no-print sticky top-14 z-30 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-center">
-          <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl w-full max-w-md border border-slate-200/80 dark:border-slate-800">
+        <div className="lg:hidden no-print sticky top-14 z-30 glass-bar px-3 py-2 flex items-center justify-center">
+          <div className="grid grid-cols-2 gap-1 glass-track p-1 rounded-xl w-full max-w-md">
             <button
               type="button"
               onClick={() => setMobileTab('preview')}
-              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 mobileTab === 'preview'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'glass-btn-primary text-white'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <span>{lang === 'bn' ? 'পেপার প্রিভিউ' : 'Paper Preview'}</span>
@@ -1495,10 +1685,10 @@ export default function App() {
             <button
               type="button"
               onClick={() => setMobileTab('controls')}
-              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                 mobileTab === 'controls'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  ? 'glass-btn-primary text-white'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               <span>{lang === 'bn' ? 'কন্ট্রোল ও সেটিংস' : 'Controls & Settings'}</span>
@@ -1508,9 +1698,9 @@ export default function App() {
 
         {/* 2. Main Desktop Workstation Shell */}
         <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full pb-16 lg:pb-0">
-          {/* Left Studio Inspector Panel */}
+          {/* Left Floating Liquid Glass Studio Inspector Panel */}
           <aside
-            className={`w-full lg:w-[390px] xl:w-[420px] shrink-0 bg-white dark:bg-[#0F172A] border-r border-slate-200 dark:border-slate-800 p-4 sm:p-5 overflow-y-auto lg:h-[calc(100vh-3.5rem)] transition-colors ${
+            className={`w-full lg:w-[392px] xl:w-[424px] shrink-0 glass-panel lg:my-3 lg:ml-3 lg:rounded-2xl p-4 sm:p-5 overflow-y-auto lg:h-[calc(100vh-5rem)] transition-colors ${
               mobileTab === 'preview' ? 'hidden lg:block' : 'block'
             }`}
           >
@@ -1597,7 +1787,10 @@ export default function App() {
               lang={lang}
               lamination={lamination}
               setLamination={setLamination}
+              onUploadSide={handleUploadLaminationSide}
               onEditSide={(side) => setLaminationEditingSide(side)}
+              onRotateSide={handleRotateLaminationSide}
+              onAutoFitBoth={handleAutoFitLaminationCards}
               onSwapSides={handleSwapLaminationSides}
               onToggleWhiteFilter={handleToggleLaminationWhiteFilter}
               onAlignTopCenter={handleAlignLaminationTopCenter}
@@ -1624,9 +1817,17 @@ export default function App() {
               onUploadDocuments={handleUploadDocuments}
               onRotatePage={handleRotateDocumentPage}
               onToggleWhiteFilter={handleToggleDocumentWhiteFilter}
+              onToggleAllWhiteFilter={handleToggleAllDocumentWhiteFilter}
               onOpenEditor={(idx) => setEditingDocumentPageIndex(idx)}
               onRemovePage={handleRemoveDocumentPage}
+              onReorderPage={handleReorderDocumentPage}
+              onClearAllPages={handleClearAllDocumentPages}
+              onPrintAll={handleDirectPrint}
+              onDownloadAllPdf={() => void handleDownloadPdf()}
+              autoPdfOnUpload={autoPdfOnUpload}
+              setAutoPdfOnUpload={handleSetAutoPdfOnUpload}
               isUploading={isUploading}
+              isExporting={isExporting}
               paperSize={paperSize}
               setPaperSize={setPaperSize}
               customPaperWidth={customPaperWidth}
@@ -1694,6 +1895,10 @@ export default function App() {
               setDocumentSettings((prev) => ({ ...prev, fitMode }))
             }
             onToggleDocumentWhiteFilter={handleToggleDocumentWhiteFilter}
+            onRemoveDocumentPage={handleRemoveDocumentPage}
+            onPrintAll={handleDirectPrint}
+            onDownloadAllPdf={() => void handleDownloadPdf()}
+            isExporting={isExporting}
             lamination={lamination}
             onMoveLamination={handleMoveLamination}
             onEditLaminationSide={(side) => setLaminationEditingSide(side)}
@@ -1706,6 +1911,7 @@ export default function App() {
             onToggleLaminationFoldLine={() =>
               setLamination((prev) => ({ ...prev, showFoldLine: !prev.showFoldLine }))
             }
+            onRotateLaminationSide={handleRotateLaminationSide}
           />
         </section>
       </main>
@@ -1727,11 +1933,29 @@ export default function App() {
           if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const reader = new FileReader();
-            reader.onload = (ev) => {
+            reader.onload = async (ev) => {
               const src = ev.target?.result as string;
-              setNid((prev) => ({ ...prev, frontImage: src, processedFrontImage: src }));
+              const processed = nid.autoWhiteDocument
+                ? await processNIDImage(src, {
+                    straightenAngle: 0,
+                    crop: null,
+                    autoWhiteDocument: true,
+                    docThreshold: nid.docThreshold,
+                    docContrast: nid.docContrast,
+                    brightness: 0,
+                  })
+                : src;
+              setNid((prev) => ({
+                ...prev,
+                frontImage: src,
+                processedFrontImage: processed,
+                frontStraighten: 0,
+                frontCrop: null,
+                frontBrightness: 0,
+              }));
             };
             reader.readAsDataURL(file);
+            e.target.value = '';
           }
         }}
         className="hidden"
@@ -1744,11 +1968,29 @@ export default function App() {
           if (e.target.files && e.target.files[0]) {
             const file = e.target.files[0];
             const reader = new FileReader();
-            reader.onload = (ev) => {
+            reader.onload = async (ev) => {
               const src = ev.target?.result as string;
-              setNid((prev) => ({ ...prev, backImage: src, processedBackImage: src }));
+              const processed = nid.autoWhiteDocument
+                ? await processNIDImage(src, {
+                    straightenAngle: 0,
+                    crop: null,
+                    autoWhiteDocument: true,
+                    docThreshold: nid.docThreshold,
+                    docContrast: nid.docContrast,
+                    brightness: 0,
+                  })
+                : src;
+              setNid((prev) => ({
+                ...prev,
+                backImage: src,
+                processedBackImage: processed,
+                backStraighten: 0,
+                backCrop: null,
+                backBrightness: 0,
+              }));
             };
             reader.readAsDataURL(file);
+            e.target.value = '';
           }
         }}
         className="hidden"
@@ -1786,13 +2028,13 @@ export default function App() {
       />
 
       {/* Mobile Sticky Bottom Action Bar (Mobile Only) */}
-      <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 p-2 px-3 flex items-center justify-between gap-2 shadow-2xl">
+      <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 glass-bar border-t border-b-0 p-2 px-3 flex items-center justify-between gap-2 shadow-2xl">
         {mode === 'passport' && photos.length > 0 && (
           <button
             onClick={() => setEditingPhotoIndex(activePhotoIndex)}
-            className="flex-1 py-2 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95"
+            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             <span className="truncate">{lang === 'bn' ? 'ছবি এডিট' : 'Edit Photo'}</span>
           </button>
         )}
@@ -1801,31 +2043,32 @@ export default function App() {
             onClick={() =>
               setLaminationEditingSide(lamination.frontImage ? 'front' : 'back')
             }
-            className="flex-1 py-2 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95"
+            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             <span className="truncate">{lang === 'bn' ? 'কার্ড এডিট' : 'Edit Card'}</span>
           </button>
         )}
         {mode === 'document' && documentSettings.pages.length > 0 && (
           <button
             onClick={() => setEditingDocumentPageIndex(documentSettings.activePageIndex)}
-            className="flex-1 py-2 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95"
+            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
             <span className="truncate">{lang === 'bn' ? 'এডিট ও ক্রপ' : 'Edit Paper'}</span>
           </button>
         )}
         <button
-          onClick={handleDownloadPdf}
-          className="flex-1 py-2 px-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 shadow-xs"
+          onClick={() => void handleDownloadPdf()}
+          disabled={isExporting}
+          className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-900 dark:text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer disabled:opacity-60"
         >
-          <FileDown className="w-3.5 h-3.5 text-blue-400" />
+          <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
           <span className="truncate">{lang === 'bn' ? 'PDF সেভ' : 'Save PDF'}</span>
         </button>
         <button
           onClick={handleDirectPrint}
-          className="flex-1 py-2 px-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 shadow-md shadow-blue-500/20"
+          className="flex-1 py-2 px-2 rounded-xl glass-btn-primary text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
         >
           <Printer className="w-3.5 h-3.5" />
           <span className="truncate">{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
