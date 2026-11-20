@@ -4,6 +4,7 @@ import {
   CuttingGuideStyle,
   DocumentPageItem,
   DocumentPrintSettings,
+  LaminationCardSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
@@ -29,6 +30,8 @@ export interface RenderSheetOptions {
   itemPositions?: { x: number; y: number; width: number; height: number; photo: StudioPhotoItem }[];
   // NID items
   nid?: NIDCardSettings;
+  // Lamination Side-by-Side ID Card items
+  lamination?: LaminationCardSettings;
   // Document / Fit-to-Paper items
   documentSettings?: DocumentPrintSettings;
 }
@@ -57,6 +60,7 @@ export async function generateHighResSheetCanvas(
     mode,
     itemPositions,
     nid,
+    lamination,
     documentSettings,
   } = options;
 
@@ -137,6 +141,96 @@ export async function generateHighResSheetCanvas(
         console.error('Failed to draw NID back:', err);
       }
       drawCuttingGuides(ctx, px, pyBack, pWidth, pHeight, cuttingGuide, bleedArea * scale, scale);
+    }
+  } else if (
+    mode === 'lamination' &&
+    lamination &&
+    (lamination.processedFrontImage ||
+      lamination.frontImage ||
+      lamination.processedBackImage ||
+      lamination.backImage)
+  ) {
+    const cardW = lamination.cardWidth || 85.6;
+    const cardH = lamination.cardHeight || 54;
+    const pW = cardW * scale;
+    const pH = cardH * scale;
+    const fx = lamination.frontX * scale;
+    const fy = lamination.frontY * scale;
+    const bx = lamination.backX * scale;
+    const by = lamination.backY * scale;
+
+    const drawCardImage = (
+      img: HTMLImageElement,
+      dx: number,
+      dy: number,
+      dw: number,
+      dh: number,
+      rotate180: boolean
+    ) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(dx, dy, dw, dh);
+      ctx.clip();
+
+      if (rotate180) {
+        ctx.translate(dx + dw / 2, dy + dh / 2);
+        ctx.rotate(Math.PI);
+        ctx.translate(-(dx + dw / 2), -(dy + dh / 2));
+      }
+
+      if (lamination.imageFit === 'cover') {
+        const imgAspect = img.width / Math.max(1, img.height);
+        const boxAspect = dw / Math.max(1, dh);
+        let drawW = dw;
+        let drawH = dh;
+        if (imgAspect > boxAspect) {
+          drawW = dh * imgAspect;
+        } else {
+          drawH = dw / imgAspect;
+        }
+        ctx.drawImage(img, dx + (dw - drawW) / 2, dy + (dh - drawH) / 2, drawW, drawH);
+      } else {
+        ctx.drawImage(img, dx, dy, dw, dh);
+      }
+      ctx.restore();
+    };
+
+    if (lamination.processedFrontImage || lamination.frontImage) {
+      try {
+        const fImg = await loadImage(lamination.processedFrontImage || lamination.frontImage!);
+        drawCardImage(fImg, fx, fy, pW, pH, false);
+      } catch (err) {
+        console.error('Failed to draw lamination front:', err);
+      }
+      drawCuttingGuides(ctx, fx, fy, pW, pH, lamination.outerCutGuide, 0, scale);
+    }
+
+    if (lamination.processedBackImage || lamination.backImage) {
+      try {
+        const bImg = await loadImage(lamination.processedBackImage || lamination.backImage!);
+        drawCardImage(bImg, bx, by, pW, pH, lamination.backRotate180);
+      } catch (err) {
+        console.error('Failed to draw lamination back:', err);
+      }
+      drawCuttingGuides(ctx, bx, by, pW, pH, lamination.outerCutGuide, 0, scale);
+    }
+
+    // Center fold crease line
+    if (lamination.showFoldLine && Math.abs(lamination.frontY - lamination.backY) <= 1) {
+      const seamXmm =
+        lamination.frontX < lamination.backX
+          ? (lamination.frontX + cardW + lamination.backX) / 2
+          : (lamination.backX + cardW + lamination.frontX) / 2;
+      const minYmm = Math.min(lamination.frontY, lamination.backY);
+      const sx = seamXmm * scale;
+      const sy1 = Math.max(0, minYmm - 3) * scale;
+      const sy2 = (minYmm + cardH + 3) * scale;
+      ctx.save();
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = Math.max(1, Math.round(0.25 * scale));
+      ctx.setLineDash([2.5 * scale, 2 * scale]);
+      drawLine(ctx, sx, sy1, sx, sy2);
+      ctx.restore();
     }
   } else if (mode === 'document' && documentSettings && documentSettings.pages.length > 0) {
     const activeDoc =

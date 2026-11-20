@@ -2,6 +2,7 @@ import React from 'react';
 import {
   CuttingGuideStyle,
   DocumentPrintSettings,
+  LaminationCardSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
@@ -21,6 +22,7 @@ interface Props {
   colorProfile: 'srgb' | 'cmyk' | 'bw';
   passportItems: CalculatedItem[];
   nid: NIDCardSettings;
+  lamination?: LaminationCardSettings;
   documentSettings?: DocumentPrintSettings;
 }
 
@@ -34,6 +36,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
   colorProfile,
   passportItems,
   nid,
+  lamination,
   documentSettings,
 }) => {
   const isLandscape = orientation === 'landscape';
@@ -384,6 +387,160 @@ export const PrintSheetHidden: React.FC<Props> = ({
                   )}
                 </div>
               )}
+            </>
+          );
+        })()}
+
+      {/* 2B. Lamination Side-by-Side Fold ID Card (Strictly Equal Front & Back) */}
+      {mode === 'lamination' &&
+        lamination &&
+        (() => {
+          const cardW = lamination.cardWidth || 85.6;
+          const cardH = lamination.cardHeight || 54;
+          const imgFilter =
+            colorProfile === 'bw'
+              ? 'grayscale(100%)'
+              : colorProfile === 'cmyk'
+              ? 'saturate(0.9) contrast(1.05)'
+              : 'none';
+          const imgFit = lamination.imageFit === 'cover' ? 'cover' : 'fill';
+          const isLevel = Math.abs(lamination.frontY - lamination.backY) <= 1;
+          const seamX =
+            lamination.frontX < lamination.backX
+              ? (lamination.frontX + cardW + lamination.backX) / 2
+              : (lamination.backX + cardW + lamination.frontX) / 2;
+          const minY = Math.min(lamination.frontY, lamination.backY);
+
+          const renderCutGuide = () => {
+            if (lamination.outerCutGuide === 'dashed') {
+              return (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    border: '0.2mm dashed #94a3b8',
+                    boxShadow: 'none',
+                  }}
+                />
+              );
+            }
+            if (lamination.outerCutGuide === 'solid') {
+              return (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    border: '0.15mm solid #cbd5e1',
+                    boxShadow: 'none',
+                  }}
+                />
+              );
+            }
+            if (lamination.outerCutGuide === 'scissors') {
+              return (
+                <>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      border: '0.2mm dotted #94a3b8',
+                      boxShadow: 'none',
+                    }}
+                  />
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: '-2.5mm',
+                      left: '-2.5mm',
+                      fontSize: '2.5mm',
+                      color: '#64748b',
+                    }}
+                  >
+                    ✂
+                  </span>
+                </>
+              );
+            }
+            return null;
+          };
+
+          return (
+            <>
+              {(lamination.processedFrontImage || lamination.frontImage) && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${lamination.frontX}mm`,
+                    top: `${lamination.frontY}mm`,
+                    width: `${cardW}mm`,
+                    height: `${cardH}mm`,
+                    boxShadow: 'none',
+                    border: 'none',
+                  }}
+                >
+                  <img
+                    src={lamination.processedFrontImage || lamination.frontImage!}
+                    alt="Front"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: imgFit,
+                      display: 'block',
+                      boxShadow: 'none',
+                      border: 'none',
+                      filter: imgFilter,
+                    }}
+                  />
+                  {renderCutGuide()}
+                </div>
+              )}
+
+              {(lamination.processedBackImage || lamination.backImage) && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${lamination.backX}mm`,
+                    top: `${lamination.backY}mm`,
+                    width: `${cardW}mm`,
+                    height: `${cardH}mm`,
+                    boxShadow: 'none',
+                    border: 'none',
+                  }}
+                >
+                  <img
+                    src={lamination.processedBackImage || lamination.backImage!}
+                    alt="Back"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: imgFit,
+                      display: 'block',
+                      boxShadow: 'none',
+                      border: 'none',
+                      filter: imgFilter,
+                      transform: lamination.backRotate180 ? 'rotate(180deg)' : 'none',
+                    }}
+                  />
+                  {renderCutGuide()}
+                </div>
+              )}
+
+              {/* Subtle Center Fold Crease Line */}
+              {lamination.showFoldLine &&
+                isLevel &&
+                (lamination.frontImage || lamination.backImage) && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: `${seamX}mm`,
+                      top: `${Math.max(0, minY - 3)}mm`,
+                      width: '0mm',
+                      height: `${cardH + 6}mm`,
+                      borderLeft: '0.25mm dashed #64748b',
+                      boxShadow: 'none',
+                    }}
+                  />
+                )}
             </>
           );
         })()}

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script>
       // Ensure window.fetch has a valid setter for browser extension interceptors
       try {
@@ -26,8 +26,11 @@
         'error',
         function (event) {
           if (
-            (event.filename && (event.filename.startsWith('chrome-extension:') || event.filename.startsWith('moz-extension:'))) ||
-            (event.message && event.message.includes('Cannot set property fetch of #<Window>'))
+            (event.filename &&
+              (event.filename.startsWith('chrome-extension:') ||
+                event.filename.startsWith('moz-extension:'))) ||
+            (event.message &&
+              event.message.includes('Cannot set property fetch of #<Window>'))
           ) {
             event.stopImmediatePropagation();
             event.preventDefault();
@@ -51,24 +54,35 @@
         true
       );
     </script>
-    <title>PhotoStudio BD - Passport, NID & Paper Print Studio</title>
-    <meta name="description" content="Passport, Stamp, Smart NID Card & Fit-to-Paper Document Print Studio. Upload any paper or photo to automatically fit A4, A5, Letter, Legal or custom paper sizes cleanly." />
-    <meta property="og:title" content="PhotoStudio BD - Passport, NID & Paper Print Studio" />
-    <meta property="og:description" content="Passport, Stamp, Smart NID Card & Fit-to-Paper Document Print Studio. Upload any paper or photo to automatically fit A4, A5, Letter, Legal or custom paper sizes cleanly." />
+    <title>NextStudio — Passport, NID, Laminate ID & Paper Print Studio</title>
+    <meta
+      name="description"
+      content="NextStudio: 100% offline-ready desktop & mobile workstation for Passport Photos, Smart NID Cards, Center-Fold Laminating ID Cards, and Fit-to-Paper Document Printing."
+    />
+    <meta property="og:title" content="NextStudio — Passport, NID, Laminate ID & Paper Print Studio" />
+    <meta
+      property="og:description"
+      content="Offline-ready print workstation for Passport Photos, Smart NID Cards, Laminating ID Cards, and Fit-to-Paper Document Printing."
+    />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="theme-color" content="#2563eb" />
+    <meta name="theme-color" content="#0f172a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="PhotoStudio" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NextStudio" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
   </head>
-  <body class="bg-slate-100 text-slate-900 antialiased selection:bg-blue-600 selection:text-white dark:bg-slate-950 dark:text-slate-100 font-sans">
+  <body class="bg-[#F4F6F9] text-slate-900 antialiased selection:bg-blue-600 selection:text-white dark:bg-[#0B1120] dark:text-slate-100 font-sans">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

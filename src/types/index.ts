@@ -1,4 +1,4 @@
-export type StudioMode = 'passport' | 'nid' | 'document';
+export type StudioMode = 'passport' | 'nid' | 'lamination' | 'document';
 
 export type PhotoPresetType =
   | 'bd-passport'
@@ -119,6 +119,48 @@ export interface NIDCardSettings {
   backBrightness: number;
 }
 
+export type LaminationCardPreset =
+  | 'smart-nid'
+  | 'driving-license'
+  | 'laminating-nid'
+  | 'old-voter-id'
+  | 'student-id-h'
+  | 'student-id-v'
+  | 'job-id-h'
+  | 'job-id-v'
+  | 'custom';
+
+export interface LaminationCardSettings {
+  preset: LaminationCardPreset;
+  frontImage: string | null;
+  backImage: string | null;
+  processedFrontImage: string | null;
+  processedBackImage: string | null;
+  /** Strictly identical physical dimensions applied to BOTH Front & Back cards */
+  cardWidth: number; // mm
+  cardHeight: number; // mm
+  /** Millimeter coordinates on the sheet for independent or collective dragging */
+  frontX: number; // mm
+  frontY: number; // mm
+  backX: number; // mm
+  backY: number; // mm
+  /** Gap between Front (left) and Back (right) along the fold seam (0mm = touching crease) */
+  foldGap: number; // mm
+  showFoldLine: boolean;
+  outerCutGuide: CuttingGuideStyle;
+  imageFit: 'fill' | 'cover';
+  backRotate180: boolean;
+  autoWhiteDocument: boolean;
+  docThreshold: number;
+  docContrast: number;
+  frontStraighten: number;
+  backStraighten: number;
+  frontCrop: CropRect | null;
+  backCrop: CropRect | null;
+  frontBrightness: number;
+  backBrightness: number;
+}
+
 export interface DocumentPageItem {
   id: string;
   name: string;
@@ -173,6 +215,8 @@ export interface StudioState {
   // NID state
   nid: NIDCardSettings;
   nidMargins: MarginSettings;
+  // Lamination Side-by-Side ID Card state
+  lamination?: LaminationCardSettings;
   // Document / Fit-to-Paper state
   documentSettings?: DocumentPrintSettings;
 }

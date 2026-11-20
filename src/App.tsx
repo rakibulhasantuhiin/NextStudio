@@ -8,8 +8,10 @@ import { Edit3, FileDown, Printer } from 'lucide-react';
 import { DocumentControls } from './components/DocumentStudio/DocumentControls';
 import { DocumentEditorModal } from './components/DocumentStudio/DocumentEditorModal';
 import { Header } from './components/Header';
+import { LaminationControls } from './components/LaminationStudio/LaminationControls';
 import { NidControls } from './components/NidStudio/NidControls';
 import { NidEditorModal } from './components/NidStudio/NidEditorModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { PaperPreview } from './components/PaperPreview';
 import { PassportControls } from './components/PassportStudio/PassportControls';
 import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
@@ -21,6 +23,7 @@ import {
   DocumentFitMode,
   DocumentPageItem,
   DocumentPrintSettings,
+  LaminationCardSettings,
   LayoutMode,
   MarginSettings,
   NIDCardSettings,
@@ -34,8 +37,10 @@ import {
   StudioState,
 } from './types';
 import {
+  alignLaminationTopCenter,
   DEFAULT_ADJUSTMENTS,
   DEFAULT_DOCUMENT_SETTINGS,
+  DEFAULT_LAMINATION_SETTINGS,
   DEFAULT_MARGINS,
   DEFAULT_NID_MARGINS,
   NID_STANDARD_HEIGHT,
@@ -46,6 +51,7 @@ import {
 import {
   getImageDimensions,
   processDocumentImage,
+  processNIDImage,
   processStudioPhoto,
 } from './utils/imageProcessing';
 import {
@@ -55,14 +61,23 @@ import {
   generateDefaultPlacedItems,
 } from './utils/layoutCalculator';
 import { exportToImage, exportToPdf, triggerDirectPrint } from './utils/printAndPdf';
-import { exportProjectAsJson, importProjectFromJson, loadStateFromLocal, saveStateToLocal } from './utils/storage';
+import {
+  exportProjectAsJson,
+  importProjectFromJson,
+  loadQuickPrefs,
+  loadStateFromLocal,
+  loadStateOffline,
+  saveStateOffline,
+} from './utils/storage';
 
 export default function App() {
   // 1. Initial State Setup - Default Language English ('en')
   const [mode, setMode] = useState<StudioMode>('passport');
   const [lang, setLang] = useState<'bn' | 'en'>(() => {
     try {
-      const explicitLang = localStorage.getItem('photostudio_selected_lang');
+      const explicitLang =
+        localStorage.getItem('nextstudio_selected_lang') ||
+        localStorage.getItem('photostudio_selected_lang');
       if (explicitLang === 'bn' || explicitLang === 'en') return explicitLang;
     } catch {
       // ignore
@@ -71,6 +86,8 @@ export default function App() {
   });
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
+      const quick = loadQuickPrefs();
+      if (quick?.theme === 'dark' || quick?.theme === 'light') return quick.theme;
       const saved = loadStateFromLocal();
       if (saved?.theme === 'dark' || saved?.theme === 'light') return saved.theme;
       if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -97,7 +114,7 @@ export default function App() {
   const handleSetLang = (newLang: 'bn' | 'en') => {
     setLang(newLang);
     try {
-      localStorage.setItem('photostudio_selected_lang', newLang);
+      localStorage.setItem('nextstudio_selected_lang', newLang);
     } catch {
       // ignore
     }
@@ -159,71 +176,94 @@ export default function App() {
   );
   const [editingDocumentPageIndex, setEditingDocumentPageIndex] = useState<number | null>(null);
 
+  // Lamination Fold Side-by-Side ID Card State
+  const [lamination, setLamination] = useState<LaminationCardSettings>(DEFAULT_LAMINATION_SETTINGS);
+  const [laminationEditingSide, setLaminationEditingSide] = useState<'front' | 'back' | null>(null);
+
   // File upload trigger refs for paper preview click-to-upload
   const passportUploadInputRef = useRef<HTMLInputElement>(null);
   const nidFrontInputRef = useRef<HTMLInputElement>(null);
   const nidBackInputRef = useRef<HTMLInputElement>(null);
+  const lamFrontInputRef = useRef<HTMLInputElement>(null);
+  const lamBackInputRef = useRef<HTMLInputElement>(null);
   const documentUploadInputRef = useRef<HTMLInputElement>(null);
 
-  // 2. Restore State from Local Storage if present (filters out any old dummy demo photos)
+  // 2. Restore State from IndexedDB Offline Store (with localStorage fallback)
+  const hasHydratedRef = useRef(false);
   useEffect(() => {
-    const saved = loadStateFromLocal();
-    if (saved) {
-      setMode(saved.mode || 'passport');
-      try {
-        const explicitLang = localStorage.getItem('photostudio_selected_lang');
-        if (explicitLang === 'bn' || explicitLang === 'en') {
-          setLang(explicitLang);
-        } else {
+    let active = true;
+    (async () => {
+      const saved = await loadStateOffline();
+      if (!active) return;
+      if (saved) {
+        setMode(saved.mode || 'passport');
+        try {
+          const explicitLang =
+            localStorage.getItem('nextstudio_selected_lang') ||
+            localStorage.getItem('photostudio_selected_lang');
+          if (explicitLang === 'bn' || explicitLang === 'en') {
+            setLang(explicitLang);
+          } else {
+            setLang('en');
+          }
+        } catch {
           setLang('en');
         }
-      } catch {
-        setLang('en');
+        if (saved.theme) setTheme(saved.theme);
+        if (saved.photoPreset) setPhotoPreset(saved.photoPreset);
+        if (saved.paperSize) setPaperSize(saved.paperSize);
+        if (saved.customPaperWidth) setCustomPaperWidth(saved.customPaperWidth);
+        if (saved.customPaperHeight) setCustomPaperHeight(saved.customPaperHeight);
+        if (saved.orientation) setOrientation(saved.orientation);
+        if (saved.layoutMode) setLayoutMode(saved.layoutMode);
+        if (saved.manualCount) setManualCount(saved.manualCount);
+        if (saved.margins) setMargins(saved.margins);
+        if (saved.cuttingGuide) setCuttingGuide(saved.cuttingGuide);
+        if (saved.bleedArea !== undefined) setBleedArea(saved.bleedArea);
+        if (saved.colorProfile) setColorProfile(saved.colorProfile);
+        if (saved.printQuality) setPrintQuality(saved.printQuality);
+        if (saved.photos && saved.photos.length > 0) {
+          const realPhotos = saved.photos.filter(
+            (p) => !p.id.startsWith('demo-') && !p.originalSrc.startsWith('data:image/svg+xml')
+          );
+          setPhotos(realPhotos);
+        }
+        if (saved.placedItems && saved.placedItems.length > 0) {
+          setPlacedItems(saved.placedItems);
+        }
+        if (saved.selectedItemId) {
+          setSelectedItemId(saved.selectedItemId);
+        }
+        if (saved.nid) {
+          const cleanFront = saved.nid.frontImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.frontImage || '');
+          const cleanBack = saved.nid.backImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.backImage || '');
+          setNid({
+            ...saved.nid,
+            frontImage: cleanFront,
+            processedFrontImage: saved.nid.processedFrontImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.processedFrontImage || cleanFront),
+            backImage: cleanBack,
+            processedBackImage: saved.nid.processedBackImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.processedBackImage || cleanBack),
+          });
+        }
+        if (saved.nidMargins) setNidMargins(saved.nidMargins);
+        if (saved.documentSettings) {
+          setDocumentSettings({
+            ...DEFAULT_DOCUMENT_SETTINGS,
+            ...saved.documentSettings,
+          });
+        }
+        if (saved.lamination) {
+          setLamination({
+            ...DEFAULT_LAMINATION_SETTINGS,
+            ...saved.lamination,
+          });
+        }
       }
-      if (saved.theme) setTheme(saved.theme);
-      if (saved.photoPreset) setPhotoPreset(saved.photoPreset);
-      if (saved.paperSize) setPaperSize(saved.paperSize);
-      if (saved.customPaperWidth) setCustomPaperWidth(saved.customPaperWidth);
-      if (saved.customPaperHeight) setCustomPaperHeight(saved.customPaperHeight);
-      if (saved.orientation) setOrientation(saved.orientation);
-      if (saved.layoutMode) setLayoutMode(saved.layoutMode);
-      if (saved.manualCount) setManualCount(saved.manualCount);
-      if (saved.margins) setMargins(saved.margins);
-      if (saved.cuttingGuide) setCuttingGuide(saved.cuttingGuide);
-      if (saved.bleedArea !== undefined) setBleedArea(saved.bleedArea);
-      if (saved.colorProfile) setColorProfile(saved.colorProfile);
-      if (saved.printQuality) setPrintQuality(saved.printQuality);
-      if (saved.photos && saved.photos.length > 0) {
-        const realPhotos = saved.photos.filter(
-          (p) => !p.id.startsWith('demo-') && !p.originalSrc.startsWith('data:image/svg+xml')
-        );
-        setPhotos(realPhotos);
-      }
-      if (saved.placedItems && saved.placedItems.length > 0) {
-        setPlacedItems(saved.placedItems);
-      }
-      if (saved.selectedItemId) {
-        setSelectedItemId(saved.selectedItemId);
-      }
-      if (saved.nid) {
-        const cleanFront = saved.nid.frontImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.frontImage || '');
-        const cleanBack = saved.nid.backImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.backImage || '');
-        setNid({
-          ...saved.nid,
-          frontImage: cleanFront,
-          processedFrontImage: saved.nid.processedFrontImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.processedFrontImage || cleanFront),
-          backImage: cleanBack,
-          processedBackImage: saved.nid.processedBackImage?.startsWith('data:image/svg+xml') ? '' : (saved.nid.processedBackImage || cleanBack),
-        });
-      }
-      if (saved.nidMargins) setNidMargins(saved.nidMargins);
-      if (saved.documentSettings) {
-        setDocumentSettings({
-          ...DEFAULT_DOCUMENT_SETTINGS,
-          ...saved.documentSettings,
-        });
-      }
-    }
+      hasHydratedRef.current = true;
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // 3. Theme Toggle Effect: Controls HTML and Body dark class
@@ -238,9 +278,10 @@ export default function App() {
     }
   }, [theme]);
 
-  // 4. Autosave Debounced
+  // 4. Autosave Debounced into IndexedDB (100% Offline, Large Photo Safe)
   const saveTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
+    if (!hasHydratedRef.current) return;
     setIsSaved(false);
     if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
 
@@ -272,10 +313,10 @@ export default function App() {
         nid,
         nidMargins,
         documentSettings,
+        lamination,
       };
-      saveStateToLocal(currentState);
-      setIsSaved(true);
-    }, 800);
+      void saveStateOffline(currentState).then(() => setIsSaved(true));
+    }, 650);
 
     return () => {
       if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
@@ -305,6 +346,7 @@ export default function App() {
     nid,
     nidMargins,
     documentSettings,
+    lamination,
   ]);
 
   // 5. Dimension Resolutions
@@ -333,6 +375,33 @@ export default function App() {
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = `@media print { @page { size: ${wMm}mm ${hMm}mm; margin: 0mm; } }`;
+  }, [currentPaper.width, currentPaper.height, orientation]);
+
+  // Keep Lamination cards inside sheet bounds whenever paper size or orientation changes
+  useEffect(() => {
+    const isLand = orientation === 'landscape';
+    const wMm = isLand ? currentPaper.height : currentPaper.width;
+    const hMm = isLand ? currentPaper.width : currentPaper.height;
+    setLamination((prev) => {
+      const maxX = Math.max(0, wMm - prev.cardWidth);
+      const maxY = Math.max(0, hMm - prev.cardHeight);
+      const outOfBounds =
+        prev.frontX > maxX ||
+        prev.backX > maxX ||
+        prev.frontY > maxY ||
+        prev.backY > maxY;
+      if (!outOfBounds) return prev;
+      const aligned = alignLaminationTopCenter({
+        paperWidthMm: wMm,
+        cardWidth: prev.cardWidth,
+        foldGap: prev.foldGap,
+        topY: Math.min(10, maxY),
+      });
+      return {
+        ...prev,
+        ...aligned,
+      };
+    });
   }, [currentPaper.width, currentPaper.height, orientation]);
 
   // 6. Calculate items for passport grid (syncs placedItems with calculated coordinates)
@@ -1023,6 +1092,171 @@ export default function App() {
     setEditingDocumentPageIndex(null);
   };
 
+  // 9C. Lamination Side-by-Side ID Card Handlers
+  const getCurrentPaperMm = () => {
+    const isLand = orientation === 'landscape';
+    return {
+      paperWidthMm: isLand ? currentPaper.height : currentPaper.width,
+      paperHeightMm: isLand ? currentPaper.width : currentPaper.height,
+    };
+  };
+
+  const handleMoveLamination = (coords: {
+    frontX: number;
+    frontY: number;
+    backX: number;
+    backY: number;
+  }) => {
+    setLamination((prev) => ({
+      ...prev,
+      frontX: coords.frontX,
+      frontY: coords.frontY,
+      backX: coords.backX,
+      backY: coords.backY,
+    }));
+  };
+
+  const handleAlignLaminationTopCenter = () => {
+    const { paperWidthMm, paperHeightMm } = getCurrentPaperMm();
+    setLamination((prev) => {
+      const topY = Math.min(10, Math.max(2, paperHeightMm - prev.cardHeight));
+      const aligned = alignLaminationTopCenter({
+        paperWidthMm,
+        cardWidth: prev.cardWidth,
+        foldGap: prev.foldGap,
+        topY,
+      });
+      return {
+        ...prev,
+        ...aligned,
+      };
+    });
+  };
+
+  const handleCenterLaminationPage = () => {
+    const { paperWidthMm, paperHeightMm } = getCurrentPaperMm();
+    setLamination((prev) => {
+      const topY = Math.max(4, Math.round(((paperHeightMm - prev.cardHeight) / 2) * 10) / 10);
+      const aligned = alignLaminationTopCenter({
+        paperWidthMm,
+        cardWidth: prev.cardWidth,
+        foldGap: prev.foldGap,
+        topY,
+      });
+      return {
+        ...prev,
+        ...aligned,
+      };
+    });
+  };
+
+  const handleSnapLaminationLevel = () => {
+    const { paperWidthMm, paperHeightMm } = getCurrentPaperMm();
+    setLamination((prev) => {
+      const totalWidth = prev.cardWidth * 2 + prev.foldGap;
+      const clampedY = Math.max(0, Math.min(paperHeightMm - prev.cardHeight, prev.frontY));
+      let nextFrontX = Math.max(0, Math.min(paperWidthMm - totalWidth, prev.frontX));
+      if (totalWidth > paperWidthMm) {
+        nextFrontX = 0;
+      }
+      const nextBackX = Math.min(
+        Math.max(0, paperWidthMm - prev.cardWidth),
+        Math.round((nextFrontX + prev.cardWidth + prev.foldGap) * 10) / 10
+      );
+      return {
+        ...prev,
+        frontX: Math.round(nextFrontX * 10) / 10,
+        frontY: Math.round(clampedY * 10) / 10,
+        backX: nextBackX,
+        backY: Math.round(clampedY * 10) / 10,
+      };
+    });
+  };
+
+  const handleSwapLaminationSides = () => {
+    setLamination((prev) => ({
+      ...prev,
+      frontImage: prev.backImage,
+      backImage: prev.frontImage,
+      processedFrontImage: prev.processedBackImage,
+      processedBackImage: prev.processedFrontImage,
+      frontStraighten: prev.backStraighten,
+      backStraighten: prev.frontStraighten,
+      frontCrop: prev.backCrop,
+      backCrop: prev.frontCrop,
+      frontBrightness: prev.backBrightness,
+      backBrightness: prev.frontBrightness,
+    }));
+  };
+
+  const handleToggleLaminationWhiteFilter = async (enabled: boolean) => {
+    setLamination((prev) => ({ ...prev, autoWhiteDocument: enabled }));
+    const nextProcessedFront = lamination.frontImage
+      ? await processNIDImage(lamination.frontImage, {
+          straightenAngle: lamination.frontStraighten,
+          crop: lamination.frontCrop,
+          autoWhiteDocument: enabled,
+          docThreshold: lamination.docThreshold,
+          docContrast: lamination.docContrast,
+          brightness: lamination.frontBrightness,
+        })
+      : '';
+    const nextProcessedBack = lamination.backImage
+      ? await processNIDImage(lamination.backImage, {
+          straightenAngle: lamination.backStraighten,
+          crop: lamination.backCrop,
+          autoWhiteDocument: enabled,
+          docThreshold: lamination.docThreshold,
+          docContrast: lamination.docContrast,
+          brightness: lamination.backBrightness,
+        })
+      : '';
+
+    setLamination((prev) => ({
+      ...prev,
+      autoWhiteDocument: enabled,
+      processedFrontImage: prev.frontImage ? nextProcessedFront : '',
+      processedBackImage: prev.backImage ? nextProcessedBack : '',
+    }));
+  };
+
+  const handleUploadLaminationSide = (side: 'front' | 'back', file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const src = ev.target?.result as string;
+      const processed = lamination.autoWhiteDocument
+        ? await processNIDImage(src, {
+            straightenAngle: 0,
+            crop: null,
+            autoWhiteDocument: true,
+            docThreshold: lamination.docThreshold,
+            docContrast: lamination.docContrast,
+            brightness: 0,
+          })
+        : src;
+      setLamination((prev) =>
+        side === 'front'
+          ? {
+              ...prev,
+              frontImage: src,
+              processedFrontImage: processed,
+              frontStraighten: 0,
+              frontCrop: null,
+              frontBrightness: 0,
+            }
+          : {
+              ...prev,
+              backImage: src,
+              processedBackImage: processed,
+              backStraighten: 0,
+              backCrop: null,
+              backBrightness: 0,
+            }
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
   // 10. Print & Export Handlers
   const handleDirectPrint = () => {
     setSelectedItemId(null);
@@ -1035,10 +1269,12 @@ export default function App() {
     const paperTag = paperSize === 'custom' ? `${customPaperWidth}x${customPaperHeight}mm` : paperSize.toUpperCase();
     const filename =
       mode === 'passport'
-        ? `Passport_Photo_Sheet_${paperTag}_300DPI.pdf`
+        ? `NextStudio_Passport_${paperTag}_${printQuality}DPI.pdf`
         : mode === 'nid'
-        ? `NID_Smart_Card_Print_${paperTag}.pdf`
-        : `Paper_FitToPage_${paperTag}.pdf`;
+        ? `NextStudio_NID_${paperTag}.pdf`
+        : mode === 'lamination'
+        ? `NextStudio_LaminateID_${paperTag}.pdf`
+        : `NextStudio_PaperPrint_${paperTag}.pdf`;
 
     await exportToPdf(
       {
@@ -1053,6 +1289,7 @@ export default function App() {
         photos,
         itemPositions: passportItems,
         nid,
+        lamination,
         documentSettings,
       },
       filename
@@ -1063,10 +1300,12 @@ export default function App() {
     const ext = format === 'png' ? 'png' : 'jpg';
     const filename =
       mode === 'passport'
-        ? `Passport_Photo_Sheet_${paperSize}.${ext}`
+        ? `NextStudio_Passport_${paperSize}.${ext}`
         : mode === 'nid'
-        ? `NID_Print_Sheet_${paperSize}.${ext}`
-        : `Paper_Print_${paperSize}.${ext}`;
+        ? `NextStudio_NID_${paperSize}.${ext}`
+        : mode === 'lamination'
+        ? `NextStudio_LaminateID_${paperSize}.${ext}`
+        : `NextStudio_PaperPrint_${paperSize}.${ext}`;
 
     await exportToImage(
       {
@@ -1081,6 +1320,7 @@ export default function App() {
         photos,
         itemPositions: passportItems,
         nid,
+        lamination,
         documentSettings,
       },
       format,
@@ -1115,6 +1355,7 @@ export default function App() {
       nid,
       nidMargins,
       documentSettings,
+      lamination,
     };
     exportProjectAsJson(currentState);
   };
@@ -1136,6 +1377,12 @@ export default function App() {
         setDocumentSettings({
           ...DEFAULT_DOCUMENT_SETTINGS,
           ...imported.documentSettings,
+        });
+      }
+      if (imported.lamination) {
+        setLamination({
+          ...DEFAULT_LAMINATION_SETTINGS,
+          ...imported.lamination,
         });
       }
     } catch (err) {
@@ -1160,6 +1407,7 @@ export default function App() {
     setPlacedItems([]);
     setSelectedItemId(null);
     setDocumentSettings(DEFAULT_DOCUMENT_SETTINGS);
+    setLamination(DEFAULT_LAMINATION_SETTINGS);
     setNid((prev) => ({
       ...prev,
       frontImage: '',
@@ -1195,93 +1443,77 @@ export default function App() {
   const [mobileTab, setMobileTab] = useState<'preview' | 'controls'>('preview');
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
+    <div className="min-h-screen bg-[#F4F6F9] dark:bg-[#0B1120] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
       {/* Complete On-Screen Interface: 100% hidden when printing so zero UI/shadows bleed onto paper */}
       <div id="screen-ui-root" className="no-print print:hidden flex-1 flex flex-col min-h-screen">
-        {/* 1. Global Navigation Header (Unified Single Bar) */}
+        {/* 1. Global Navigation Header */}
         <Header
-        mode={mode}
-        setMode={setMode}
-        lang={lang}
-        setLang={handleSetLang}
-        theme={theme}
-        setTheme={setTheme}
-        onOpenShortcuts={() => setIsShortcutsOpen(true)}
-        isSaved={isSaved}
-        onPrint={handleDirectPrint}
-        onDownloadPdf={handleDownloadPdf}
-        onDownloadPng={() => handleDownloadImage('png')}
-        onDownloadJpg={() => handleDownloadImage('jpeg')}
-        onReset={handleReset}
-        onExportJson={handleExportBackup}
-        onImportJson={handleImportBackup}
-        zoom={zoom}
-        setZoom={setZoom}
-        onFitZoom={handleFitZoom}
-      />
+          mode={mode}
+          setMode={setMode}
+          lang={lang}
+          setLang={handleSetLang}
+          theme={theme}
+          setTheme={setTheme}
+          onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          isSaved={isSaved}
+          onPrint={handleDirectPrint}
+          onDownloadPdf={handleDownloadPdf}
+          onDownloadPng={() => handleDownloadImage('png')}
+          onDownloadJpg={() => handleDownloadImage('jpeg')}
+          onReset={handleReset}
+          onExportJson={handleExportBackup}
+          onImportJson={handleImportBackup}
+          zoom={zoom}
+          setZoom={setZoom}
+          onFitZoom={handleFitZoom}
+        />
 
-      {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}
-      <div className="lg:hidden no-print sticky top-13 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-center shadow-2xs">
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full max-w-md border border-slate-200/80 dark:border-slate-700">
-          <button
-            onClick={() => setMobileTab('preview')}
-            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
-              mobileTab === 'preview'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>{lang === 'bn' ? '📄 পেপার প্রিভিউ' : '📄 Paper Preview'}</span>
-            {mode === 'passport' && placedItems.length > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                mobileTab === 'preview' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-              }`}>
-                {placedItems.length}
-              </span>
-            )}
-            {mode === 'document' && documentSettings.pages.length > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                mobileTab === 'preview' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-              }`}>
-                {documentSettings.pages.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setMobileTab('controls')}
-            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition ${
-              mobileTab === 'controls'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <span>{lang === 'bn' ? '⚙️ কন্ট্রোল ও সেটিংস' : '⚙️ Controls & Settings'}</span>
-            {mode === 'passport' && photos.length > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                mobileTab === 'controls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-              }`}>
-                {photos.length}
-              </span>
-            )}
-            {mode === 'document' && documentSettings.pages.length > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                mobileTab === 'controls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
-              }`}>
-                {documentSettings.pages.length}
-              </span>
-            )}
-          </button>
+        {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}
+        <div className="lg:hidden no-print sticky top-14 z-30 bg-white/95 dark:bg-[#0F172A]/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-3 py-2 flex items-center justify-center">
+          <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-slate-900 p-1 rounded-xl w-full max-w-md border border-slate-200/80 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setMobileTab('preview')}
+              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+                mobileTab === 'preview'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <span>{lang === 'bn' ? 'পেপার প্রিভিউ' : 'Paper Preview'}</span>
+              {mode === 'passport' && placedItems.length > 0 && (
+                <span className="text-[11px] font-mono tabular-nums opacity-80">
+                  ({placedItems.length})
+                </span>
+              )}
+              {mode === 'document' && documentSettings.pages.length > 0 && (
+                <span className="text-[11px] font-mono tabular-nums opacity-80">
+                  ({documentSettings.pages.length})
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab('controls')}
+              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+                mobileTab === 'controls'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <span>{lang === 'bn' ? 'কন্ট্রোল ও সেটিংস' : 'Controls & Settings'}</span>
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* 2. Main Workspace: Wide Desktop Workstation & Mobile Clean View */}
-      <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full max-w-[1920px] mx-auto pb-18 lg:pb-0">
-        {/* Left Sidebar: Controls & Settings */}
-        <aside
-          className={`w-full lg:w-[410px] xl:w-[450px] shrink-0 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-3 sm:p-4 overflow-y-auto max-h-[calc(100vh-3.5rem)] transition-colors ${
-            mobileTab === 'preview' ? 'hidden lg:block' : 'block'
-          }`}
-        >
+        {/* 2. Main Desktop Workstation Shell */}
+        <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full pb-16 lg:pb-0">
+          {/* Left Studio Inspector Panel */}
+          <aside
+            className={`w-full lg:w-[390px] xl:w-[420px] shrink-0 bg-white dark:bg-[#0F172A] border-r border-slate-200 dark:border-slate-800 p-4 sm:p-5 overflow-y-auto lg:h-[calc(100vh-3.5rem)] transition-colors ${
+              mobileTab === 'preview' ? 'hidden lg:block' : 'block'
+            }`}
+          >
           {mode === 'passport' ? (
             <PassportControls
               lang={lang}
@@ -1360,6 +1592,30 @@ export default function App() {
               dpi={printQuality}
               setDpi={setPrintQuality}
             />
+          ) : mode === 'lamination' ? (
+            <LaminationControls
+              lang={lang}
+              lamination={lamination}
+              setLamination={setLamination}
+              onEditSide={(side) => setLaminationEditingSide(side)}
+              onSwapSides={handleSwapLaminationSides}
+              onToggleWhiteFilter={handleToggleLaminationWhiteFilter}
+              onAlignTopCenter={handleAlignLaminationTopCenter}
+              onCenterPage={handleCenterLaminationPage}
+              onSnapLevel={handleSnapLaminationLevel}
+              paperSize={paperSize}
+              setPaperSize={setPaperSize}
+              customPaperWidth={customPaperWidth}
+              setCustomPaperWidth={setCustomPaperWidth}
+              customPaperHeight={customPaperHeight}
+              setCustomPaperHeight={setCustomPaperHeight}
+              orientation={orientation}
+              setOrientation={setOrientation}
+              colorProfile={colorProfile}
+              setColorProfile={setColorProfile}
+              dpi={printQuality}
+              setDpi={setPrintQuality}
+            />
           ) : (
             <DocumentControls
               lang={lang}
@@ -1387,9 +1643,9 @@ export default function App() {
           )}
         </aside>
 
-        {/* Right Area: Realistic Scaled Paper Preview Canvas */}
+        {/* Right Area: Architectural Studio Drafting Stage */}
         <section
-          className={`flex-1 bg-slate-100/90 dark:bg-slate-950 flex flex-col overflow-auto max-h-[calc(100vh-3.5rem)] ${
+          className={`flex-1 studio-desk-grid flex flex-col overflow-auto lg:h-[calc(100vh-3.5rem)] ${
             mobileTab === 'controls' ? 'hidden lg:flex' : 'flex'
           }`}
         >
@@ -1438,6 +1694,18 @@ export default function App() {
               setDocumentSettings((prev) => ({ ...prev, fitMode }))
             }
             onToggleDocumentWhiteFilter={handleToggleDocumentWhiteFilter}
+            lamination={lamination}
+            onMoveLamination={handleMoveLamination}
+            onEditLaminationSide={(side) => setLaminationEditingSide(side)}
+            onUploadLaminationFrontTrigger={() => lamFrontInputRef.current?.click()}
+            onUploadLaminationBackTrigger={() => lamBackInputRef.current?.click()}
+            onAlignLaminationTopCenter={handleAlignLaminationTopCenter}
+            onCenterLaminationPage={handleCenterLaminationPage}
+            onSnapLaminationLevel={handleSnapLaminationLevel}
+            onSwapLaminationSides={handleSwapLaminationSides}
+            onToggleLaminationFoldLine={() =>
+              setLamination((prev) => ({ ...prev, showFoldLine: !prev.showFoldLine }))
+            }
           />
         </section>
       </main>
@@ -1486,6 +1754,26 @@ export default function App() {
         className="hidden"
       />
       <input
+        ref={lamFrontInputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleUploadLaminationSide('front', e.target.files[0]);
+          e.target.value = '';
+        }}
+        className="hidden"
+      />
+      <input
+        ref={lamBackInputRef}
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          if (e.target.files?.[0]) handleUploadLaminationSide('back', e.target.files[0]);
+          e.target.value = '';
+        }}
+        className="hidden"
+      />
+      <input
         ref={documentUploadInputRef}
         type="file"
         multiple
@@ -1506,6 +1794,17 @@ export default function App() {
           >
             <Edit3 className="w-3.5 h-3.5 text-blue-600" />
             <span className="truncate">{lang === 'bn' ? 'ছবি এডিট' : 'Edit Photo'}</span>
+          </button>
+        )}
+        {mode === 'lamination' && (lamination.frontImage || lamination.backImage) && (
+          <button
+            onClick={() =>
+              setLaminationEditingSide(lamination.frontImage ? 'front' : 'back')
+            }
+            className="flex-1 py-2 px-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95"
+          >
+            <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+            <span className="truncate">{lang === 'bn' ? 'কার্ড এডিট' : 'Edit Card'}</span>
           </button>
         )}
         {mode === 'document' && documentSettings.pages.length > 0 && (
@@ -1583,6 +1882,61 @@ export default function App() {
         />
       )}
 
+      {/* 6A. Lamination ID Card Side Editor Modal (Reuses NidEditorModal) */}
+      {laminationEditingSide && (
+        <NidEditorModal
+          isOpen={true}
+          side={laminationEditingSide}
+          imageSrc={laminationEditingSide === 'front' ? lamination.frontImage : lamination.backImage}
+          straightenAngle={
+            laminationEditingSide === 'front'
+              ? lamination.frontStraighten
+              : lamination.backStraighten
+          }
+          autoWhiteDocument={lamination.autoWhiteDocument}
+          docThreshold={lamination.docThreshold}
+          docContrast={lamination.docContrast}
+          crop={laminationEditingSide === 'front' ? lamination.frontCrop : lamination.backCrop}
+          brightness={
+            laminationEditingSide === 'front'
+              ? lamination.frontBrightness
+              : lamination.backBrightness
+          }
+          onClose={() => setLaminationEditingSide(null)}
+          onSave={({
+            processedSrc,
+            straightenAngle,
+            crop,
+            autoWhiteDocument,
+            docThreshold,
+            docContrast,
+            brightness,
+          }) => {
+            setLamination((prev) => ({
+              ...prev,
+              ...(laminationEditingSide === 'front'
+                ? {
+                    processedFrontImage: processedSrc,
+                    frontStraighten: straightenAngle,
+                    frontCrop: crop,
+                    frontBrightness: brightness,
+                  }
+                : {
+                    processedBackImage: processedSrc,
+                    backStraighten: straightenAngle,
+                    backCrop: crop,
+                    backBrightness: brightness,
+                  }),
+              autoWhiteDocument,
+              docThreshold,
+              docContrast,
+            }));
+            setLaminationEditingSide(null);
+          }}
+          lang={lang}
+        />
+      )}
+
       {/* 6B. Document / Fit-to-Paper Editor Modal */}
       {editingDocumentPageIndex !== null && documentSettings.pages[editingDocumentPageIndex] && (
         <DocumentEditorModal
@@ -1600,6 +1954,9 @@ export default function App() {
         onClose={() => setIsShortcutsOpen(false)}
         lang={lang}
       />
+
+      {/* Offline Connectivity Banner (Only shown when internet is disconnected) */}
+      <OfflineIndicator lang={lang} />
       </div>
 
       {/* 4. Dedicated 1:1 Scale Print DOM (Only rendered in @media print, pure white, no shadows) */}
@@ -1613,6 +1970,7 @@ export default function App() {
         colorProfile={colorProfile}
         passportItems={passportItems}
         nid={nid}
+        lamination={lamination}
         documentSettings={documentSettings}
       />
     </div>

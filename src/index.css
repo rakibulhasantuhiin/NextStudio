@@ -4,12 +4,40 @@
 
 @layer base {
   body {
-    font-family: 'Hind Siliguri', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    letter-spacing: 0;
+    font-family: 'Plus Jakarta Sans', 'Hind Siliguri', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    letter-spacing: -0.005em;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  .dark body,
+  body.dark {
+    letter-spacing: 0.005em;
+  }
+
+  code,
+  kbd,
+  pre,
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Subtle architectural drafting-grid background for the desktop paper canvas stage */
+.studio-desk-grid {
+  background-color: #eef1f6;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.09) 1px, transparent 0);
+  background-size: 20px 20px;
+}
+
+.dark .studio-desk-grid {
+  background-color: #090e1a;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.13) 1px, transparent 0);
+  background-size: 20px 20px;
 }
 
 @media print {
@@ -41,7 +69,7 @@
     print-color-adjust: exact !important;
   }
 
-  /* 
+  /*
    * CRITICAL: Completely hide all screen interface elements,
    * sidebars, headers, banners, toolbars, and the on-screen preview canvas
    */
@@ -108,7 +136,7 @@
   }
 }
 
-/* Custom scrollbars for studio panels */
+/* Custom thin scrollbars for studio panels */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

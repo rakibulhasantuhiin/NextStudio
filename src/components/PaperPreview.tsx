@@ -1,24 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlignCenterHorizontal,
   ArrowDown,
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   ArrowUp,
   Camera,
   Check,
   ChevronLeft,
   ChevronRight,
+  Columns2,
   Copy,
   CreditCard,
   Edit3,
   FileText,
   Layers,
+  Lock,
   Maximize2,
   MousePointer,
   Move,
   Plus,
   RefreshCw,
   RotateCw,
+  Scissors,
   Sparkles,
   Target,
   Trash2,
@@ -30,6 +35,7 @@ import {
   CuttingGuideStyle,
   DocumentFitMode,
   DocumentPrintSettings,
+  LaminationCardSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
@@ -84,6 +90,17 @@ interface Props {
   onSelectDocumentPage?: (index: number) => void;
   onChangeDocumentFitMode?: (mode: DocumentFitMode) => void;
   onToggleDocumentWhiteFilter?: (index: number) => void;
+  // Lamination Side-by-Side ID Card props
+  lamination?: LaminationCardSettings;
+  onMoveLamination?: (coords: { frontX: number; frontY: number; backX: number; backY: number }) => void;
+  onEditLaminationSide?: (side: 'front' | 'back') => void;
+  onUploadLaminationFrontTrigger?: () => void;
+  onUploadLaminationBackTrigger?: () => void;
+  onAlignLaminationTopCenter?: () => void;
+  onCenterLaminationPage?: () => void;
+  onSnapLaminationLevel?: () => void;
+  onSwapLaminationSides?: () => void;
+  onToggleLaminationFoldLine?: () => void;
 }
 
 export const PaperPreview: React.FC<Props> = ({
@@ -126,6 +143,16 @@ export const PaperPreview: React.FC<Props> = ({
   onSelectDocumentPage,
   onChangeDocumentFitMode,
   onToggleDocumentWhiteFilter,
+  lamination,
+  onMoveLamination,
+  onEditLaminationSide,
+  onUploadLaminationFrontTrigger,
+  onUploadLaminationBackTrigger,
+  onAlignLaminationTopCenter,
+  onCenterLaminationPage,
+  onSnapLaminationLevel,
+  onSwapLaminationSides,
+  onToggleLaminationFoldLine,
 }) => {
   const t = translations[lang];
 
@@ -143,6 +170,24 @@ export const PaperPreview: React.FC<Props> = ({
   const [moveMode, setMoveMode] = useState<'all' | 'single'>('all');
   const [isDraggingAll, setIsDraggingAll] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+
+  // Lamination movement mode: 'both' (front & back together) or 'single' (front or back individually)
+  const [lamMoveMode, setLamMoveMode] = useState<'both' | 'single'>('both');
+  const [selectedLamSide, setSelectedLamSide] = useState<'front' | 'back'>('front');
+  const [draggingLamTarget, setDraggingLamTarget] = useState<'both' | 'front' | 'back' | null>(null);
+  const lamDragRef = useRef<{
+    target: 'both' | 'front' | 'back';
+    startX: number;
+    startY: number;
+    originFrontX: number;
+    originFrontY: number;
+    originBackX: number;
+    originBackY: number;
+    cardW: number;
+    cardH: number;
+    moved: boolean;
+  } | null>(null);
+  const lamJustDraggedRef = useRef(false);
 
   // Group bounding box around all photos for collective movement
   const groupBounds = useMemo(() => {
@@ -429,8 +474,155 @@ export const PaperPreview: React.FC<Props> = ({
     }
   };
 
+  // Lamination Drag Handlers (Mouse & Touch) — Supports Both Together & Single Move
+  const startLaminationDrag = (clientX: number, clientY: number, side: 'front' | 'back' | 'both') => {
+    if (!lamination) return;
+    if (side === 'front' || side === 'back') {
+      setSelectedLamSide(side);
+    }
+    const effectiveTarget: 'both' | 'front' | 'back' =
+      side === 'both' || lamMoveMode === 'both' ? 'both' : side;
+    lamDragRef.current = {
+      target: effectiveTarget,
+      startX: clientX,
+      startY: clientY,
+      originFrontX: lamination.frontX,
+      originFrontY: lamination.frontY,
+      originBackX: lamination.backX,
+      originBackY: lamination.backY,
+      cardW: lamination.cardWidth,
+      cardH: lamination.cardHeight,
+      moved: false,
+    };
+    setDraggingLamTarget(effectiveTarget);
+  };
+
+  useEffect(() => {
+    const applyLamDelta = (clientX: number, clientY: number) => {
+      if (!lamDragRef.current || !onMoveLamination) return;
+      const d = lamDragRef.current;
+      const dxPx = clientX - d.startX;
+      const dyPx = clientY - d.startY;
+      if (Math.abs(dxPx) > 3 || Math.abs(dyPx) > 3) {
+        d.moved = true;
+      }
+      const rawDxMm = dxPx / mmToPx;
+      const rawDyMm = dyPx / mmToPx;
+
+      if (d.target === 'both') {
+        const minX = Math.min(d.originFrontX, d.originBackX);
+        const maxR = Math.max(d.originFrontX + d.cardW, d.originBackX + d.cardW);
+        const minY = Math.min(d.originFrontY, d.originBackY);
+        const maxB = Math.max(d.originFrontY + d.cardH, d.originBackY + d.cardH);
+
+        const clampedDx = Math.max(-minX, Math.min(Math.max(-minX, paperWidthMm - maxR), rawDxMm));
+        const clampedDy = Math.max(-minY, Math.min(Math.max(-minY, paperHeightMm - maxB), rawDyMm));
+
+        const snapDx = Math.round(clampedDx * 2) / 2;
+        const snapDy = Math.round(clampedDy * 2) / 2;
+
+        onMoveLamination({
+          frontX: Math.round((d.originFrontX + snapDx) * 2) / 2,
+          frontY: Math.round((d.originFrontY + snapDy) * 2) / 2,
+          backX: Math.round((d.originBackX + snapDx) * 2) / 2,
+          backY: Math.round((d.originBackY + snapDy) * 2) / 2,
+        });
+      } else if (d.target === 'front') {
+        const newX = Math.max(0, Math.min(paperWidthMm - d.cardW, d.originFrontX + rawDxMm));
+        const newY = Math.max(0, Math.min(paperHeightMm - d.cardH, d.originFrontY + rawDyMm));
+        onMoveLamination({
+          frontX: Math.round(newX * 2) / 2,
+          frontY: Math.round(newY * 2) / 2,
+          backX: d.originBackX,
+          backY: d.originBackY,
+        });
+      } else {
+        const newX = Math.max(0, Math.min(paperWidthMm - d.cardW, d.originBackX + rawDxMm));
+        const newY = Math.max(0, Math.min(paperHeightMm - d.cardH, d.originBackY + rawDyMm));
+        onMoveLamination({
+          frontX: d.originFrontX,
+          frontY: d.originFrontY,
+          backX: Math.round(newX * 2) / 2,
+          backY: Math.round(newY * 2) / 2,
+        });
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!lamDragRef.current) return;
+      applyLamDelta(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!lamDragRef.current || e.touches.length !== 1) return;
+      applyLamDelta(e.touches[0].clientX, e.touches[0].clientY);
+    };
+
+    const handleEnd = () => {
+      if (lamDragRef.current) {
+        if (lamDragRef.current.moved) {
+          lamJustDraggedRef.current = true;
+          window.setTimeout(() => {
+            lamJustDraggedRef.current = false;
+          }, 120);
+        }
+        lamDragRef.current = null;
+        setDraggingLamTarget(null);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('touchend', handleEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [mmToPx, paperWidthMm, paperHeightMm, onMoveLamination]);
+
+  // Nudge Lamination cards (Both Together or Single Selected)
+  const handleNudgeLamination = (deltaX: number, deltaY: number) => {
+    if (!lamination || !onMoveLamination) return;
+    const { frontX, frontY, backX, backY, cardWidth, cardHeight } = lamination;
+    if (lamMoveMode === 'both') {
+      const minX = Math.min(frontX, backX);
+      const maxR = Math.max(frontX + cardWidth, backX + cardWidth);
+      const minY = Math.min(frontY, backY);
+      const maxB = Math.max(frontY + cardHeight, backY + cardHeight);
+      const effDx = Math.max(-minX, Math.min(Math.max(-minX, paperWidthMm - maxR), deltaX));
+      const effDy = Math.max(-minY, Math.min(Math.max(-minY, paperHeightMm - maxB), deltaY));
+      onMoveLamination({
+        frontX: Math.round((frontX + effDx) * 2) / 2,
+        frontY: Math.round((frontY + effDy) * 2) / 2,
+        backX: Math.round((backX + effDx) * 2) / 2,
+        backY: Math.round((backY + effDy) * 2) / 2,
+      });
+    } else if (selectedLamSide === 'front') {
+      onMoveLamination({
+        frontX: Math.round(Math.max(0, Math.min(paperWidthMm - cardWidth, frontX + deltaX)) * 2) / 2,
+        frontY: Math.round(Math.max(0, Math.min(paperHeightMm - cardHeight, frontY + deltaY)) * 2) / 2,
+        backX,
+        backY,
+      });
+    } else {
+      onMoveLamination({
+        frontX,
+        frontY,
+        backX: Math.round(Math.max(0, Math.min(paperWidthMm - cardWidth, backX + deltaX)) * 2) / 2,
+        backY: Math.round(Math.max(0, Math.min(paperHeightMm - cardHeight, backY + deltaY)) * 2) / 2,
+      });
+    }
+  };
+
   // Unified nudge handler (all or single)
   const handleNudge = (deltaX: number, deltaY: number) => {
+    if (mode === 'lamination') {
+      handleNudgeLamination(deltaX, deltaY);
+      return;
+    }
     if (moveMode === 'all') {
       handleNudgeAll(deltaX, deltaY);
     } else if (selectedItemId) {
@@ -440,7 +632,7 @@ export const PaperPreview: React.FC<Props> = ({
     }
   };
 
-  // Keyboard navigation for moving photos: Arrow keys (Left, Right, Up, Down), Delete, Duplicate
+  // Keyboard navigation for moving photos & lamination cards: Arrow keys, Delete, Duplicate
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeEl = document.activeElement;
@@ -462,16 +654,16 @@ export const PaperPreview: React.FC<Props> = ({
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         handleNudge(0, step);
-      } else if (selectedItemId && (e.key === 'Delete' || e.key === 'Backspace')) {
+      } else if (mode === 'passport' && selectedItemId && (e.key === 'Delete' || e.key === 'Backspace')) {
         e.preventDefault();
         onDeleteItem?.(selectedItemId);
-      } else if (selectedItemId && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+      } else if (mode === 'passport' && selectedItemId && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         onDuplicateItem?.(selectedItemId);
-      } else if (selectedItemId && e.key.toLowerCase() === 's') {
+      } else if (mode === 'passport' && selectedItemId && e.key.toLowerCase() === 's') {
         e.preventDefault();
         onToggleItemSize?.(selectedItemId, 'bd-stamp');
-      } else if (selectedItemId && e.key.toLowerCase() === 'p') {
+      } else if (mode === 'passport' && selectedItemId && e.key.toLowerCase() === 'p') {
         e.preventDefault();
         onToggleItemSize?.(selectedItemId, 'bd-passport');
       }
@@ -479,7 +671,22 @@ export const PaperPreview: React.FC<Props> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedItemId, moveMode, passportItems, paperWidthMm, paperHeightMm, onNudgeItem, onDeleteItem, onDuplicateItem, onToggleItemSize]);
+  }, [
+    mode,
+    selectedItemId,
+    moveMode,
+    passportItems,
+    lamination,
+    lamMoveMode,
+    selectedLamSide,
+    paperWidthMm,
+    paperHeightMm,
+    onNudgeItem,
+    onDeleteItem,
+    onDuplicateItem,
+    onToggleItemSize,
+    onMoveLamination,
+  ]);
 
   // Breakdown of photos currently on sheet (e.g. 5 Passport, 8 Stamp)
   const passportCount = passportItems.filter(
@@ -491,8 +698,16 @@ export const PaperPreview: React.FC<Props> = ({
   const otherCount = passportItems.length - passportCount - stampCount;
 
   const countSummary = () => {
-    if (passportItems.length === 0) return 'খালি পেপার (কোন ছবি নেই)';
+    if (passportItems.length === 0) {
+      return lang === 'en' ? 'Empty Sheet (No photos)' : 'খালি পেপার (কোনো ছবি নেই)';
+    }
     const parts: string[] = [];
+    if (lang === 'en') {
+      if (passportCount > 0) parts.push(`${passportCount} Passport`);
+      if (stampCount > 0) parts.push(`${stampCount} Stamp`);
+      if (otherCount > 0) parts.push(`${otherCount} Custom`);
+      return parts.join(' + ');
+    }
     if (passportCount > 0) parts.push(`${passportCount}টি পাসপোর্ট`);
     if (stampCount > 0) parts.push(`${stampCount}টি স্ট্যাম্প`);
     if (otherCount > 0) parts.push(`${otherCount}টি কাস্টম`);
@@ -502,15 +717,15 @@ export const PaperPreview: React.FC<Props> = ({
   return (
     <div
       onClick={() => onSelectItem?.(null)}
-      className="relative flex-1 flex flex-col items-center justify-start p-2 sm:p-4 md:p-6 overflow-auto select-none min-h-full no-print print:hidden"
+      className="relative flex-1 flex flex-col items-center justify-start p-3 sm:p-5 lg:p-6 overflow-auto select-none min-h-full no-print print:hidden"
     >
-      {/* Paper Information Banner & Quick Sheet Action Bar */}
-      <div className="mb-2 w-full max-w-4xl flex flex-col sm:flex-row items-center justify-between gap-2 px-1">
-        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 flex-wrap text-center sm:text-left">
-          <span className="font-bold text-slate-800 dark:text-slate-200">
-            {paper.name} ({paperWidthMm} × {paperHeightMm} {lang === 'en' ? 'mm' : 'মিমি'})
+      {/* Unified Canvas Top Strip: Paper Metadata + Desktop Zoom Controls */}
+      <div className="mb-3 w-full max-w-5xl rounded-xl bg-white/90 dark:bg-[#0F172A]/90 backdrop-blur-sm border border-slate-200/90 dark:border-slate-800 px-3.5 py-2 flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-center sm:justify-start gap-2 flex-wrap text-center sm:text-left">
+          <span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
+            {paper.name} · {paperWidthMm} × {paperHeightMm} mm
           </span>
-          <span aria-hidden="true" className="opacity-40">·</span>
+          <span aria-hidden="true" className="opacity-35">/</span>
           <span className="text-blue-600 dark:text-blue-400 font-semibold">
             {mode === 'passport'
               ? countSummary()
@@ -518,10 +733,14 @@ export const PaperPreview: React.FC<Props> = ({
               ? nid.frontImage || nid.backImage
                 ? lang === 'en'
                   ? 'Smart NID Card'
-                  : 'এনআইডি স্মার্ট কার্ড'
+                  : 'স্মার্ট এনআইডি কার্ড'
                 : lang === 'en'
-                ? 'Empty NID Card'
+                ? 'Empty NID Sheet'
                 : 'এনআইডি কার্ড (খালি)'
+              : mode === 'lamination' && lamination
+              ? lang === 'en'
+                ? `Fold Pair · Equal ${lamination.cardWidth}×${lamination.cardHeight} mm`
+                : `লেমিনেটিং ভাঁজ · সমান ${lamination.cardWidth}×${lamination.cardHeight} মিমি`
               : documentSettings && documentSettings.pages.length > 0
               ? lang === 'en'
                 ? `Page ${Math.min(documentSettings.activePageIndex + 1, documentSettings.pages.length)} of ${documentSettings.pages.length} · Fit to Paper`
@@ -530,11 +749,187 @@ export const PaperPreview: React.FC<Props> = ({
               ? 'Paper Print (Empty)'
               : 'পেপার প্রিন্ট (খালি)'}
           </span>
-          <span aria-hidden="true" className="opacity-40">·</span>
-          <span className="font-mono text-slate-600 dark:text-slate-300">
-            {Math.round(zoom * 100)}% {lang === 'en' ? 'Zoom' : 'ডিসপ্লে'}
-          </span>
         </div>
+
+        {/* Integrated Precision Zoom Bar */}
+        {setZoom && (
+          <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-900 rounded-lg p-0.5 border border-slate-200 dark:border-slate-800 shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoom((z) => Math.max(0.3, Math.round((z - 0.1) * 100) / 100));
+              }}
+              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title={t.zoomOut}
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-2 text-[11px] font-mono font-semibold text-slate-700 dark:text-slate-200 min-w-11 text-center tabular-nums">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoom((z) => Math.min(2.0, Math.round((z + 0.1) * 100) / 100));
+              }}
+              className="p-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title={t.zoomIn}
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            {onFitZoom && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFitZoom();
+                }}
+                className="px-2 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white rounded hover:bg-white dark:hover:bg-slate-800 transition-colors border-l border-slate-200 dark:border-slate-700 cursor-pointer"
+                title={t.zoomFit}
+              >
+                {lang === 'en' ? 'Fit' : 'ফিট'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Mode-Specific Interactive Canvas Toolbar */}
+      <div className="mb-2.5 w-full max-w-5xl flex items-center justify-center sm:justify-between gap-2 flex-wrap px-0.5">
+        {/* Lamination Mode Quick Toolbar */}
+        {mode === 'lamination' && lamination && (
+          <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
+            {/* Move Mode Toggle: Move Both Together vs Single */}
+            <div className="flex items-center bg-slate-200/80 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs">
+              <button
+                type="button"
+                onClick={() => setLamMoveMode('both')}
+                className={`py-1 px-2.5 rounded-md font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                  lamMoveMode === 'both'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? 'যেকোনো কার্ড টানলে ফ্রন্ট ও ব্যাক একসাথে সরবে' : 'Drag either card to move Front & Back together'}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'দুইটা একসাথে' : 'Move Both'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLamMoveMode('single')}
+                className={`py-1 px-2 rounded-md font-semibold text-xs flex items-center gap-1 transition cursor-pointer ${
+                  lamMoveMode === 'single'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? 'ফ্রন্ট অথবা ব্যাক আলাদাভাবে সিঙ্গেল টেনে সরান' : 'Move Front or Back independently'}
+              >
+                <MousePointer className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'সিঙ্গেল' : 'Single'}</span>
+              </button>
+            </div>
+
+            {onAlignLaminationTopCenter && (
+              <button
+                type="button"
+                onClick={onAlignLaminationTopCenter}
+                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title={lang === 'bn' ? 'উপরে মাঝামাঝি বরাবর বসাবে' : 'Snap Front & Back to Top Center'}
+              >
+                <AlignCenterHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                <span>{t.laminationTopCenter}</span>
+              </button>
+            )}
+
+            {onSnapLaminationLevel && (
+              <button
+                type="button"
+                onClick={onSnapLaminationLevel}
+                className="py-1 px-2.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title={lang === 'bn' ? 'ফ্রন্ট ও ব্যাককে পাশাপাশি একদম সমান লাইনে বসাবে' : 'Align Back level next to Front'}
+              >
+                <Columns2 className="w-3.5 h-3.5 text-blue-600" />
+                <span>{t.laminationSnapLevel}</span>
+              </button>
+            )}
+
+            {onCenterLaminationPage && (
+              <button
+                type="button"
+                onClick={onCenterLaminationPage}
+                className="py-1 px-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title={lang === 'bn' ? 'পেজের মাঝখানে সেন্টার করুন' : 'Center on sheet'}
+              >
+                <Target className="w-3.5 h-3.5 text-blue-600" />
+              </button>
+            )}
+
+            {/* Micro Nudge Arrows */}
+            <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg border border-slate-300 dark:border-slate-700 p-0.5">
+              <button
+                type="button"
+                onClick={() => handleNudgeLamination(0, -2)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? '২ মিমি উপরে' : 'Nudge Up 2mm'}
+              >
+                <ArrowUp className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNudgeLamination(0, 2)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? '২ মিমি নিচে' : 'Nudge Down 2mm'}
+              >
+                <ArrowDown className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNudgeLamination(-2, 0)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? '২ মিমি বামে' : 'Nudge Left 2mm'}
+              >
+                <ArrowLeft className="w-3 h-3" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleNudgeLamination(2, 0)}
+                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 cursor-pointer"
+                title={lang === 'bn' ? '২ মিমি ডানে' : 'Nudge Right 2mm'}
+              >
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
+
+            {onSwapLaminationSides && (
+              <button
+                type="button"
+                onClick={onSwapLaminationSides}
+                className="py-1 px-2 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer"
+                title={t.laminationSwapSides}
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 text-blue-600" />
+              </button>
+            )}
+
+            {onToggleLaminationFoldLine && (
+              <button
+                type="button"
+                onClick={onToggleLaminationFoldLine}
+                className={`py-1 px-2 rounded-lg border text-xs font-semibold flex items-center gap-1 transition shadow-2xs cursor-pointer ${
+                  lamination.showFoldLine
+                    ? 'bg-blue-600 border-blue-600 text-white'
+                    : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700'
+                }`}
+                title={t.laminationFoldLine}
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'ভাঁজ দাগ' : 'Fold'}</span>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Document Mode Quick Toolbar */}
         {mode === 'document' && documentSettings && documentSettings.pages.length > 0 && (
@@ -815,6 +1210,61 @@ export const PaperPreview: React.FC<Props> = ({
               {moveMode === 'all'
                 ? (lang === 'bn' ? 'একক ছবি মুভ করতে চান?' : 'Switch to Single?')
                 : (lang === 'bn' ? 'সব ছবি একসাথে সরাতে চান?' : 'Switch to Move All?')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Lamination Drag & Fold Instruction Banner */}
+      {mode === 'lamination' && lamination && (
+        <div
+          className={`mb-3 text-[11px] rounded-lg px-2.5 sm:px-3 py-1.5 flex items-center gap-1.5 sm:gap-2 max-w-4xl w-full justify-between flex-wrap transition ${
+            lamMoveMode === 'both'
+              ? 'bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 text-blue-900 dark:text-blue-200'
+              : 'bg-slate-100 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Move className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>
+              {lamMoveMode === 'both' ? (
+                <>
+                  <strong className="text-blue-700 dark:text-blue-300">
+                    {lang === 'bn' ? '✋ দুইটা একসাথে মুভ:' : '✋ Move Both Active:'}
+                  </strong>{' '}
+                  {lang === 'bn'
+                    ? 'মাউস দিয়ে টেনে বাম ফ্রন্ট ও ডান ব্যাক একসাথে পেপারের যেকোনো জায়গায় সরান। উভয় কার্ডের সাইজ সমান লক করা।'
+                    : 'Drag either card to move Front (Left) & Back (Right) together. Both sides stay strictly equal size.'}
+                </>
+              ) : (
+                <>
+                  <strong className="text-slate-800 dark:text-slate-200">
+                    {lang === 'bn' ? '👆 সিঙ্গেল মুভ চালু:' : '👆 Single Card Move:'}
+                  </strong>{' '}
+                  {lang === 'bn'
+                    ? 'ফ্রন্ট বা ব্যাক যেকোনো একটি আলাদাভাবে টেনে জায়গা পরিবর্তন করুন।'
+                    : 'Drag Front or Back independently to adjust position.'}
+                </>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono text-emerald-700 dark:text-emerald-400 font-semibold">
+              <Lock className="w-3 h-3" />
+              {lamination.cardWidth}×{lamination.cardHeight} mm
+            </span>
+            <button
+              type="button"
+              onClick={() => setLamMoveMode(lamMoveMode === 'both' ? 'single' : 'both')}
+              className="text-[10px] font-bold underline cursor-pointer text-blue-600 dark:text-blue-400 hover:text-blue-800"
+            >
+              {lamMoveMode === 'both'
+                ? lang === 'bn'
+                  ? 'সিঙ্গেল মুভ করুন'
+                  : 'Switch to Single'
+                : lang === 'bn'
+                ? 'দুইটা একসাথে মুভ করুন'
+                : 'Switch to Move Both'}
             </button>
           </div>
         </div>
@@ -1305,6 +1755,307 @@ export const PaperPreview: React.FC<Props> = ({
                       <div className="absolute inset-0 border border-dashed border-slate-400 pointer-events-none" />
                     )}
                   </div>
+                </>
+              );
+            })()
+          )}
+
+          {/* ======================================================== */}
+          {/* 2B. LAMINATION SIDE-BY-SIDE FOLD ID CARD CONTENT         */}
+          {/* ======================================================== */}
+          {mode === 'lamination' && lamination && (
+            (() => {
+              const cardWpx = lamination.cardWidth * mmToPx;
+              const cardHpx = lamination.cardHeight * mmToPx;
+              const frontXpx = lamination.frontX * mmToPx;
+              const frontYpx = lamination.frontY * mmToPx;
+              const backXpx = lamination.backX * mmToPx;
+              const backYpx = lamination.backY * mmToPx;
+
+              const minX = Math.min(lamination.frontX, lamination.backX);
+              const maxR = Math.max(
+                lamination.frontX + lamination.cardWidth,
+                lamination.backX + lamination.cardWidth
+              );
+              const minY = Math.min(lamination.frontY, lamination.backY);
+              const maxB = Math.max(
+                lamination.frontY + lamination.cardHeight,
+                lamination.backY + lamination.cardHeight
+              );
+
+              const isLevelAligned = Math.abs(lamination.frontY - lamination.backY) <= 1;
+              const seamXmm =
+                lamination.frontX < lamination.backX
+                  ? (lamination.frontX + lamination.cardWidth + lamination.backX) / 2
+                  : (lamination.backX + lamination.cardWidth + lamination.frontX) / 2;
+
+              const imgFitClass = lamination.imageFit === 'cover' ? 'object-cover' : 'object-fill';
+
+              const renderCutOverlay = () => {
+                if (lamination.outerCutGuide === 'dashed') {
+                  return (
+                    <div className="absolute inset-0 border border-dashed border-slate-500/80 pointer-events-none" />
+                  );
+                }
+                if (lamination.outerCutGuide === 'solid') {
+                  return (
+                    <div className="absolute inset-0 border border-solid border-slate-400 pointer-events-none" />
+                  );
+                }
+                if (lamination.outerCutGuide === 'scissors') {
+                  return (
+                    <>
+                      <div className="absolute inset-0 border border-dotted border-slate-500/80 pointer-events-none" />
+                      <span className="absolute -top-3 -left-2.5 text-[10px] text-slate-500 pointer-events-none select-none">
+                        ✂
+                      </span>
+                    </>
+                  );
+                }
+                return null;
+              };
+
+              return (
+                <>
+                  {/* Collective Bounding Box when Move Both is active */}
+                  {lamMoveMode === 'both' && (
+                    <div
+                      onMouseDown={(e) => {
+                        if ((e.target as HTMLElement).closest('button')) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startLaminationDrag(e.clientX, e.clientY, 'both');
+                      }}
+                      onTouchStart={(e) => {
+                        if ((e.target as HTMLElement).closest('button')) return;
+                        if (e.touches.length !== 1) return;
+                        startLaminationDrag(e.touches[0].clientX, e.touches[0].clientY, 'both');
+                      }}
+                      className={`absolute rounded-xs transition-colors cursor-grab ${
+                        draggingLamTarget === 'both'
+                          ? 'border-2 border-dashed border-blue-600 bg-blue-500/5 cursor-grabbing z-20'
+                          : 'border border-dashed border-blue-400/80 hover:border-blue-600 z-10'
+                      }`}
+                      style={{
+                        left: `${Math.max(0, minX - 1.5) * mmToPx}px`,
+                        top: `${Math.max(0, minY - 1.5) * mmToPx}px`,
+                        width: `${(maxR - minX + 3) * mmToPx}px`,
+                        height: `${(maxB - minY + 3) * mmToPx}px`,
+                      }}
+                    >
+                      <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md flex items-center gap-1.5 whitespace-nowrap select-none pointer-events-none">
+                        <Move className="w-3 h-3" />
+                        <span>
+                          {lang === 'bn'
+                            ? `দুইটা একসাথে নড়বে · সমান (${lamination.cardWidth}×${lamination.cardHeight} মিমি)`
+                            : `Move Both Together · Equal ${lamination.cardWidth}×${lamination.cardHeight} mm`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LEFT CARD: FRONT SIDE */}
+                  <div
+                    onMouseDown={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      startLaminationDrag(e.clientX, e.clientY, 'front');
+                    }}
+                    onTouchStart={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      if (e.touches.length !== 1) return;
+                      startLaminationDrag(e.touches[0].clientX, e.touches[0].clientY, 'front');
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedLamSide('front');
+                      if (lamJustDraggedRef.current) return;
+                      if (!lamination.frontImage && onUploadLaminationFrontTrigger) {
+                        onUploadLaminationFrontTrigger();
+                      }
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (lamination.frontImage && onEditLaminationSide) {
+                        onEditLaminationSide('front');
+                      }
+                    }}
+                    className={`absolute group select-none transition-shadow ${
+                      draggingLamTarget === 'front' || draggingLamTarget === 'both'
+                        ? 'cursor-grabbing ring-2 ring-blue-600 shadow-xl z-30'
+                        : lamMoveMode === 'single' && selectedLamSide === 'front'
+                        ? 'cursor-grab ring-2 ring-blue-600 shadow-md z-30'
+                        : 'cursor-grab hover:ring-2 hover:ring-blue-500 z-20'
+                    } ${
+                      lamination.frontImage
+                        ? 'bg-white'
+                        : 'border-2 border-dashed border-blue-400/70 bg-blue-50/40'
+                    }`}
+                    style={{
+                      left: `${frontXpx}px`,
+                      top: `${frontYpx}px`,
+                      width: `${cardWpx}px`,
+                      height: `${cardHpx}px`,
+                    }}
+                  >
+                    {lamination.frontImage ? (
+                      <img
+                        src={lamination.processedFrontImage || lamination.frontImage}
+                        alt="Front Side"
+                        className={`w-full h-full ${imgFitClass} pointer-events-none select-none block`}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center text-blue-600/80">
+                        <Upload className="w-5 h-5 mb-1" />
+                        <span className="text-[11px] font-bold text-slate-800">
+                          {t.laminationFrontLeft}
+                        </span>
+                        <span className="text-[9px] text-slate-500 mt-0.5">
+                          {lang === 'en' ? 'Click to upload Front' : 'ফ্রন্ট আপলোড করতে ক্লিক করুন'}
+                        </span>
+                      </div>
+                    )}
+
+                    {renderCutOverlay()}
+
+                    {/* Screen-only corner label */}
+                    <span className="absolute top-0.5 left-0.5 bg-blue-600/85 text-white text-[8px] font-bold px-1.5 py-0.2 rounded pointer-events-none select-none">
+                      {lang === 'en' ? 'FRONT (LEFT)' : 'ফ্রন্ট (বাম)'}
+                    </span>
+
+                    {lamination.frontImage && onEditLaminationSide && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditLaminationSide('front');
+                        }}
+                        className="absolute bottom-1 right-1 p-1 bg-black/75 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                        title={lang === 'en' ? 'Edit Front' : 'ফ্রন্ট এডিট'}
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                    )}
+
+                    {(draggingLamTarget === 'front' || draggingLamTarget === 'both') && (
+                      <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[9px] font-mono px-1.5 py-0.2 rounded shadow pointer-events-none whitespace-nowrap z-50">
+                        {lamination.frontX} × {lamination.frontY} mm
+                      </div>
+                    )}
+                  </div>
+
+                  {/* RIGHT CARD: BACK SIDE (Strictly equal width & height) */}
+                  <div
+                    onMouseDown={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      startLaminationDrag(e.clientX, e.clientY, 'back');
+                    }}
+                    onTouchStart={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      if (e.touches.length !== 1) return;
+                      startLaminationDrag(e.touches[0].clientX, e.touches[0].clientY, 'back');
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedLamSide('back');
+                      if (lamJustDraggedRef.current) return;
+                      if (!lamination.backImage && onUploadLaminationBackTrigger) {
+                        onUploadLaminationBackTrigger();
+                      }
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (lamination.backImage && onEditLaminationSide) {
+                        onEditLaminationSide('back');
+                      }
+                    }}
+                    className={`absolute group select-none transition-shadow ${
+                      draggingLamTarget === 'back' || draggingLamTarget === 'both'
+                        ? 'cursor-grabbing ring-2 ring-indigo-600 shadow-xl z-30'
+                        : lamMoveMode === 'single' && selectedLamSide === 'back'
+                        ? 'cursor-grab ring-2 ring-indigo-600 shadow-md z-30'
+                        : 'cursor-grab hover:ring-2 hover:ring-indigo-500 z-20'
+                    } ${
+                      lamination.backImage
+                        ? 'bg-white'
+                        : 'border-2 border-dashed border-indigo-400/70 bg-indigo-50/40'
+                    }`}
+                    style={{
+                      left: `${backXpx}px`,
+                      top: `${backYpx}px`,
+                      width: `${cardWpx}px`,
+                      height: `${cardHpx}px`,
+                    }}
+                  >
+                    {lamination.backImage ? (
+                      <img
+                        src={lamination.processedBackImage || lamination.backImage}
+                        alt="Back Side"
+                        className={`w-full h-full ${imgFitClass} pointer-events-none select-none block`}
+                        style={{
+                          transform: lamination.backRotate180 ? 'rotate(180deg)' : 'none',
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center text-indigo-600/80">
+                        <Upload className="w-5 h-5 mb-1" />
+                        <span className="text-[11px] font-bold text-slate-800">
+                          {t.laminationBackRight}
+                        </span>
+                        <span className="text-[9px] text-slate-500 mt-0.5">
+                          {lang === 'en' ? 'Click to upload Back' : 'ব্যাক আপলোড করতে ক্লিক করুন'}
+                        </span>
+                      </div>
+                    )}
+
+                    {renderCutOverlay()}
+
+                    {/* Screen-only corner label */}
+                    <span className="absolute top-0.5 left-0.5 bg-indigo-600/85 text-white text-[8px] font-bold px-1.5 py-0.2 rounded pointer-events-none select-none">
+                      {lang === 'en' ? 'BACK (RIGHT)' : 'ব্যাক (ডান)'}
+                    </span>
+
+                    {lamination.backImage && onEditLaminationSide && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditLaminationSide('back');
+                        }}
+                        className="absolute bottom-1 right-1 p-1 bg-black/75 hover:bg-blue-600 text-white rounded opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                        title={lang === 'en' ? 'Edit Back' : 'ব্যাক এডিট'}
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                    )}
+
+                    {(draggingLamTarget === 'back' || draggingLamTarget === 'both') && (
+                      <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[9px] font-mono px-1.5 py-0.2 rounded shadow pointer-events-none whitespace-nowrap z-50">
+                        {lamination.backX} × {lamination.backY} mm
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CENTER FOLD CREASE LINE (between Front Left & Back Right) */}
+                  {lamination.showFoldLine && isLevelAligned && (
+                    <div
+                      className="absolute pointer-events-none z-30 flex flex-col items-center"
+                      style={{
+                        left: `${seamXmm * mmToPx}px`,
+                        top: `${Math.max(0, minY - 4) * mmToPx}px`,
+                        height: `${(lamination.cardHeight + 8) * mmToPx}px`,
+                        transform: 'translateX(-50%)',
+                      }}
+                    >
+                      <div className="w-0 h-full border-l-2 border-dashed border-rose-500/80" />
+                      <span className="absolute -bottom-5 bg-rose-600 text-white text-[8px] font-bold px-1.5 py-0.2 rounded-full whitespace-nowrap shadow-xs">
+                        {lang === 'bn' ? 'মাঝখান ভাঁজ (Fold)' : 'Center Fold'}
+                      </span>
+                    </div>
+                  )}
                 </>
               );
             })()
