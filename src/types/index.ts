@@ -1,4 +1,9 @@
-export type StudioMode = 'passport' | 'nid' | 'lamination' | 'document';
+import { CvData } from './cv';
+import { ReadyDocState } from './readyDocs';
+export * from './cv';
+export * from './readyDocs';
+
+export type StudioMode = 'passport' | 'nid' | 'lamination' | 'document' | 'cv' | 'readydocs';
 
 export type PhotoPresetType =
   | 'bd-passport'
@@ -219,4 +224,8 @@ export interface StudioState {
   lamination?: LaminationCardSettings;
   // Document / Fit-to-Paper state
   documentSettings?: DocumentPrintSettings;
+  // CV Builder state
+  cvData?: CvData;
+  // Ready-Made Documents state
+  readyDocState?: ReadyDocState;
 }

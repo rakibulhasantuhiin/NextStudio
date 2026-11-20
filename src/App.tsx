@@ -4,7 +4,10 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Edit3, FileDown, Printer } from 'lucide-react';
+import { Edit3, FileDown, LayoutGrid, Printer } from 'lucide-react';
+import { CvControls } from './components/CvStudio/CvControls';
+import { CvSheetRenderer } from './components/CvStudio/CvSheetRenderer';
+import { CvWorkspace } from './components/CvStudio/CvWorkspace';
 import { DocumentControls } from './components/DocumentStudio/DocumentControls';
 import { DocumentEditorModal } from './components/DocumentStudio/DocumentEditorModal';
 import { Header } from './components/Header';
@@ -16,10 +19,14 @@ import { PaperPreview } from './components/PaperPreview';
 import { PassportControls } from './components/PassportStudio/PassportControls';
 import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
 import { PrintSheetHidden } from './components/PrintSheetHidden';
+import { ReadyDocControls } from './components/ReadyDocsStudio/ReadyDocControls';
+import { ReadyDocSheetRenderer } from './components/ReadyDocsStudio/ReadyDocSheetRenderer';
+import { ReadyDocWorkspace } from './components/ReadyDocsStudio/ReadyDocWorkspace';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import {
   CropRect,
   CuttingGuideStyle,
+  CvData,
   DocumentFitMode,
   DocumentPageItem,
   DocumentPrintSettings,
@@ -32,6 +39,7 @@ import {
   PhotoAdjustments,
   PhotoPresetType,
   PlacedSheetItem,
+  ReadyDocState,
   StudioMode,
   StudioPhotoItem,
   StudioState,
@@ -61,7 +69,15 @@ import {
   calculatePhotoPositions,
   generateDefaultPlacedItems,
 } from './utils/layoutCalculator';
+import { exportCvElementToImage, exportCvElementToPdf } from './utils/cvExport';
+import { createEmptyCvData } from './utils/cvTemplates';
 import { exportToImage, exportToPdf, triggerDirectPrint } from './utils/printAndPdf';
+import { exportReadyDocToImage, exportReadyDocToPdf } from './utils/readyDocExport';
+import {
+  createDefaultReadyDocState,
+  getReadyDocTemplateById,
+  resolveReadyDocPaper,
+} from './utils/readyDocs';
 import {
   exportProjectAsJson,
   importProjectFromJson,
@@ -198,6 +214,16 @@ export default function App() {
   const [lamination, setLamination] = useState<LaminationCardSettings>(DEFAULT_LAMINATION_SETTINGS);
   const [laminationEditingSide, setLaminationEditingSide] = useState<'front' | 'back' | null>(null);
 
+  // CV Maker Studio State
+  const [cvData, setCvData] = useState<CvData>(() => createEmptyCvData('classic-plain', 'en'));
+  const [cvShowGallery, setCvShowGallery] = useState<boolean>(true);
+
+  // Ready-Made Documents Studio State
+  const [readyDocState, setReadyDocState] = useState<ReadyDocState>(() =>
+    createDefaultReadyDocState()
+  );
+  const [readyDocShowGallery, setReadyDocShowGallery] = useState<boolean>(true);
+
   // File upload trigger refs for paper preview click-to-upload
   const passportUploadInputRef = useRef<HTMLInputElement>(null);
   const nidFrontInputRef = useRef<HTMLInputElement>(null);
@@ -289,6 +315,21 @@ export default function App() {
             outerCutGuide: migratedCutGuide ?? 'none',
           });
         }
+        if (saved.cvData) {
+          setCvData({
+            ...createEmptyCvData(
+              saved.cvData.templateId || 'classic-plain',
+              saved.cvData.cvLang || 'en'
+            ),
+            ...saved.cvData,
+          });
+        }
+        if (saved.readyDocState) {
+          setReadyDocState({
+            ...createDefaultReadyDocState(),
+            ...saved.readyDocState,
+          });
+        }
       }
       hasHydratedRef.current = true;
     })();
@@ -345,6 +386,8 @@ export default function App() {
         nidMargins,
         documentSettings,
         lamination,
+        cvData,
+        readyDocState,
       };
       void saveStateOffline(currentState).then(() => setIsSaved(true));
     }, 650);
@@ -378,9 +421,20 @@ export default function App() {
     nidMargins,
     documentSettings,
     lamination,
+    cvData,
+    readyDocState,
   ]);
 
   // 5. Dimension Resolutions
+  const activeReadyDocTemplate = useMemo(
+    () => getReadyDocTemplateById(readyDocState.selectedDocId),
+    [readyDocState.selectedDocId]
+  );
+  const activeReadyDocPaper = useMemo(
+    () => resolveReadyDocPaper(activeReadyDocTemplate, readyDocState.paperOverride),
+    [activeReadyDocTemplate, readyDocState.paperOverride]
+  );
+
   const effectivePhotoWidth =
     photoPreset === 'custom' ? customPhotoWidth : PHOTO_PRESETS[photoPreset].width;
   const effectivePhotoHeight =
@@ -394,11 +448,25 @@ export default function App() {
         }
       : PAPER_SIZES[paperSize];
 
-  // Dynamically sync CSS @page size & orientation to selected paper sheet
+  // Dynamically sync CSS @page size & orientation to selected paper sheet (A4 for CV, exact Legal/A4 for Ready Docs)
   useEffect(() => {
     const isLand = orientation === 'landscape';
-    const wMm = isLand ? currentPaper.height : currentPaper.width;
-    const hMm = isLand ? currentPaper.width : currentPaper.height;
+    const wMm =
+      mode === 'cv'
+        ? 210
+        : mode === 'readydocs'
+        ? activeReadyDocPaper.widthMm
+        : isLand
+        ? currentPaper.height
+        : currentPaper.width;
+    const hMm =
+      mode === 'cv'
+        ? 297
+        : mode === 'readydocs'
+        ? activeReadyDocPaper.heightMm
+        : isLand
+        ? currentPaper.width
+        : currentPaper.height;
     let styleEl = document.getElementById('dynamic-print-page-size') as HTMLStyleElement | null;
     if (!styleEl) {
       styleEl = document.createElement('style');
@@ -406,7 +474,14 @@ export default function App() {
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = `@media print { @page { size: ${wMm}mm ${hMm}mm; margin: 0mm; } }`;
-  }, [currentPaper.width, currentPaper.height, orientation]);
+  }, [
+    mode,
+    currentPaper.width,
+    currentPaper.height,
+    orientation,
+    activeReadyDocPaper.widthMm,
+    activeReadyDocPaper.heightMm,
+  ]);
 
   // Keep Lamination cards inside sheet bounds whenever paper size or orientation changes
   useEffect(() => {
@@ -1438,6 +1513,41 @@ export default function App() {
 
   const handleDownloadPdf = async (overrideDocPages?: DocumentPageItem[]) => {
     const effectiveMode: StudioMode = overrideDocPages ? 'document' : mode;
+    if (effectiveMode === 'cv') {
+      const exportNode = document.getElementById('cv-clean-export-node');
+      if (!exportNode) return;
+      const safeName = (cvData.fullName || 'Resume')
+        .trim()
+        .replace(/[^a-zA-Z0-9\u0980-\u09FF_-]+/g, '_')
+        .slice(0, 40);
+      setIsExporting(true);
+      try {
+        await exportCvElementToPdf(exportNode, `NextStudio_CV_${safeName || 'Resume'}.pdf`);
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
+    if (effectiveMode === 'readydocs') {
+      const exportNode = document.getElementById('readydoc-clean-export-node');
+      if (!exportNode) return;
+      const safeName = activeReadyDocTemplate.titleEn
+        .replace(/[^a-zA-Z0-9_-]+/g, '_')
+        .slice(0, 40);
+      setIsExporting(true);
+      try {
+        await exportReadyDocToPdf(
+          exportNode,
+          activeReadyDocPaper,
+          `NextStudio_${safeName || 'Document'}.pdf`
+        );
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
     const effectiveDocSettings: DocumentPrintSettings = overrideDocPages
       ? { ...documentSettings, pages: overrideDocPages, activePageIndex: 0 }
       : documentSettings;
@@ -1482,6 +1592,45 @@ export default function App() {
 
   const handleDownloadImage = async (format: 'png' | 'jpeg') => {
     const ext = format === 'png' ? 'png' : 'jpg';
+    if (mode === 'cv') {
+      const exportNode = document.getElementById('cv-clean-export-node');
+      if (!exportNode) return;
+      const safeName = (cvData.fullName || 'Resume')
+        .trim()
+        .replace(/[^a-zA-Z0-9\u0980-\u09FF_-]+/g, '_')
+        .slice(0, 40);
+      setIsExporting(true);
+      try {
+        await exportCvElementToImage(
+          exportNode,
+          format,
+          `NextStudio_CV_${safeName || 'Resume'}.${ext}`
+        );
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
+    if (mode === 'readydocs') {
+      const exportNode = document.getElementById('readydoc-clean-export-node');
+      if (!exportNode) return;
+      const safeName = activeReadyDocTemplate.titleEn
+        .replace(/[^a-zA-Z0-9_-]+/g, '_')
+        .slice(0, 40);
+      setIsExporting(true);
+      try {
+        await exportReadyDocToImage(
+          exportNode,
+          format,
+          `NextStudio_${safeName || 'Document'}.${ext}`
+        );
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
     const filename =
       mode === 'passport'
         ? `NextStudio_Passport_${paperSize}.${ext}`
@@ -1545,6 +1694,8 @@ export default function App() {
       nidMargins,
       documentSettings,
       lamination,
+      cvData,
+      readyDocState,
     };
     exportProjectAsJson(currentState);
   };
@@ -1574,6 +1725,21 @@ export default function App() {
           ...imported.lamination,
         });
       }
+      if (imported.cvData) {
+        setCvData({
+          ...createEmptyCvData(
+            imported.cvData.templateId || 'classic-plain',
+            imported.cvData.cvLang || 'en'
+          ),
+          ...imported.cvData,
+        });
+      }
+      if (imported.readyDocState) {
+        setReadyDocState({
+          ...createDefaultReadyDocState(),
+          ...imported.readyDocState,
+        });
+      }
     } catch (err) {
       console.error('Failed to restore project from file:', err);
     }
@@ -1597,6 +1763,8 @@ export default function App() {
     setSelectedItemId(null);
     setDocumentSettings(DEFAULT_DOCUMENT_SETTINGS);
     setLamination(DEFAULT_LAMINATION_SETTINGS);
+    setCvData(createEmptyCvData('classic-plain', 'en'));
+    setReadyDocState(createDefaultReadyDocState());
     setNid((prev) => ({
       ...prev,
       frontImage: '',
@@ -1670,7 +1838,19 @@ export default function App() {
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <span>{lang === 'bn' ? 'পেপার প্রিভিউ' : 'Paper Preview'}</span>
+              <span>
+                {mode === 'cv'
+                  ? lang === 'bn'
+                    ? 'সিভি প্রিভিউ'
+                    : 'CV Preview'
+                  : mode === 'readydocs'
+                  ? lang === 'bn'
+                    ? 'কাগজ প্রিভিউ'
+                    : 'Doc Preview'
+                  : lang === 'bn'
+                  ? 'পেপার প্রিভিউ'
+                  : 'Paper Preview'}
+              </span>
               {mode === 'passport' && placedItems.length > 0 && (
                 <span className="text-[11px] font-mono tabular-nums opacity-80">
                   ({placedItems.length})
@@ -1809,6 +1989,30 @@ export default function App() {
               dpi={printQuality}
               setDpi={setPrintQuality}
             />
+          ) : mode === 'cv' ? (
+            <CvControls
+              lang={lang}
+              cvData={cvData}
+              setCvData={setCvData}
+              showGallery={cvShowGallery}
+              setShowGallery={setCvShowGallery}
+              onPrintCv={handleDirectPrint}
+              onDownloadCvPdf={() => void handleDownloadPdf()}
+              onResetCv={() => setCvData(createEmptyCvData(cvData.templateId, cvData.cvLang))}
+              isExporting={isExporting}
+            />
+          ) : mode === 'readydocs' ? (
+            <ReadyDocControls
+              lang={lang}
+              template={activeReadyDocTemplate}
+              readyDocState={readyDocState}
+              setReadyDocState={setReadyDocState}
+              showGallery={readyDocShowGallery}
+              setShowGallery={setReadyDocShowGallery}
+              onPrintDoc={handleDirectPrint}
+              onDownloadDocPdf={() => void handleDownloadPdf()}
+              isExporting={isExporting}
+            />
           ) : (
             <DocumentControls
               lang={lang}
@@ -1850,7 +2054,38 @@ export default function App() {
             mobileTab === 'controls' ? 'hidden lg:flex' : 'flex'
           }`}
         >
-          <PaperPreview
+          {mode === 'cv' ? (
+            <CvWorkspace
+              lang={lang}
+              cvData={cvData}
+              setCvData={setCvData}
+              showGallery={cvShowGallery}
+              setShowGallery={setCvShowGallery}
+              studioPhotos={photos}
+              zoom={zoom}
+              setZoom={setZoom}
+              onFitZoom={handleFitZoom}
+              onPrintCv={handleDirectPrint}
+              onDownloadCvPdf={() => void handleDownloadPdf()}
+              isExporting={isExporting}
+            />
+          ) : mode === 'readydocs' ? (
+            <ReadyDocWorkspace
+              lang={lang}
+              template={activeReadyDocTemplate}
+              readyDocState={readyDocState}
+              setReadyDocState={setReadyDocState}
+              showGallery={readyDocShowGallery}
+              setShowGallery={setReadyDocShowGallery}
+              zoom={zoom}
+              setZoom={setZoom}
+              onFitZoom={handleFitZoom}
+              onPrintDoc={handleDirectPrint}
+              onDownloadDocPdf={() => void handleDownloadPdf()}
+              isExporting={isExporting}
+            />
+          ) : (
+            <PaperPreview
             mode={mode}
             lang={lang}
             paper={currentPaper}
@@ -1913,6 +2148,7 @@ export default function App() {
             }
             onRotateLaminationSide={handleRotateLaminationSide}
           />
+          )}
         </section>
       </main>
 
@@ -2058,6 +2294,46 @@ export default function App() {
             <span className="truncate">{lang === 'bn' ? 'এডিট ও ক্রপ' : 'Edit Paper'}</span>
           </button>
         )}
+        {mode === 'cv' && (
+          <button
+            onClick={() => {
+              setMobileTab('preview');
+              setCvShowGallery((v) => !v);
+            }}
+            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span className="truncate">
+              {cvShowGallery
+                ? lang === 'bn'
+                  ? 'এডিটর'
+                  : 'Editor'
+                : lang === 'bn'
+                ? '১৭ ডিজাইন'
+                : '17 Designs'}
+            </span>
+          </button>
+        )}
+        {mode === 'readydocs' && (
+          <button
+            onClick={() => {
+              setMobileTab('preview');
+              setReadyDocShowGallery((v) => !v);
+            }}
+            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span className="truncate">
+              {readyDocShowGallery
+                ? lang === 'bn'
+                  ? 'এডিটর'
+                  : 'Editor'
+                : lang === 'bn'
+                ? '৬৫টি কাগজ'
+                : '65 Docs'}
+            </span>
+          </button>
+        )}
         <button
           onClick={() => void handleDownloadPdf()}
           disabled={isExporting}
@@ -2198,6 +2474,61 @@ export default function App() {
         lang={lang}
       />
 
+      {/* Offscreen Spotless A4 CV Export Node (Guaranteed clean 1:1 PDF/PNG/JPG regardless of zoom or gallery state) */}
+      {mode === 'cv' && (
+        <div
+          id="cv-clean-export-node"
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            left: '-9999px',
+            top: 0,
+            width: '794px',
+            backgroundColor: '#ffffff',
+            pointerEvents: 'none',
+            zIndex: -1,
+          }}
+        >
+          <CvSheetRenderer data={cvData} interactive={false} />
+        </div>
+      )}
+
+      {/* Offscreen Spotless Ready-Made Document Export Node */}
+      {mode === 'readydocs' && (
+        <div
+          id="readydoc-clean-export-node"
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            left: '-9999px',
+            top: 0,
+            width: `${activeReadyDocPaper.widthPx}px`,
+            backgroundColor: '#ffffff',
+            pointerEvents: 'none',
+            zIndex: -1,
+          }}
+        >
+          <ReadyDocSheetRenderer
+            template={activeReadyDocTemplate}
+            paper={activeReadyDocPaper}
+            values={readyDocState.valuesByDoc[activeReadyDocTemplate.id] || {}}
+            tableRows={
+              readyDocState.tablesByDoc[activeReadyDocTemplate.id]?.length
+                ? readyDocState.tablesByDoc[activeReadyDocTemplate.id]
+                : activeReadyDocTemplate.defaultTableRows || []
+            }
+            photoSrc={readyDocState.photosByDoc[activeReadyDocTemplate.id] || ''}
+            fontSizePx={readyDocState.fontSizePx}
+            lineHeight={readyDocState.lineHeight}
+            stampTopMm={readyDocState.stampTopMm}
+            showHeader={readyDocState.showHeader}
+            showBorder={readyDocState.showBorder}
+            showPageNumber={readyDocState.showPageNumber}
+            interactive={false}
+          />
+        </div>
+      )}
+
       {/* Offline Connectivity Banner (Only shown when internet is disconnected) */}
       <OfflineIndicator lang={lang} />
       </div>
@@ -2215,6 +2546,8 @@ export default function App() {
         nid={nid}
         lamination={lamination}
         documentSettings={documentSettings}
+        cvData={cvData}
+        readyDocState={readyDocState}
       />
     </div>
   );

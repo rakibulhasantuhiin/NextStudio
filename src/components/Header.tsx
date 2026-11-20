@@ -6,6 +6,7 @@ import {
   CreditCard,
   Download,
   FileDown,
+  Files,
   FileText,
   FolderUp,
   Globe,
@@ -17,6 +18,7 @@ import {
   Printer,
   RotateCcw,
   Save,
+  ScrollText,
   Sun,
 } from 'lucide-react';
 import { StudioMode } from '../types';
@@ -113,6 +115,22 @@ export const Header: React.FC<HeaderProps> = ({
       labelBn: 'পেপার প্রিন্ট',
       shortEn: 'Paper',
       shortBn: 'পেপার',
+    },
+    {
+      id: 'cv',
+      icon: <ScrollText className="w-4 h-4 shrink-0" />,
+      labelEn: 'CV Maker',
+      labelBn: 'সিভি তৈরি',
+      shortEn: 'CV',
+      shortBn: 'সিভি',
+    },
+    {
+      id: 'readydocs',
+      icon: <Files className="w-4 h-4 shrink-0" />,
+      labelEn: 'Ready Docs',
+      labelBn: 'রেডিমেড কাগজ',
+      shortEn: 'Docs',
+      shortBn: 'কাগজ',
     },
   ];
 

@@ -1,16 +1,24 @@
 import React from 'react';
 import {
   CuttingGuideStyle,
+  CvData,
   DocumentPrintSettings,
   LaminationCardSettings,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
   PaperOrientation,
+  ReadyDocState,
   StudioMode,
 } from '../types';
 import { calculateDocumentPlacement } from '../utils/documentLayout';
 import { CalculatedItem } from '../utils/layoutCalculator';
+import {
+  getReadyDocTemplateById,
+  resolveReadyDocPaper,
+} from '../utils/readyDocs';
+import { CvSheetRenderer } from './CvStudio/CvSheetRenderer';
+import { ReadyDocSheetRenderer } from './ReadyDocsStudio/ReadyDocSheetRenderer';
 
 interface Props {
   mode: StudioMode;
@@ -24,6 +32,8 @@ interface Props {
   nid: NIDCardSettings;
   lamination?: LaminationCardSettings;
   documentSettings?: DocumentPrintSettings;
+  cvData?: CvData;
+  readyDocState?: ReadyDocState;
 }
 
 export const PrintSheetHidden: React.FC<Props> = ({
@@ -38,12 +48,38 @@ export const PrintSheetHidden: React.FC<Props> = ({
   nid,
   lamination,
   documentSettings,
+  cvData,
+  readyDocState,
 }) => {
+  const readyTemplate =
+    mode === 'readydocs' && readyDocState
+      ? getReadyDocTemplateById(readyDocState.selectedDocId)
+      : null;
+  const readyPaper =
+    readyTemplate && readyDocState
+      ? resolveReadyDocPaper(readyTemplate, readyDocState.paperOverride)
+      : null;
+
   const isLandscape = orientation === 'landscape';
-  const paperWidthMm = isLandscape ? paper.height : paper.width;
-  const paperHeightMm = isLandscape ? paper.width : paper.height;
+  const paperWidthMm =
+    mode === 'cv'
+      ? 210
+      : mode === 'readydocs' && readyPaper
+      ? readyPaper.widthMm
+      : isLandscape
+      ? paper.height
+      : paper.width;
+  const paperHeightMm =
+    mode === 'cv'
+      ? 297
+      : mode === 'readydocs' && readyPaper
+      ? readyPaper.heightMm
+      : isLandscape
+      ? paper.width
+      : paper.height;
   const docPages = mode === 'document' ? documentSettings?.pages || [] : [];
   const isMultiDoc = mode === 'document' && docPages.length > 0;
+  const isFlowPrint = isMultiDoc || mode === 'cv' || mode === 'readydocs';
 
   return (
     <div
@@ -51,14 +87,14 @@ export const PrintSheetHidden: React.FC<Props> = ({
       className="print-only-container hidden print:block"
       style={{
         width: `${paperWidthMm}mm`,
-        height: isMultiDoc ? 'auto' : `${paperHeightMm}mm`,
+        height: isFlowPrint ? 'auto' : `${paperHeightMm}mm`,
         position: 'relative',
         backgroundColor: '#ffffff',
         background: '#ffffff',
         boxShadow: 'none',
         border: 'none',
         outline: 'none',
-        overflow: isMultiDoc ? 'visible' : 'hidden',
+        overflow: isFlowPrint ? 'visible' : 'hidden',
       }}
     >
       {/* 1. Passport Mode Items */}
@@ -656,6 +692,53 @@ export const PrintSheetHidden: React.FC<Props> = ({
             </div>
           );
         })}
+
+      {/* 4. CV Maker Mode (Pure white A4 vector DOM, clean print output without highlights) */}
+      {mode === 'cv' && cvData && (
+        <div
+          style={{
+            width: '210mm',
+            minHeight: '297mm',
+            backgroundColor: '#ffffff',
+            background: '#ffffff',
+            overflow: 'visible',
+          }}
+        >
+          <CvSheetRenderer data={cvData} interactive={false} />
+        </div>
+      )}
+
+      {/* 5. Ready-Made Documents Mode (Exact A4 / A4 Landscape / Legal / Legal 13.5" vector print) */}
+      {mode === 'readydocs' && readyDocState && readyTemplate && readyPaper && (
+        <div
+          style={{
+            width: `${readyPaper.widthMm}mm`,
+            minHeight: `${readyPaper.heightMm}mm`,
+            backgroundColor: '#ffffff',
+            background: '#ffffff',
+            overflow: 'visible',
+          }}
+        >
+          <ReadyDocSheetRenderer
+            template={readyTemplate}
+            paper={readyPaper}
+            values={readyDocState.valuesByDoc[readyTemplate.id] || {}}
+            tableRows={
+              readyDocState.tablesByDoc[readyTemplate.id]?.length
+                ? readyDocState.tablesByDoc[readyTemplate.id]
+                : readyTemplate.defaultTableRows || []
+            }
+            photoSrc={readyDocState.photosByDoc[readyTemplate.id] || ''}
+            fontSizePx={readyDocState.fontSizePx}
+            lineHeight={readyDocState.lineHeight}
+            stampTopMm={readyDocState.stampTopMm}
+            showHeader={readyDocState.showHeader}
+            showBorder={readyDocState.showBorder}
+            showPageNumber={readyDocState.showPageNumber}
+            interactive={false}
+          />
+        </div>
+      )}
     </div>
   );
 };
