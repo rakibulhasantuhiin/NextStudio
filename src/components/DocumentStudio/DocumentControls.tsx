@@ -10,6 +10,7 @@ import {
   Printer,
   RotateCw,
   Scan,
+  ScanLine,
   Sparkles,
   Trash2,
   Upload,
@@ -46,6 +47,7 @@ interface Props {
   onDownloadAllPdf: () => void;
   autoPdfOnUpload: boolean;
   setAutoPdfOnUpload: (enabled: boolean) => void;
+  onOpenCamScanner?: () => void;
   isUploading?: boolean;
   isExporting?: boolean;
   paperSize: PaperSizeType;
@@ -80,6 +82,7 @@ export const DocumentControls: React.FC<Props> = ({
   onDownloadAllPdf,
   autoPdfOnUpload,
   setAutoPdfOnUpload,
+  onOpenCamScanner,
   isUploading = false,
   isExporting = false,
   paperSize,
@@ -224,6 +227,34 @@ export const DocumentControls: React.FC<Props> = ({
                 </p>
               </div>
             </div>
+
+            {/* CamScanner Pro Direct Shortcut */}
+            {onOpenCamScanner && (
+              <button
+                type="button"
+                onClick={onOpenCamScanner}
+                className="w-full p-2.5 rounded-xl bg-teal-500/12 hover:bg-teal-500/18 border border-teal-500/35 text-teal-800 dark:text-teal-200 flex items-center justify-between gap-2 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0 text-left">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-500 to-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                    <ScanLine className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-extrabold truncate">
+                      {lang === 'bn'
+                        ? 'ডকুমেন্ট স্ক্যানার (CamScanner প্রো)'
+                        : 'Document Scanner (CamScanner Pro)'}
+                    </div>
+                    <div className="text-[11px] text-teal-700/80 dark:text-teal-300/80 truncate">
+                      {lang === 'bn'
+                        ? '৪-কোনা অটো ক্রপ · ম্যাজিক প্রো · সাদা Full HD'
+                        : '4-corner crop · Magic Pro · White Full HD'}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-xs font-bold shrink-0">→</span>
+              </button>
+            )}
 
             {/* Auto-Download PDF Immediately on Upload Toggle */}
             <label className="p-2.5 rounded-xl glass-tile flex items-center justify-between gap-2.5 cursor-pointer">

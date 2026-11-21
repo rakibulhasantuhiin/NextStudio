@@ -18,15 +18,23 @@ import {
   PdfToImageTool,
   PdfWatermarkNumberTool,
 } from './PdfToolsViews';
+import { DocumentScannerTool } from './DocumentScannerTool';
 import { WatermarkRemoveTool } from './WatermarkRemoveTool';
 
 interface ToolsWorkspaceProps {
   lang?: 'bn' | 'en';
+  initialTool?: ToolId;
 }
 
-export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = () => {
-  const [activeTool, setActiveTool] = useState<ToolId>('dashboard');
+export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({ initialTool }) => {
+  const [activeTool, setActiveTool] = useState<ToolId>(initialTool || 'dashboard');
   const containerRef = useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (initialTool) {
+      setActiveTool(initialTool);
+    }
+  }, [initialTool]);
 
   const navigateTool = (id: ToolId) => {
     setActiveTool(id);
@@ -35,6 +43,8 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = () => {
 
   const renderActiveTool = () => {
     switch (activeTool) {
+      case 'doc-scanner':
+        return <DocumentScannerTool onBack={() => navigateTool('dashboard')} />;
       case 'govt-photo-sign':
         return <GovtPhotoSignTool onBack={() => navigateTool('dashboard')} />;
       case 'watermark-remove':

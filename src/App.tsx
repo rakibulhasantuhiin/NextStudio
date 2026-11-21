@@ -23,6 +23,7 @@ import { ReadyDocControls } from './components/ReadyDocsStudio/ReadyDocControls'
 import { ReadyDocSheetRenderer } from './components/ReadyDocsStudio/ReadyDocSheetRenderer';
 import { ReadyDocWorkspace } from './components/ReadyDocsStudio/ReadyDocWorkspace';
 import { ShortcutsModal } from './components/ShortcutsModal';
+import { ToolId } from './components/ToolsStudio/SharedToolUI';
 import { ToolsWorkspace } from './components/ToolsStudio/ToolsWorkspace';
 import {
   CropRect,
@@ -285,6 +286,13 @@ export default function App() {
     createDefaultReadyDocState()
   );
   const [readyDocShowGallery, setReadyDocShowGallery] = useState<boolean>(true);
+  const [toolsInitialTool, setToolsInitialTool] = useState<ToolId>('dashboard');
+
+  useEffect(() => {
+    if (mode !== 'tools' && toolsInitialTool !== 'dashboard') {
+      setToolsInitialTool('dashboard');
+    }
+  }, [mode, toolsInitialTool]);
 
   // File upload trigger refs for paper preview click-to-upload
   const passportUploadInputRef = useRef<HTMLInputElement>(null);
@@ -2212,7 +2220,7 @@ export default function App() {
         {/* 2. Main Desktop Workstation Shell */}
         {mode === 'tools' ? (
           <main className="no-print flex-1 flex flex-col overflow-hidden w-full">
-            <ToolsWorkspace lang={lang} />
+            <ToolsWorkspace lang={lang} initialTool={toolsInitialTool} />
           </main>
         ) : (
         <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full pb-24 lg:pb-0">
@@ -2368,6 +2376,10 @@ export default function App() {
               onDownloadAllPdf={() => void handleDownloadPdf()}
               autoPdfOnUpload={autoPdfOnUpload}
               setAutoPdfOnUpload={handleSetAutoPdfOnUpload}
+              onOpenCamScanner={() => {
+                setToolsInitialTool('doc-scanner');
+                setMode('tools');
+              }}
               isUploading={isUploading}
               isExporting={isExporting}
               paperSize={paperSize}

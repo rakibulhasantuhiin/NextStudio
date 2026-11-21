@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   Maximize2,
   RefreshCw,
+  ScanLine,
   Scissors,
   ShieldCheck,
   UserSquare2,
@@ -30,6 +31,15 @@ interface ToolCardMeta {
 }
 
 const IMAGE_TOOLS: ToolCardMeta[] = [
+  {
+    id: 'doc-scanner',
+    title: 'ডকুমেন্ট স্ক্যানার (CamScanner প্রো)',
+    description:
+      'যেকোনো ডকুমেন্ট, বিল বা ছবির অটো ও ম্যানুয়াল ৪-কোনা ক্রপ, ম্যাজিক প্রো / ম্যাজিক কালার ফিল্টার, সাদা Full HD পেজ, A4 ফিট, PDF ও সরাসরি প্রিন্ট।',
+    badge: 'ম্যাজিক প্রো · অটো ক্রপ · প্রিন্ট',
+    iconBg: 'from-teal-500 to-emerald-600',
+    icon: <ScanLine className="w-5 h-5 text-white" />,
+  },
   {
     id: 'govt-photo-sign',
     title: 'সরকারি আবেদনের ছবি ও স্বাক্ষর',
@@ -195,8 +205,8 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
               ছবির টুলস
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
-              সরকারি আবেদনের ছবি-স্বাক্ষর, ওয়াটারমার্ক রিমুভ, রিসাইজ, KB কমানো, ফরম্যাট কনভার্ট ও
-              ছবি থেকে PDF — সব অফলাইনে।
+              ডকুমেন্ট স্ক্যানার (CamScanner), ওয়াটারমার্ক রিমুভ, সরকারি আবেদনের ছবি-স্বাক্ষর, রিসাইজ,
+              KB কমানো, কনভার্ট ও ছবি থেকে PDF — সব অফলাইনে।
             </p>
           </div>
           <button

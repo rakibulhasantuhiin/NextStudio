@@ -21,6 +21,7 @@ import {
 
 export type ToolId =
   | 'dashboard'
+  | 'doc-scanner'
   | 'govt-photo-sign'
   | 'watermark-remove'
   | 'image-resize'

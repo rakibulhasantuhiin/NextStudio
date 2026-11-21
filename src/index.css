@@ -554,3 +554,32 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.55);
 }
+
+/* CamScanner-style glowing scan sweep animation */
+@keyframes scanBeamSweep {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0.25;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(1000%);
+    opacity: 0.25;
+  }
+}
+
+.animate-scan-beam {
+  animation: scanBeamSweep 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-scan-beam {
+    animation: none;
+  }
+}
+
