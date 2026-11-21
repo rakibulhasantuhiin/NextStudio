@@ -475,9 +475,251 @@ export async function exportToImage(
   document.body.removeChild(a);
 }
 
+export interface DirectPrintOptions {
+  widthMm?: number;
+  heightMm?: number;
+  title?: string;
+}
+
 /**
- * Triggers native system printing (Ctrl+P / Command+P)
+ * Collects all same-origin compiled CSS rules synchronously (zero network wait, 100% offline-safe)
  */
-export function triggerDirectPrint() {
-  window.print();
+function collectSameOriginCss(): string {
+  const chunks: string[] = [];
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    const ownerEl = sheet.ownerNode as HTMLElement | null;
+    if (ownerEl && ownerEl.id === 'dynamic-print-page-size') {
+      continue;
+    }
+
+    try {
+      const rules = sheet.cssRules;
+      if (rules && rules.length > 0) {
+        const parts: string[] = [];
+        for (let i = 0; i < rules.length; i++) {
+          parts.push(rules[i].cssText);
+        }
+        chunks.push(parts.join('\n'));
+      }
+    } catch {
+      // Cross-origin stylesheets (e.g. Google Fonts) cannot be read via cssRules; skipped safely
+    }
+  }
+
+  return chunks.join('\n');
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Triggers ultra-fast direct printing using an isolated clean iframe.
+ * Eliminates Chromium "Loading preview..." hangs caused by heavy SPA DOM & backdrop-filter layers.
+ */
+export function triggerDirectPrint(options?: DirectPrintOptions) {
+  const printRoot = document.getElementById('print-sheet-root');
+  if (!printRoot) {
+    window.print();
+    return;
+  }
+
+  const widthMm = options?.widthMm && options.widthMm > 0 ? options.widthMm : 210;
+  const heightMm = options?.heightMm && options.heightMm > 0 ? options.heightMm : 297;
+  const docTitle = escapeHtml(options?.title || 'NextStudio Print');
+
+  // Remove any stale print iframe from a previous job
+  const existingIframe = document.getElementById('nextstudio-print-iframe');
+  if (existingIframe && existingIframe.parentNode) {
+    existingIframe.parentNode.removeChild(existingIframe);
+  }
+
+  // Clone the print container and strip screen-hiding Tailwind classes so it paints immediately
+  const clonedRoot = printRoot.cloneNode(true) as HTMLElement;
+  clonedRoot.classList.remove('hidden', 'print:block');
+  clonedRoot.style.display = 'block';
+  clonedRoot.style.visibility = 'visible';
+  clonedRoot.style.opacity = '1';
+  clonedRoot.style.position = 'relative';
+  clonedRoot.style.left = '0';
+  clonedRoot.style.top = '0';
+  clonedRoot.style.margin = '0';
+  clonedRoot.style.backgroundColor = '#ffffff';
+
+  // Ensure all images inside the clone decode eagerly
+  const clonedImgs = clonedRoot.querySelectorAll('img');
+  clonedImgs.forEach((img) => {
+    img.setAttribute('loading', 'eager');
+    img.setAttribute('decoding', 'sync');
+  });
+
+  // Create off-screen iframe with real physical sheet dimensions (never 0x0 or display:none,
+  // otherwise Chromium defers layout/paint and stalls or outputs blank print previews)
+  const iframe = document.createElement('iframe');
+  iframe.id = 'nextstudio-print-iframe';
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.position = 'fixed';
+  iframe.style.left = '-10000px';
+  iframe.style.top = '0';
+  iframe.style.width = `${widthMm}mm`;
+  iframe.style.height = `${heightMm}mm`;
+  iframe.style.border = '0';
+  iframe.style.margin = '0';
+  iframe.style.padding = '0';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.backgroundColor = '#ffffff';
+  document.body.appendChild(iframe);
+
+  const iframeWin = iframe.contentWindow;
+  const iframeDoc = iframeWin?.document;
+  if (!iframeWin || !iframeDoc) {
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    window.print();
+    return;
+  }
+
+  const inlineCss = collectSameOriginCss();
+
+  // Include Google Fonts link only if online (cached in browser memory, never blocks offline)
+  const fontLinksHtml =
+    typeof navigator !== 'undefined' && navigator.onLine
+      ? Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+          .filter((el) => {
+            const href = el.getAttribute('href') || '';
+            return href.includes('fonts.googleapis.com');
+          })
+          .map((el) => `<link rel="stylesheet" href="${escapeHtml(el.getAttribute('href') || '')}" />`)
+          .join('\n')
+      : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>${docTitle}</title>
+  ${fontLinksHtml}
+  <style>${inlineCss}</style>
+  <style id="nextstudio-iframe-print-overrides">
+    @page {
+      size: ${widthMm}mm ${heightMm}mm;
+      margin: 0mm;
+    }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: ${widthMm}mm !important;
+      height: auto !important;
+      min-height: 0 !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      background-image: none !important;
+      color: #000000 !important;
+      overflow: visible !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    *, *::before, *::after {
+      box-shadow: none !important;
+      text-shadow: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+    #print-sheet-root {
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+      position: relative !important;
+      left: 0 !important;
+      top: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      box-shadow: none !important;
+      border: none !important;
+      outline: none !important;
+    }
+    #print-sheet-root .print-page {
+      position: relative !important;
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      overflow: hidden !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    .no-print {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>${clonedRoot.outerHTML}</body>
+</html>`;
+
+  iframeDoc.open();
+  iframeDoc.write(html);
+  iframeDoc.close();
+
+  let hasPrinted = false;
+  const executePrint = () => {
+    if (hasPrinted) return;
+    hasPrinted = true;
+
+    const cleanup = () => {
+      window.setTimeout(() => {
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      }, 300);
+    };
+
+    try {
+      iframeWin.addEventListener('afterprint', cleanup, { once: true });
+      iframeWin.focus();
+      iframeWin.print();
+    } catch {
+      cleanup();
+      window.print();
+    }
+  };
+
+  // Wait briefly for all images inside the iframe to decode (fast for data URLs, strict 450ms ceiling)
+  const imgs = Array.from(iframeDoc.images);
+  const waitForImages = Promise.all(
+    imgs.map((img) => {
+      if (img.complete && img.naturalWidth > 0) {
+        return typeof img.decode === 'function' ? img.decode().catch(() => undefined) : Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        const done = () => resolve();
+        img.addEventListener('load', done, { once: true });
+        img.addEventListener('error', done, { once: true });
+      });
+    })
+  );
+
+  const waitForFonts =
+    iframeDoc.fonts && iframeDoc.fonts.ready
+      ? Promise.race([
+          iframeDoc.fonts.ready.catch(() => undefined),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 150)),
+        ])
+      : Promise.resolve();
+
+  Promise.race([
+    Promise.all([waitForImages, waitForFonts]),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 450)),
+  ]).finally(() => {
+    // Allow 1 paint frame so Chromium's print compositor gets the fully laid-out sheet immediately
+    if (typeof iframeWin.requestAnimationFrame === 'function') {
+      iframeWin.requestAnimationFrame(() => executePrint());
+    } else {
+      window.setTimeout(executePrint, 20);
+    }
+  });
 }

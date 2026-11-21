@@ -16,10 +16,12 @@ import {
   Moon,
   MoreHorizontal,
   Printer,
+  Redo2,
   RotateCcw,
   Save,
   ScrollText,
   Sun,
+  Undo2,
 } from 'lucide-react';
 import { StudioMode } from '../types';
 import { translations } from '../utils/translations';
@@ -45,6 +47,10 @@ interface HeaderProps {
   setZoom: (updater: (prev: number) => number) => void;
   onFitZoom: () => void;
   isProcessing?: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -63,6 +69,10 @@ export const Header: React.FC<HeaderProps> = ({
   onExportJson,
   onImportJson,
   isProcessing = false,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }) => {
   const t = translations[lang];
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
@@ -181,6 +191,30 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Zone 3: Actions & Utilities */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Global Undo / Redo Liquid Glass Pill */}
+          <div className="flex items-center gap-0.5 glass-track p-0.5 rounded-xl shrink-0">
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!canUndo}
+              className="p-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white/70 dark:hover:bg-white/10 disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+              title={lang === 'bn' ? 'পূর্বের অবস্থা (Ctrl + Z)' : 'Undo (Ctrl + Z)'}
+              aria-label={lang === 'bn' ? 'পূর্বের অবস্থা (Ctrl + Z)' : 'Undo (Ctrl + Z)'}
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!canRedo}
+              className="p-1.5 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-white/70 dark:hover:bg-white/10 disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+              title={lang === 'bn' ? 'পুনরায় ফিরিয়ে আনুন (Ctrl + Y)' : 'Redo (Ctrl + Y)'}
+              aria-label={lang === 'bn' ? 'পুনরায় ফিরিয়ে আনুন (Ctrl + Y)' : 'Redo (Ctrl + Y)'}
+            >
+              <Redo2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           <PWAInstallButton lang={lang} />
 
           {/* Export Dropdown */}

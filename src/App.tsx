@@ -87,6 +87,67 @@ import {
   saveStateOffline,
 } from './utils/storage';
 
+interface StudioHistorySnapshot {
+  photoPreset: PhotoPresetType;
+  customPhotoWidth: number;
+  customPhotoHeight: number;
+  paperSize: PaperSizeType;
+  customPaperWidth: number;
+  customPaperHeight: number;
+  orientation: PaperOrientation;
+  layoutMode: LayoutMode;
+  manualCount: number;
+  margins: MarginSettings;
+  cuttingGuide: CuttingGuideStyle;
+  bleedArea: number;
+  colorProfile: 'srgb' | 'cmyk' | 'bw';
+  printQuality: 150 | 300 | 600;
+  photos: StudioPhotoItem[];
+  activePhotoIndex: number;
+  placedItems: PlacedSheetItem[];
+  nid: NIDCardSettings;
+  nidMargins: MarginSettings;
+  documentSettings: DocumentPrintSettings;
+  lamination: LaminationCardSettings;
+  cvData: CvData;
+  readyDocState: ReadyDocState;
+}
+
+const MAX_UNDO_HISTORY = 45;
+
+function areSnapshotsEqual(
+  a: StudioHistorySnapshot | null,
+  b: StudioHistorySnapshot | null
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.photoPreset === b.photoPreset &&
+    a.customPhotoWidth === b.customPhotoWidth &&
+    a.customPhotoHeight === b.customPhotoHeight &&
+    a.paperSize === b.paperSize &&
+    a.customPaperWidth === b.customPaperWidth &&
+    a.customPaperHeight === b.customPaperHeight &&
+    a.orientation === b.orientation &&
+    a.layoutMode === b.layoutMode &&
+    a.manualCount === b.manualCount &&
+    a.margins === b.margins &&
+    a.cuttingGuide === b.cuttingGuide &&
+    a.bleedArea === b.bleedArea &&
+    a.colorProfile === b.colorProfile &&
+    a.printQuality === b.printQuality &&
+    a.photos === b.photos &&
+    a.activePhotoIndex === b.activePhotoIndex &&
+    a.placedItems === b.placedItems &&
+    a.nid === b.nid &&
+    a.nidMargins === b.nidMargins &&
+    a.documentSettings === b.documentSettings &&
+    a.lamination === b.lamination &&
+    a.cvData === b.cvData &&
+    a.readyDocState === b.readyDocState
+  );
+}
+
 export default function App() {
   // 1. Initial State Setup - Default Language English ('en')
   const [mode, setMode] = useState<StudioMode>('passport');
@@ -234,6 +295,7 @@ export default function App() {
 
   // 2. Restore State from IndexedDB Offline Store (with localStorage fallback)
   const hasHydratedRef = useRef(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   useEffect(() => {
     let active = true;
     (async () => {
@@ -332,6 +394,7 @@ export default function App() {
         }
       }
       hasHydratedRef.current = true;
+      setIsHydrated(true);
     })();
     return () => {
       active = false;
@@ -424,6 +487,214 @@ export default function App() {
     cvData,
     readyDocState,
   ]);
+
+  // 4B. Global Undo / Redo History Engine across all 6 Studio Modes
+  const currentHistorySnapshot = useMemo<StudioHistorySnapshot>(
+    () => ({
+      photoPreset,
+      customPhotoWidth,
+      customPhotoHeight,
+      paperSize,
+      customPaperWidth,
+      customPaperHeight,
+      orientation,
+      layoutMode,
+      manualCount,
+      margins,
+      cuttingGuide,
+      bleedArea,
+      colorProfile,
+      printQuality,
+      photos,
+      activePhotoIndex,
+      placedItems,
+      nid,
+      nidMargins,
+      documentSettings,
+      lamination,
+      cvData,
+      readyDocState,
+    }),
+    [
+      photoPreset,
+      customPhotoWidth,
+      customPhotoHeight,
+      paperSize,
+      customPaperWidth,
+      customPaperHeight,
+      orientation,
+      layoutMode,
+      manualCount,
+      margins,
+      cuttingGuide,
+      bleedArea,
+      colorProfile,
+      printQuality,
+      photos,
+      activePhotoIndex,
+      placedItems,
+      nid,
+      nidMargins,
+      documentSettings,
+      lamination,
+      cvData,
+      readyDocState,
+    ]
+  );
+
+  const historyRef = useRef<{
+    past: StudioHistorySnapshot[];
+    present: StudioHistorySnapshot | null;
+    future: StudioHistorySnapshot[];
+  }>({
+    past: [],
+    present: null,
+    future: [],
+  });
+  const latestSnapshotRef = useRef<StudioHistorySnapshot>(currentHistorySnapshot);
+  const isRestoringHistoryRef = useRef<boolean>(false);
+  const historyCommitTimerRef = useRef<number | null>(null);
+  const [historyMeta, setHistoryMeta] = useState<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  });
+
+  useEffect(() => {
+    latestSnapshotRef.current = currentHistorySnapshot;
+    if (!isHydrated) return;
+
+    const h = historyRef.current;
+    if (!h.present) {
+      h.present = currentHistorySnapshot;
+      return;
+    }
+
+    if (isRestoringHistoryRef.current) {
+      isRestoringHistoryRef.current = false;
+      return;
+    }
+
+    if (areSnapshotsEqual(h.present, currentHistorySnapshot)) {
+      return;
+    }
+
+    if (historyCommitTimerRef.current !== null) {
+      window.clearTimeout(historyCommitTimerRef.current);
+    }
+
+    // Light up Undo button immediately while debouncing rapid typing/dragging into clean steps
+    setHistoryMeta({ canUndo: true, canRedo: false });
+
+    historyCommitTimerRef.current = window.setTimeout(() => {
+      historyCommitTimerRef.current = null;
+      const latest = latestSnapshotRef.current;
+      if (!h.present || areSnapshotsEqual(h.present, latest)) return;
+      const nextPast = [...h.past, h.present];
+      if (nextPast.length > MAX_UNDO_HISTORY) {
+        nextPast.shift();
+      }
+      h.past = nextPast;
+      h.present = latest;
+      h.future = [];
+      setHistoryMeta({ canUndo: h.past.length > 0, canRedo: false });
+    }, 260);
+  }, [currentHistorySnapshot, isHydrated]);
+
+  useEffect(() => {
+    return () => {
+      if (historyCommitTimerRef.current !== null) {
+        window.clearTimeout(historyCommitTimerRef.current);
+      }
+    };
+  }, []);
+
+  const applyHistorySnapshot = (snap: StudioHistorySnapshot) => {
+    if (historyCommitTimerRef.current !== null) {
+      window.clearTimeout(historyCommitTimerRef.current);
+      historyCommitTimerRef.current = null;
+    }
+    const alreadyEqual = areSnapshotsEqual(snap, latestSnapshotRef.current);
+    isRestoringHistoryRef.current = !alreadyEqual;
+    setPhotoPreset(snap.photoPreset);
+    setCustomPhotoWidth(snap.customPhotoWidth);
+    setCustomPhotoHeight(snap.customPhotoHeight);
+    setPaperSize(snap.paperSize);
+    setCustomPaperWidth(snap.customPaperWidth);
+    setCustomPaperHeight(snap.customPaperHeight);
+    setOrientation(snap.orientation);
+    setLayoutMode(snap.layoutMode);
+    setManualCount(snap.manualCount);
+    setMargins(snap.margins);
+    setCuttingGuide(snap.cuttingGuide);
+    setBleedArea(snap.bleedArea);
+    setColorProfile(snap.colorProfile);
+    setPrintQuality(snap.printQuality);
+    setPhotos(snap.photos);
+    setActivePhotoIndex(snap.activePhotoIndex);
+    setPlacedItems(snap.placedItems);
+    setNid(snap.nid);
+    setNidMargins(snap.nidMargins);
+    setDocumentSettings(snap.documentSettings);
+    setLamination(snap.lamination);
+    setCvData(snap.cvData);
+    setReadyDocState(snap.readyDocState);
+  };
+
+  const handleUndo = () => {
+    const h = historyRef.current;
+    // Commit any pending debounced edit first so immediate Ctrl+Z undoes the edit just performed
+    if (historyCommitTimerRef.current !== null) {
+      window.clearTimeout(historyCommitTimerRef.current);
+      historyCommitTimerRef.current = null;
+      const latest = latestSnapshotRef.current;
+      if (h.present && !areSnapshotsEqual(h.present, latest)) {
+        const nextPast = [...h.past, h.present];
+        if (nextPast.length > MAX_UNDO_HISTORY) {
+          nextPast.shift();
+        }
+        h.past = nextPast;
+        h.present = latest;
+        h.future = [];
+      }
+    }
+
+    if (h.past.length === 0 || !h.present) {
+      setHistoryMeta({ canUndo: false, canRedo: h.future.length > 0 });
+      return;
+    }
+
+    const previous = h.past[h.past.length - 1];
+    h.past = h.past.slice(0, -1);
+    h.future = [h.present, ...h.future].slice(0, MAX_UNDO_HISTORY);
+    h.present = previous;
+    setHistoryMeta({ canUndo: h.past.length > 0, canRedo: h.future.length > 0 });
+    applyHistorySnapshot(previous);
+  };
+
+  const handleRedo = () => {
+    const h = historyRef.current;
+    if (historyCommitTimerRef.current !== null) {
+      window.clearTimeout(historyCommitTimerRef.current);
+      historyCommitTimerRef.current = null;
+    }
+
+    if (h.future.length === 0 || !h.present) {
+      setHistoryMeta({ canUndo: h.past.length > 0, canRedo: false });
+      return;
+    }
+
+    const next = h.future[0];
+    h.future = h.future.slice(1);
+    h.past = [...h.past, h.present].slice(-MAX_UNDO_HISTORY);
+    h.present = next;
+    setHistoryMeta({ canUndo: h.past.length > 0, canRedo: h.future.length > 0 });
+    applyHistorySnapshot(next);
+  };
+
+  const handleUndoRef = useRef(handleUndo);
+  handleUndoRef.current = handleUndo;
+  const handleRedoRef = useRef(handleRedo);
+  handleRedoRef.current = handleRedo;
 
   // 5. Dimension Resolutions
   const activeReadyDocTemplate = useMemo(
@@ -555,17 +826,43 @@ export default function App() {
     photoPreset,
   ]);
 
-  // 7. Keyboard Shortcuts
+  // 7. Keyboard Shortcuts (Undo, Redo, Instant Print, Save, Copy Count, Escape, Help)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Print: Ctrl+P or Cmd+P
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+      const key = e.key.toLowerCase();
+      const hasPrimaryMod = (e.ctrlKey || e.metaKey) && !e.altKey;
+      const modalOpen =
+        editingPhotoIndex !== null ||
+        nidEditingSide !== null ||
+        laminationEditingSide !== null ||
+        editingDocumentPageIndex !== null;
+
+      // Undo: Ctrl+Z or Cmd+Z (when no image editor modal is blocking)
+      if (hasPrimaryMod && key === 'z' && !e.shiftKey && !modalOpen) {
         e.preventDefault();
-        triggerDirectPrint();
+        handleUndoRef.current();
+        return;
+      }
+
+      // Redo: Ctrl+Y, Cmd+Y, Ctrl+Shift+Z, or Cmd+Shift+Z
+      if (
+        hasPrimaryMod &&
+        ((key === 'z' && e.shiftKey) || (key === 'y' && !e.shiftKey)) &&
+        !modalOpen
+      ) {
+        e.preventDefault();
+        handleRedoRef.current();
+        return;
+      }
+
+      // Print: Ctrl+P or Cmd+P
+      if (hasPrimaryMod && key === 'p') {
+        e.preventDefault();
+        handleDirectPrintRef.current();
         return;
       }
       // Save: Ctrl+S or Cmd+S
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      if (hasPrimaryMod && key === 's') {
         e.preventDefault();
         handleExportBackup();
         return;
@@ -1506,10 +1803,37 @@ export default function App() {
   // 10. Print & Export Handlers
   const handleDirectPrint = () => {
     setSelectedItemId(null);
-    setTimeout(() => {
-      triggerDirectPrint();
-    }, 40);
+    const isLand = orientation === 'landscape';
+    const widthMm =
+      mode === 'cv'
+        ? 210
+        : mode === 'readydocs'
+        ? activeReadyDocPaper.widthMm
+        : isLand
+        ? currentPaper.height
+        : currentPaper.width;
+    const heightMm =
+      mode === 'cv'
+        ? 297
+        : mode === 'readydocs'
+        ? activeReadyDocPaper.heightMm
+        : isLand
+        ? currentPaper.width
+        : currentPaper.height;
+    const title =
+      mode === 'cv'
+        ? `NextStudio CV - ${cvData.fullName || 'Resume'}`
+        : mode === 'readydocs'
+        ? `NextStudio - ${activeReadyDocTemplate.titleEn}`
+        : `NextStudio - ${mode.toUpperCase()}`;
+
+    window.setTimeout(() => {
+      triggerDirectPrint({ widthMm, heightMm, title });
+    }, 20);
   };
+
+  const handleDirectPrintRef = useRef(handleDirectPrint);
+  handleDirectPrintRef.current = handleDirectPrint;
 
   const handleDownloadPdf = async (overrideDocPages?: DocumentPageItem[]) => {
     const effectiveMode: StudioMode = overrideDocPages ? 'document' : mode;
@@ -1824,6 +2148,10 @@ export default function App() {
           zoom={zoom}
           setZoom={setZoom}
           onFitZoom={handleFitZoom}
+          canUndo={historyMeta.canUndo}
+          canRedo={historyMeta.canRedo}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
         />
 
         {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}

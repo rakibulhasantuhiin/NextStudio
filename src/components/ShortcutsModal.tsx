@@ -13,6 +13,8 @@ export const ShortcutsModal: React.FC<Props> = ({ isOpen, onClose, lang }) => {
   const t = translations[lang];
 
   const shortcutsList = [
+    { key: 'Ctrl + Z / ⌘ + Z', descBn: 'পূর্বের অবস্থায় ফিরে যাওয়া (Undo)', descEn: 'Undo Last Edit' },
+    { key: 'Ctrl + Y / ⇧ + ⌘ + Z', descBn: 'বাতিল করা এডিট ফিরিয়ে আনা (Redo)', descEn: 'Redo Edit' },
     { key: 'Ctrl + P / ⌘ + P', descBn: 'সরাসরি প্রিন্ট প্রিভিউ খোলা', descEn: 'Open Direct Print Dialog' },
     { key: 'Ctrl + S / ⌘ + S', descBn: 'প্রজেক্ট ব্যাকআপ সেভ করা (JSON)', descEn: 'Export Project Backup (JSON)' },
     { key: '+', descBn: 'ছবির সংখ্যা ১টি বাড়ানো (+1)', descEn: 'Add 1 Photo Copy' },

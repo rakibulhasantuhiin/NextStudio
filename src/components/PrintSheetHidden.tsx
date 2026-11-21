@@ -87,7 +87,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
       className="print-only-container hidden print:block"
       style={{
         width: `${paperWidthMm}mm`,
-        height: isFlowPrint ? 'auto' : `${paperHeightMm}mm`,
+        height: isFlowPrint ? 'auto' : `${Math.max(10, paperHeightMm - 0.3)}mm`,
         position: 'relative',
         backgroundColor: '#ffffff',
         background: '#ffffff',
@@ -612,7 +612,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
               className="print-page"
               style={{
                 width: `${paperWidthMm}mm`,
-                height: `${paperHeightMm}mm`,
+                height: `${Math.max(10, paperHeightMm - 0.3)}mm`,
                 position: 'relative',
                 backgroundColor: '#ffffff',
                 background: '#ffffff',
