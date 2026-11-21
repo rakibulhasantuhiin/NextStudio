@@ -181,9 +181,9 @@ export default function App() {
   const [zoom, setZoom] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const w = window.innerWidth;
-      if (w < 480) return 0.42;
-      if (w < 640) return 0.50;
-      if (w < 1024) return 0.65;
+      if (w < 1024) {
+        return Math.max(0.36, Math.min(0.82, Math.round(((w - 28) / 794) * 100) / 100));
+      }
     }
     return 0.85;
   });
@@ -2112,13 +2112,13 @@ export default function App() {
   };
 
   const handleFitZoom = () => {
-    // Computes ideal zoom for typical viewport
+    // Computes ideal zoom for current viewport (exact fit on mobile, 85% default on desktop)
     const w = window.innerWidth;
-    if (w < 400) setZoom(0.38);
-    else if (w < 480) setZoom(0.44);
-    else if (w < 640) setZoom(0.52);
-    else if (w < 1024) setZoom(0.68);
-    else setZoom(0.85);
+    if (w < 1024) {
+      setZoom(Math.max(0.36, Math.min(0.82, Math.round(((w - 28) / 794) * 100) / 100)));
+    } else {
+      setZoom(0.85);
+    }
   };
 
   const [mobileTab, setMobileTab] = useState<'preview' | 'controls'>('preview');
@@ -2155,14 +2155,14 @@ export default function App() {
         />
 
         {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}
-        <div className="lg:hidden no-print sticky top-14 z-30 glass-bar px-3 py-2 flex items-center justify-center">
+        <div className="lg:hidden no-print sticky top-[91px] z-30 glass-bar px-3 py-1.5 flex items-center justify-center">
           <div className="grid grid-cols-2 gap-1 glass-track p-1 rounded-xl w-full max-w-md">
             <button
               type="button"
               onClick={() => setMobileTab('preview')}
-              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              className={`py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer ${
                 mobileTab === 'preview'
-                  ? 'glass-btn-primary text-white'
+                  ? 'glass-btn-primary text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -2180,12 +2180,12 @@ export default function App() {
                   : 'Paper Preview'}
               </span>
               {mode === 'passport' && placedItems.length > 0 && (
-                <span className="text-[11px] font-mono tabular-nums opacity-80">
+                <span className="text-[11px] font-mono tabular-nums opacity-85">
                   ({placedItems.length})
                 </span>
               )}
               {mode === 'document' && documentSettings.pages.length > 0 && (
-                <span className="text-[11px] font-mono tabular-nums opacity-80">
+                <span className="text-[11px] font-mono tabular-nums opacity-85">
                   ({documentSettings.pages.length})
                 </span>
               )}
@@ -2193,9 +2193,9 @@ export default function App() {
             <button
               type="button"
               onClick={() => setMobileTab('controls')}
-              className={`py-1.5 px-3 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              className={`py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer ${
                 mobileTab === 'controls'
-                  ? 'glass-btn-primary text-white'
+                  ? 'glass-btn-primary text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -2205,10 +2205,10 @@ export default function App() {
         </div>
 
         {/* 2. Main Desktop Workstation Shell */}
-        <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full pb-16 lg:pb-0">
+        <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full pb-24 lg:pb-0">
           {/* Left Floating Liquid Glass Studio Inspector Panel */}
           <aside
-            className={`w-full lg:w-[392px] xl:w-[424px] shrink-0 glass-panel lg:my-3 lg:ml-3 lg:rounded-2xl p-4 sm:p-5 overflow-y-auto lg:h-[calc(100vh-5rem)] transition-colors ${
+            className={`w-full lg:w-[392px] xl:w-[424px] shrink-0 glass-panel lg:my-3 lg:ml-3 lg:rounded-2xl p-3.5 sm:p-5 overflow-y-auto lg:h-[calc(100vh-5rem)] transition-colors ${
               mobileTab === 'preview' ? 'hidden lg:block' : 'block'
             }`}
           >
@@ -2592,45 +2592,49 @@ export default function App() {
       />
 
       {/* Mobile Sticky Bottom Action Bar (Mobile Only) */}
-      <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 glass-bar border-t border-b-0 p-2 px-3 flex items-center justify-between gap-2 shadow-2xl">
+      <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 glass-bar border-t border-b-0 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] px-3 flex items-center justify-between gap-2 shadow-2xl">
         {mode === 'passport' && photos.length > 0 && (
           <button
+            type="button"
             onClick={() => setEditingPhotoIndex(activePhotoIndex)}
-            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+            className="flex-1 py-2.5 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span className="truncate">{lang === 'bn' ? 'ছবি এডিট' : 'Edit Photo'}</span>
           </button>
         )}
         {mode === 'lamination' && (lamination.frontImage || lamination.backImage) && (
           <button
+            type="button"
             onClick={() =>
               setLaminationEditingSide(lamination.frontImage ? 'front' : 'back')
             }
-            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+            className="flex-1 py-2.5 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span className="truncate">{lang === 'bn' ? 'কার্ড এডিট' : 'Edit Card'}</span>
           </button>
         )}
         {mode === 'document' && documentSettings.pages.length > 0 && (
           <button
+            type="button"
             onClick={() => setEditingDocumentPageIndex(documentSettings.activePageIndex)}
-            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+            className="flex-1 py-2.5 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
-            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <Edit3 className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span className="truncate">{lang === 'bn' ? 'এডিট ও ক্রপ' : 'Edit Paper'}</span>
           </button>
         )}
         {mode === 'cv' && (
           <button
+            type="button"
             onClick={() => {
               setMobileTab('preview');
               setCvShowGallery((v) => !v);
             }}
-            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+            className="flex-1 py-2.5 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
-            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span className="truncate">
               {cvShowGallery
                 ? lang === 'bn'
@@ -2644,13 +2648,14 @@ export default function App() {
         )}
         {mode === 'readydocs' && (
           <button
+            type="button"
             onClick={() => {
               setMobileTab('preview');
               setReadyDocShowGallery((v) => !v);
             }}
-            className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+            className="flex-1 py-2.5 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
           >
-            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <LayoutGrid className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span className="truncate">
               {readyDocShowGallery
                 ? lang === 'bn'
@@ -2663,18 +2668,20 @@ export default function App() {
           </button>
         )}
         <button
+          type="button"
           onClick={() => void handleDownloadPdf()}
           disabled={isExporting}
-          className="flex-1 py-2 px-2 rounded-xl glass-tile text-slate-900 dark:text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer disabled:opacity-60"
+          className="flex-1 py-2.5 px-2 rounded-xl glass-tile text-slate-900 dark:text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-60"
         >
-          <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+          <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
           <span className="truncate">{lang === 'bn' ? 'PDF সেভ' : 'Save PDF'}</span>
         </button>
         <button
+          type="button"
           onClick={handleDirectPrint}
-          className="flex-1 py-2 px-2 rounded-xl glass-btn-primary text-white font-semibold text-xs flex items-center justify-center gap-1 transition active:scale-95 cursor-pointer"
+          className="flex-1 py-2.5 px-2 rounded-xl glass-btn-primary text-white font-bold text-xs flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
         >
-          <Printer className="w-3.5 h-3.5" />
+          <Printer className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate">{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
         </button>
       </div>
@@ -2852,6 +2859,11 @@ export default function App() {
             showHeader={readyDocState.showHeader}
             showBorder={readyDocState.showBorder}
             showPageNumber={readyDocState.showPageNumber}
+            fontFamily={readyDocState.fontFamily}
+            textBold={readyDocState.textBold}
+            textItalic={readyDocState.textItalic}
+            textUnderline={readyDocState.textUnderline}
+            textHighlight={readyDocState.textHighlight}
             interactive={false}
           />
         </div>

@@ -1,3 +1,5 @@
+import type { BanglaFontId, HighlightColorId } from '../utils/richText';
+
 export type ReadyDocCategory =
   | 'all'
   | 'application'
@@ -145,8 +147,13 @@ export interface ReadyDocState {
   valuesByDoc: Record<string, Record<string, string>>;
   tablesByDoc: Record<string, string[][]>;
   photosByDoc: Record<string, string>;
+  fontFamily?: BanglaFontId;
   fontSizePx: number;
   lineHeight: number;
+  textBold?: boolean;
+  textItalic?: boolean;
+  textUnderline?: boolean;
+  textHighlight?: HighlightColorId;
   stampTopMm: number;
   paperOverride: ReadyDocPaperOverride;
   showHeader: boolean;

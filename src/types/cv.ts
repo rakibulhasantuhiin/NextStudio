@@ -1,3 +1,5 @@
+import type { BanglaFontId, HighlightColorId } from '../utils/richText';
+
 export type CvTemplateId =
   | 'classic-plain'
   | 'modern-sidebar'
@@ -61,6 +63,12 @@ export interface CvData {
   cvLang: 'en' | 'bn';
   accentColor: string;
   fontStyle: CvFontStyle;
+  banglaFont?: BanglaFontId;
+  fontSizePx?: number;
+  textBold?: boolean;
+  textItalic?: boolean;
+  textUnderline?: boolean;
+  textHighlight?: HighlightColorId;
   density: CvDensity;
   photo: string;
   photoShape: 'rect' | 'rounded' | 'circle';

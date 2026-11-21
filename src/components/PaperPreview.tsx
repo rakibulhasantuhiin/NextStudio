@@ -771,9 +771,9 @@ export const PaperPreview: React.FC<Props> = ({
       onClick={() => onSelectItem?.(null)}
       className="relative flex-1 flex flex-col items-center justify-start p-3 sm:p-5 lg:p-6 overflow-auto select-none min-h-full no-print print:hidden"
     >
-      {/* Unified Canvas Top Strip: Paper Metadata + Desktop Zoom Controls */}
-      <div className="mb-3 w-full max-w-5xl rounded-2xl glass-strip px-3.5 py-2 flex flex-col sm:flex-row items-center justify-between gap-2">
-        <div className="text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center justify-center sm:justify-start gap-2 flex-wrap text-center sm:text-left">
+      {/* Unified Canvas Top Strip: Paper Metadata + Zoom Controls */}
+      <div className="mb-2.5 lg:mb-3 w-full max-w-5xl rounded-2xl glass-strip px-2.5 py-1.5 lg:px-3.5 lg:py-2 flex flex-col sm:flex-row items-center justify-between gap-1.5 lg:gap-2">
+        <div className="text-[11px] lg:text-xs font-medium text-slate-600 dark:text-slate-300 flex items-center justify-center sm:justify-start gap-1.5 lg:gap-2 flex-wrap text-center sm:text-left">
           <span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
             {paper.name} · {paperWidthMm} × {paperHeightMm} mm
           </span>
@@ -812,7 +812,7 @@ export const PaperPreview: React.FC<Props> = ({
                 e.stopPropagation();
                 setWheelZoomEnabled((v) => !v);
               }}
-              className={`px-2 py-1 rounded-xl text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer ${
+              className={`hidden lg:flex px-2 py-1 rounded-xl text-[11px] font-semibold items-center gap-1 transition cursor-pointer ${
                 wheelZoomEnabled
                   ? 'glass-tile text-blue-600 dark:text-blue-400 border-blue-400/50'
                   : 'glass-track text-slate-500 dark:text-slate-400'

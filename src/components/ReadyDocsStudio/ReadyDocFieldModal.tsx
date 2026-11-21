@@ -2,6 +2,12 @@ import React, { useEffect, useRef } from 'react';
 import { Calendar, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { ReadyDocField } from '../../types/readyDocs';
 import { getTodayFormatted } from '../../utils/readyDocs';
+import {
+  HighlightColorId,
+  InlineFormatAction,
+  applyInlineFormatToValue,
+} from '../../utils/richText';
+import { InlineTextFormatBar } from '../RichTextToolbar';
 
 interface ReadyDocFieldModalProps {
   field: ReadyDocField | null;
@@ -46,13 +52,37 @@ export const ReadyDocFieldModal: React.FC<ReadyDocFieldModalProps> = ({
 
   if (!field) return null;
 
+  const handleInlineFormat = (action: InlineFormatAction, color?: HighlightColorId) => {
+    const el = field.inputType === 'textarea' ? textareaRef.current : inputRef.current;
+    const selStart = el?.selectionStart ?? 0;
+    const selEnd = el?.selectionEnd ?? 0;
+    const { nextValue, nextStart, nextEnd } = applyInlineFormatToValue(
+      value,
+      selStart,
+      selEnd,
+      action,
+      color
+    );
+    onChange(nextValue);
+    if (el) {
+      window.requestAnimationFrame(() => {
+        el.focus();
+        try {
+          el.setSelectionRange(nextStart, nextEnd);
+        } catch {
+          // ignore on unsupported inputs
+        }
+      });
+    }
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/30 backdrop-blur-[3px]"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/35 backdrop-blur-[3px]"
       onClick={onClose}
     >
       <div
-        className="glass-modal w-full max-w-md rounded-2xl p-4 sm:p-5 space-y-3.5"
+        className="glass-modal w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl p-4 sm:p-5 space-y-3.5"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Row: Label + Hint + Close */}
@@ -84,6 +114,9 @@ export const ReadyDocFieldModal: React.FC<ReadyDocFieldModalProps> = ({
           </button>
         </div>
 
+        {/* Inline Rich Text Formatting Toolbar (Bold, Italic, Underline, Highlighter) */}
+        <InlineTextFormatBar lang={uiLang} onFormat={handleInlineFormat} />
+
         {/* Input / Textarea */}
         <div className="space-y-2">
           {field.inputType === 'textarea' ? (
@@ -93,7 +126,7 @@ export const ReadyDocFieldModal: React.FC<ReadyDocFieldModalProps> = ({
               value={value}
               onChange={(e) => onChange(e.target.value)}
               placeholder={field.hint || field.label}
-              className="glass-input w-full rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+              className="glass-input w-full rounded-xl px-3.5 py-2.5 text-base sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
             />
           ) : (
             <input
@@ -111,7 +144,7 @@ export const ReadyDocFieldModal: React.FC<ReadyDocFieldModalProps> = ({
                 }
               }}
               placeholder={field.hint || field.label}
-              className="glass-input w-full rounded-xl px-3.5 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="glass-input w-full rounded-xl px-3.5 py-2.5 text-base sm:text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           )}
 
@@ -127,7 +160,7 @@ export const ReadyDocFieldModal: React.FC<ReadyDocFieldModalProps> = ({
           )}
         </div>
 
-        {/* Bottom Prev / Next Buttons matching Screenshot 12 */}
+        {/* Bottom Prev / Next Buttons */}
         <div className="grid grid-cols-2 gap-2.5 pt-1">
           <button
             type="button"

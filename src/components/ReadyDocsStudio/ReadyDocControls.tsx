@@ -1,8 +1,11 @@
 import React, { useRef, useState } from 'react';
 import {
+  Bold,
   Camera,
   FileDown,
   FileText,
+  Highlighter,
+  Italic,
   LayoutGrid,
   Loader2,
   Printer,
@@ -10,6 +13,8 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  Type,
+  Underline,
 } from 'lucide-react';
 import {
   ReadyDocPaperOverride,
@@ -21,6 +26,12 @@ import {
   READY_DOC_PAPER_SPECS,
   resolveReadyDocPaper,
 } from '../../utils/readyDocs';
+import {
+  BANGLA_FONTS,
+  BanglaFontId,
+  DEFAULT_BANGLA_FONT,
+  HIGHLIGHT_COLORS,
+} from '../../utils/richText';
 
 interface ReadyDocControlsProps {
   lang: 'bn' | 'en';
@@ -404,6 +415,118 @@ export const ReadyDocControls: React.FC<ReadyDocControlsProps> = ({
             </div>
           )}
 
+          {/* Bangla Font Family Selector (Default: SolaimanLipi) */}
+          <div className="glass-tile rounded-xl p-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-100">
+              <Type className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{isBn ? 'বাংলা ফন্ট সিলেক্ট করুন' : 'Select Bangla Font'}</span>
+            </div>
+            <select
+              value={readyDocState.fontFamily || DEFAULT_BANGLA_FONT}
+              onChange={(e) =>
+                setReadyDocState((prev) => ({
+                  ...prev,
+                  fontFamily: e.target.value as BanglaFontId,
+                }))
+              }
+              className="glass-input w-full rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              {BANGLA_FONTS.map((f) => (
+                <option
+                  key={f.id}
+                  value={f.id}
+                  style={{ fontFamily: f.fontFamily }}
+                  className="text-slate-900 bg-white"
+                >
+                  {isBn ? f.nameBn : f.nameEn}
+                </option>
+              ))}
+            </select>
+
+            {/* Manual Bold / Italic / Underline Buttons */}
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  setReadyDocState((prev) => ({ ...prev, textBold: !prev.textBold }))
+                }
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition ${
+                  readyDocState.textBold
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Bold className="w-3.5 h-3.5" />
+                <span>{isBn ? 'বোল্ড' : 'Bold'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setReadyDocState((prev) => ({ ...prev, textItalic: !prev.textItalic }))
+                }
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition ${
+                  readyDocState.textItalic
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Italic className="w-3.5 h-3.5" />
+                <span>{isBn ? 'ইটালিক' : 'Italic'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setReadyDocState((prev) => ({
+                    ...prev,
+                    textUnderline: !prev.textUnderline,
+                  }))
+                }
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition ${
+                  readyDocState.textUnderline
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Underline className="w-3.5 h-3.5" />
+                <span>{isBn ? 'আন্ডারলাইন' : 'Underline'}</span>
+              </button>
+            </div>
+
+            {/* Highlighter Swatches */}
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                <Highlighter className="w-3.5 h-3.5 text-amber-500" />
+                <span>{isBn ? 'হাইলাইটার:' : 'Highlighter:'}</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                {HIGHLIGHT_COLORS.map((c) => {
+                  const selected = (readyDocState.textHighlight || 'none') === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() =>
+                        setReadyDocState((prev) => ({ ...prev, textHighlight: c.id }))
+                      }
+                      className={`w-5 h-5 rounded-full border transition cursor-pointer flex items-center justify-center text-[10px] font-bold ${
+                        selected
+                          ? 'ring-2 ring-blue-500 scale-110 border-slate-900'
+                          : 'border-slate-300 dark:border-white/25 hover:scale-110'
+                      }`}
+                      style={{
+                        backgroundColor: c.id === 'none' ? '#ffffff' : c.hex,
+                        color: '#0f172a',
+                      }}
+                      title={isBn ? c.labelBn : c.labelEn}
+                    >
+                      {c.id === 'none' ? '✕' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           {/* Font Size */}
           <div className="glass-tile rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between">
@@ -416,8 +539,8 @@ export const ReadyDocControls: React.FC<ReadyDocControlsProps> = ({
             </div>
             <input
               type="range"
-              min={11}
-              max={20}
+              min={10}
+              max={24}
               step={0.5}
               value={readyDocState.fontSizePx}
               onChange={(e) =>

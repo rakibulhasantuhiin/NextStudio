@@ -1,6 +1,12 @@
 import React from 'react';
 import { Camera, PenTool, Plus, Trash2 } from 'lucide-react';
 import { CvData, CvFieldTarget } from '../../types/cv';
+import {
+  DEFAULT_BANGLA_FONT,
+  getBanglaFontStack,
+  getHighlightHex,
+  renderRichText,
+} from '../../utils/richText';
 
 interface CvSheetRendererProps {
   data: CvData;
@@ -201,12 +207,17 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   const accentTint = hexToRgba(accent, 0.11);
   const accentBorder = hexToRgba(accent, 0.35);
 
+  const selectedBanglaFont = data.banglaFont || DEFAULT_BANGLA_FONT;
+  const banglaStack = getBanglaFontStack(selectedBanglaFont);
+
   const fontFamily =
-    data.fontStyle === 'sans'
-      ? "'Plus Jakarta Sans', 'Hind Siliguri', 'Noto Sans Bengali', system-ui, sans-serif"
+    data.cvLang === 'bn' || selectedBanglaFont !== DEFAULT_BANGLA_FONT
+      ? banglaStack
+      : data.fontStyle === 'sans'
+      ? `'Plus Jakarta Sans', ${banglaStack}`
       : data.fontStyle === 'classic'
-      ? "Georgia, 'Times New Roman', 'Hind Siliguri', serif"
-      : "'Source Serif 4', Georgia, 'Times New Roman', 'Hind Siliguri', serif";
+      ? `Georgia, 'Times New Roman', ${banglaStack}`
+      : `'Source Serif 4', Georgia, 'Times New Roman', ${banglaStack}`;
 
   const padClass =
     data.density === 'compact'
@@ -222,8 +233,24 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
       ? 'space-y-5'
       : 'space-y-4';
 
-  const baseTextSize =
-    data.density === 'compact' ? '12px' : data.density === 'spacious' ? '13.5px' : '12.5px';
+  const effectiveFontPx =
+    data.fontSizePx && data.fontSizePx >= 10
+      ? data.fontSizePx
+      : data.density === 'compact'
+      ? 12
+      : data.density === 'spacious'
+      ? 13.5
+      : 12.5;
+  const baseTextSize = `${effectiveFontPx}px`;
+
+  const rootFormatClasses = [
+    'bangla-font-root',
+    data.textBold ? 'bangla-manual-bold' : '',
+    data.textItalic ? 'bangla-manual-italic' : '',
+    data.textUnderline ? 'bangla-manual-underline' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   // Helper: Clickable inline editable span (matches screenshots 1-6 amber dashed style when empty in edit mode)
   const renderEditable = (
@@ -275,6 +302,16 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
 
     const Tag = options?.block ? 'div' : 'span';
 
+    const highlightStyle: React.CSSProperties =
+      !isEmpty && data.textHighlight && data.textHighlight !== 'none'
+        ? {
+            backgroundColor: getHighlightHex(data.textHighlight),
+            color: options?.darkSurface ? '#0f172a' : undefined,
+            borderRadius: '2px',
+            padding: '0 2px',
+          }
+        : {};
+
     return (
       <Tag
         onClick={handleClick}
@@ -283,11 +320,12 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
         } ${options?.className || ''}`}
         style={{
           ...(isEmpty && interactive ? emptyStyle : {}),
+          ...highlightStyle,
           ...options?.style,
         }}
         title={interactive ? (data.cvLang === 'bn' ? 'ক্লিক করে লিখুন' : 'Click to edit') : undefined}
       >
-        {trimmed || placeholder}
+        {trimmed ? renderRichText(trimmed, 'cv-rt') : placeholder}
       </Tag>
     );
   };
@@ -1105,6 +1143,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     </div>
   );
 
+  const renderSelectedTemplate = () => {
   // =========================================================================
   // SPECIALIZED LAYOUT 1: MARRIAGE BIODATA (Framed Traditional Layout)
   // =========================================================================
@@ -1770,6 +1809,16 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
       {renderPersonalDetailsBlock(undefined, tpl === 'colored-bar' ? 1 : 2)}
       {renderReferencesBlock()}
       {renderDeclarationBlock()}
+    </div>
+  );
+  };
+
+  return (
+    <div
+      className={rootFormatClasses}
+      style={{ fontFamily, fontSize: baseTextSize }}
+    >
+      {renderSelectedTemplate()}
     </div>
   );
 };

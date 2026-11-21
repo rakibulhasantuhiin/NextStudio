@@ -729,8 +729,13 @@ export const PrintSheetHidden: React.FC<Props> = ({
                 : readyTemplate.defaultTableRows || []
             }
             photoSrc={readyDocState.photosByDoc[readyTemplate.id] || ''}
+            fontFamily={readyDocState.fontFamily}
             fontSizePx={readyDocState.fontSizePx}
             lineHeight={readyDocState.lineHeight}
+            textBold={readyDocState.textBold}
+            textItalic={readyDocState.textItalic}
+            textUnderline={readyDocState.textUnderline}
+            textHighlight={readyDocState.textHighlight}
             stampTopMm={readyDocState.stampTopMm}
             showHeader={readyDocState.showHeader}
             showBorder={readyDocState.showBorder}

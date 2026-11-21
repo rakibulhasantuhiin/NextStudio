@@ -35,6 +35,8 @@ import {
 import { CvFieldModal } from './CvFieldModal';
 import { CvSheetRenderer } from './CvSheetRenderer';
 import { CvTemplateGallery } from './CvTemplateGallery';
+import { DocumentTypographyBar } from '../RichTextToolbar';
+import { DEFAULT_BANGLA_FONT } from '../../utils/richText';
 
 interface CvWorkspaceProps {
   lang: 'bn' | 'en';
@@ -415,8 +417,8 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
   return (
     <div className="flex-1 flex flex-col min-h-full relative">
       {/* Top Floating Liquid Glass CV Editor Bar */}
-      <div className="sticky top-0 z-20 px-3 sm:px-5 pt-3 pb-2">
-        <div className="glass-strip rounded-2xl px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="sticky top-0 z-20 px-2 pt-2 pb-1.5 lg:px-5 lg:pt-3 lg:pb-2">
+        <div className="glass-strip rounded-2xl px-2 lg:px-3.5 py-1.5 lg:py-2 flex flex-wrap items-center justify-between gap-1.5 lg:gap-2">
           {/* Left Group: Templates + Extra Settings + Completion + Quick Fill */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {/* Switch Template Gallery */}
@@ -455,7 +457,7 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
                     className="fixed inset-0 z-30"
                     onClick={() => setShowExtraMenu(false)}
                   />
-                  <div className="glass-dropdown absolute left-0 mt-2 w-72 rounded-2xl p-3.5 z-40 space-y-3.5 text-xs">
+                  <div className="glass-dropdown absolute left-0 mt-2 w-72 max-w-[calc(100vw-1.5rem)] rounded-2xl p-3.5 z-40 space-y-3.5 text-xs">
                     {/* CV Language */}
                     <div className="space-y-1.5">
                       <div className="font-bold text-slate-700 dark:text-slate-200">
@@ -612,7 +614,7 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
                         className="fixed inset-0 z-30"
                         onClick={() => setShowRemainingMenu(false)}
                       />
-                      <div className="glass-dropdown absolute left-0 mt-2 w-56 rounded-2xl py-1.5 z-40">
+                      <div className="glass-dropdown absolute left-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40">
                         <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                           {isBn ? 'যে ঘরগুলো ফাঁকা আছে' : 'Remaining Fields'}
                         </div>
@@ -673,7 +675,7 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
                     className="fixed inset-0 z-30"
                     onClick={() => setShowQuickFillMenu(false)}
                   />
-                  <div className="glass-dropdown absolute left-0 mt-2 w-60 rounded-2xl py-1.5 z-40 text-xs">
+                  <div className="glass-dropdown absolute left-0 mt-2 w-60 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40 text-xs">
                     <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       {isBn ? 'এক ক্লিকে স্যাম্পল তথ্য ভরুন' : 'One-Click Sample Profiles'}
                     </div>
@@ -707,14 +709,45 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
             </span>
           </div>
 
-          {/* Right Group: Zoom Controls + Final Preview + PDF + Print */}
+          {/* Right Group: Bangla Font + Size + Bold/Italic/Underline/Highlighter + Zoom + Final Preview + PDF + Print */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {/* Zoom Controls & Wheel Toggle */}
-            <div className="hidden sm:flex items-center gap-0.5 glass-track p-0.5 rounded-xl">
+            <DocumentTypographyBar
+              lang={lang}
+              fontFamily={cvData.banglaFont || DEFAULT_BANGLA_FONT}
+              onChangeFontFamily={(banglaFont) =>
+                setCvData((p) => ({ ...p, banglaFont }))
+              }
+              fontSizePx={cvData.fontSizePx || 13}
+              onChangeFontSizePx={(fontSizePx) =>
+                setCvData((p) => ({ ...p, fontSizePx }))
+              }
+              minFontSize={10}
+              maxFontSize={22}
+              bold={Boolean(cvData.textBold)}
+              onToggleBold={() =>
+                setCvData((p) => ({ ...p, textBold: !p.textBold }))
+              }
+              italic={Boolean(cvData.textItalic)}
+              onToggleItalic={() =>
+                setCvData((p) => ({ ...p, textItalic: !p.textItalic }))
+              }
+              underline={Boolean(cvData.textUnderline)}
+              onToggleUnderline={() =>
+                setCvData((p) => ({ ...p, textUnderline: !p.textUnderline }))
+              }
+              highlight={cvData.textHighlight || 'none'}
+              onChangeHighlight={(textHighlight) =>
+                setCvData((p) => ({ ...p, textHighlight }))
+              }
+              compact
+            />
+
+            {/* Zoom Controls & Wheel Toggle (Available on both Desktop & Mobile!) */}
+            <div className="flex items-center gap-0.5 glass-track p-0.5 rounded-xl">
               <button
                 type="button"
                 onClick={() => setScrollZoomEnabled((v) => !v)}
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                className={`hidden md:inline-flex p-1.5 rounded-lg transition cursor-pointer ${
                   scrollZoomEnabled
                     ? 'glass-tab-active text-blue-600 dark:text-blue-400'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
@@ -733,13 +766,13 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setZoom((z) => Math.max(0.4, Math.round((z - 0.1) * 100) / 100))}
+                onClick={() => setZoom((z) => Math.max(0.32, Math.round((z - 0.1) * 100) / 100))}
                 className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer"
                 title={isBn ? 'জুম আউট' : 'Zoom Out'}
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 px-1 min-w-[40px] text-center tabular-nums">
+              <span className="text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 px-1 min-w-[38px] text-center tabular-nums">
                 {Math.round(zoom * 100)}%
               </span>
               <button
@@ -787,12 +820,12 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
               </span>
             </button>
 
-            {/* Save PDF Button */}
+            {/* Save PDF Button (Desktop; mobile uses sticky bottom bar) */}
             <button
               type="button"
               onClick={onDownloadCvPdf}
               disabled={isExporting}
-              className="glass-btn-emerald px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              className="hidden lg:flex glass-btn-emerald px-3 py-1.5 rounded-xl text-white text-xs font-bold items-center gap-1.5 cursor-pointer disabled:opacity-60"
             >
               {isExporting ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -802,11 +835,11 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
               <span>PDF</span>
             </button>
 
-            {/* Print Button */}
+            {/* Print Button (Desktop; mobile uses sticky bottom bar) */}
             <button
               type="button"
               onClick={onPrintCv}
-              className="glass-btn-primary px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              className="hidden lg:flex glass-btn-primary px-3 py-1.5 rounded-xl text-white text-xs font-bold items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>{isBn ? 'প্রিন্ট' : 'Print'}</span>
@@ -817,8 +850,8 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
 
       {/* Inline Click Hint Strip */}
       {!isFinalPreview && (
-        <div className="px-3 sm:px-5 pb-2">
-          <div className="glass-banner rounded-xl px-3.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2">
+        <div className="px-2 pb-1.5 lg:px-5 lg:pb-2">
+          <div className="glass-banner rounded-xl px-3 lg:px-3.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2">
             <span>
               {isBn
                 ? '💡 সিভির যেকোনো হলুদ ঘরে বা লেখায় ক্লিক করে সরাসরি লিখুন, ছবি ও স্বাক্ষর বসান। পেজের উপর মাউস স্ক্রল করে জুম ইন/আউট করা যাবে।'

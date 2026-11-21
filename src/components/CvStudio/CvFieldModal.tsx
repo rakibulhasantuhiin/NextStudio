@@ -23,6 +23,12 @@ import {
   RELIGION_OPTIONS,
   SKILL_SUGGESTIONS,
 } from '../../utils/cvTemplates';
+import {
+  HighlightColorId,
+  InlineFormatAction,
+  applyInlineFormatToValue,
+} from '../../utils/richText';
+import { InlineTextFormatBar } from '../RichTextToolbar';
 
 interface CvFieldModalProps {
   target: CvFieldTarget | null;
@@ -51,6 +57,8 @@ export const CvFieldModal: React.FC<CvFieldModalProps> = ({
   const signFileRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
+  const textInputRef = useRef<HTMLInputElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setShowStudioPicker(false);
@@ -1004,44 +1012,75 @@ export const CvFieldModal: React.FC<CvFieldModalProps> = ({
       );
     }
 
-    // 11. STANDARD TEXT / TEXTAREA FIELDS (Matches Screenshot 3!)
+    // 11. STANDARD TEXT / TEXTAREA FIELDS (With inline Bold / Italic / Underline / Highlighter!)
     const fieldKey = 'field' in target ? target.field : 'fullName';
     const currentValue = String((data as unknown as Record<string, unknown>)[fieldKey] || '');
     const isLongField = fieldKey === 'declarationText' || fieldKey === 'partnerExpectation';
 
-    return isLongField ? (
-      <textarea
-        rows={3}
-        autoFocus
-        value={currentValue}
-        onChange={(e) => onChange((prev) => ({ ...prev, [fieldKey]: e.target.value }))}
-        className="w-full px-3 py-2 rounded-xl glass-input text-sm leading-relaxed"
-      />
-    ) : (
-      <input
-        type="text"
-        autoFocus
-        value={currentValue}
-        onChange={(e) => onChange((prev) => ({ ...prev, [fieldKey]: e.target.value }))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            onNextField();
+    const handleFormatStandardField = (action: InlineFormatAction, color?: HighlightColorId) => {
+      const el = isLongField ? textAreaRef.current : textInputRef.current;
+      const selStart = el?.selectionStart ?? 0;
+      const selEnd = el?.selectionEnd ?? 0;
+      const { nextValue, nextStart, nextEnd } = applyInlineFormatToValue(
+        currentValue,
+        selStart,
+        selEnd,
+        action,
+        color
+      );
+      onChange((prev) => ({ ...prev, [fieldKey]: nextValue }));
+      if (el) {
+        window.requestAnimationFrame(() => {
+          el.focus();
+          try {
+            el.setSelectionRange(nextStart, nextEnd);
+          } catch {
+            // ignore
           }
-        }}
-        className="w-full px-3.5 py-2.5 rounded-xl glass-input text-sm"
-      />
+        });
+      }
+    };
+
+    return (
+      <div className="space-y-2.5">
+        <InlineTextFormatBar lang={lang} onFormat={handleFormatStandardField} />
+        {isLongField ? (
+          <textarea
+            ref={textAreaRef}
+            rows={3}
+            autoFocus
+            value={currentValue}
+            onChange={(e) => onChange((prev) => ({ ...prev, [fieldKey]: e.target.value }))}
+            className="w-full px-3 py-2 rounded-xl glass-input text-base sm:text-sm leading-relaxed"
+          />
+        ) : (
+          <input
+            ref={textInputRef}
+            type="text"
+            autoFocus
+            value={currentValue}
+            onChange={(e) => onChange((prev) => ({ ...prev, [fieldKey]: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                onNextField();
+              }
+            }}
+            className="w-full px-3.5 py-2.5 rounded-xl glass-input text-base sm:text-sm"
+          />
+        )}
+      </div>
     );
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/35 backdrop-blur-xs p-2.5 sm:p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md glass-modal rounded-2xl p-5 space-y-4 text-slate-900 dark:text-slate-100"
+        className="w-full max-w-md max-h-[88dvh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-4 text-slate-900 dark:text-slate-100"
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

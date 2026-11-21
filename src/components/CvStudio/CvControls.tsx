@@ -1,9 +1,12 @@
 import React, { useRef, useState } from 'react';
 import {
+  Bold,
   Briefcase,
   Camera,
   FileDown,
   GraduationCap,
+  Highlighter,
+  Italic,
   LayoutGrid,
   Loader2,
   Palette,
@@ -13,6 +16,8 @@ import {
   RotateCcw,
   Sparkles,
   Trash2,
+  Type,
+  Underline,
   User,
   Zap,
 } from 'lucide-react';
@@ -26,6 +31,12 @@ import {
   RELIGION_OPTIONS,
   SKILL_SUGGESTIONS,
 } from '../../utils/cvTemplates';
+import {
+  BANGLA_FONTS,
+  BanglaFontId,
+  DEFAULT_BANGLA_FONT,
+  HIGHLIGHT_COLORS,
+} from '../../utils/richText';
 
 interface CvControlsProps {
   lang: 'bn' | 'en';
@@ -891,10 +902,131 @@ export const CvControls: React.FC<CvControlsProps> = ({
             </div>
           </div>
 
-          {/* Font Family */}
+          {/* Bangla Font Family, Font Size & Rich Text Style (Default: SolaimanLipi) */}
+          <div className="glass-tile rounded-xl p-3 space-y-2.5">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-100">
+              <Type className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{isBn ? 'বাংলা ফন্ট ও ফরম্যাটিং' : 'Bangla Font & Formatting'}</span>
+            </div>
+            <select
+              value={cvData.banglaFont || DEFAULT_BANGLA_FONT}
+              onChange={(e) =>
+                setCvData((p) => ({ ...p, banglaFont: e.target.value as BanglaFontId }))
+              }
+              className="w-full px-3 py-2 rounded-xl glass-input text-xs font-semibold cursor-pointer"
+            >
+              {BANGLA_FONTS.map((f) => (
+                <option
+                  key={f.id}
+                  value={f.id}
+                  style={{ fontFamily: f.fontFamily }}
+                  className="text-slate-900 bg-white"
+                >
+                  {isBn ? f.nameBn : f.nameEn}
+                </option>
+              ))}
+            </select>
+
+            {/* Font Size Slider */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-semibold">
+                <span className="text-slate-600 dark:text-slate-300">
+                  {isBn ? 'লেখার সাইজ (Font Size)' : 'Font Size'}
+                </span>
+                <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                  {cvData.fontSizePx || 13}px
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={22}
+                step={0.5}
+                value={cvData.fontSizePx || 13}
+                onChange={(e) =>
+                  setCvData((p) => ({ ...p, fontSizePx: Number(e.target.value) }))
+                }
+                className="w-full accent-blue-600 cursor-pointer"
+              />
+            </div>
+
+            {/* Manual Bold / Italic / Underline */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCvData((p) => ({ ...p, textBold: !p.textBold }))}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition ${
+                  cvData.textBold
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Bold className="w-3.5 h-3.5" />
+                <span>{isBn ? 'বোল্ড' : 'Bold'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCvData((p) => ({ ...p, textItalic: !p.textItalic }))}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition ${
+                  cvData.textItalic
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Italic className="w-3.5 h-3.5" />
+                <span>{isBn ? 'ইটালিক' : 'Italic'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCvData((p) => ({ ...p, textUnderline: !p.textUnderline }))}
+                className={`py-1.5 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition ${
+                  cvData.textUnderline
+                    ? 'glass-btn-primary text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                <Underline className="w-3.5 h-3.5" />
+                <span>{isBn ? 'আন্ডারলাইন' : 'Underline'}</span>
+              </button>
+            </div>
+
+            {/* Highlighter Swatches */}
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                <Highlighter className="w-3.5 h-3.5 text-amber-500" />
+                <span>{isBn ? 'হাইলাইটার:' : 'Highlighter:'}</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                {HIGHLIGHT_COLORS.map((c) => {
+                  const selected = (cvData.textHighlight || 'none') === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCvData((p) => ({ ...p, textHighlight: c.id }))}
+                      className={`w-5 h-5 rounded-full border transition cursor-pointer flex items-center justify-center text-[10px] font-bold ${
+                        selected
+                          ? 'ring-2 ring-blue-500 scale-110 border-slate-900'
+                          : 'border-slate-300 dark:border-white/25 hover:scale-110'
+                      }`}
+                      style={{
+                        backgroundColor: c.id === 'none' ? '#ffffff' : c.hex,
+                        color: '#0f172a',
+                      }}
+                      title={isBn ? c.labelBn : c.labelEn}
+                    >
+                      {c.id === 'none' ? '✕' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* English Font Style */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-              {isBn ? 'ফন্ট স্টাইল:' : 'Typography Style:'}
+              {isBn ? 'ইংরেজি ফন্ট স্টাইল:' : 'English Typography Style:'}
             </label>
             <div className="grid grid-cols-3 gap-1 glass-track p-1 rounded-xl">
               {(

@@ -10,6 +10,14 @@ import {
   toBanglaDigits,
   toEnglishDigits,
 } from '../../utils/readyDocs';
+import {
+  BanglaFontId,
+  DEFAULT_BANGLA_FONT,
+  HighlightColorId,
+  getBanglaFontStack,
+  getHighlightHex,
+  renderRichText,
+} from '../../utils/richText';
 
 interface ReadyDocSheetRendererProps {
   template: ReadyDocTemplate;
@@ -17,8 +25,13 @@ interface ReadyDocSheetRendererProps {
   values: Record<string, string>;
   tableRows: string[][];
   photoSrc?: string;
+  fontFamily?: BanglaFontId;
   fontSizePx: number;
   lineHeight: number;
+  textBold?: boolean;
+  textItalic?: boolean;
+  textUnderline?: boolean;
+  textHighlight?: HighlightColorId;
   stampTopMm: number;
   showHeader: boolean;
   showBorder: boolean;
@@ -40,8 +53,13 @@ export const ReadyDocSheetRenderer: React.FC<ReadyDocSheetRendererProps> = ({
   values,
   tableRows,
   photoSrc,
+  fontFamily = DEFAULT_BANGLA_FONT,
   fontSizePx,
   lineHeight,
+  textBold = false,
+  textItalic = false,
+  textUnderline = false,
+  textHighlight = 'none',
   stampTopMm,
   showHeader,
   showBorder,
@@ -81,7 +99,22 @@ export const ReadyDocSheetRenderer: React.FC<ReadyDocSheetRendererProps> = ({
 
       if (!interactive) {
         if (val) {
-          return <span key={idx}>{val}</span>;
+          return (
+            <span
+              key={idx}
+              style={
+                textHighlight !== 'none'
+                  ? {
+                      backgroundColor: getHighlightHex(textHighlight),
+                      padding: '0 2px',
+                      borderRadius: '2px',
+                    }
+                  : undefined
+              }
+            >
+              {renderRichText(val, `rd-${key}-${idx}`)}
+            </span>
+          );
         }
         return (
           <span
@@ -117,7 +150,12 @@ export const ReadyDocSheetRenderer: React.FC<ReadyDocSheetRendererProps> = ({
             }}
             style={{
               borderBottom: isActive ? '2px solid #2563eb' : '1.5px dotted #3b82f6',
-              backgroundColor: isActive ? 'rgba(59, 130, 246, 0.14)' : 'rgba(59, 130, 246, 0.05)',
+              backgroundColor:
+                textHighlight !== 'none'
+                  ? getHighlightHex(textHighlight)
+                  : isActive
+                  ? 'rgba(59, 130, 246, 0.14)'
+                  : 'rgba(59, 130, 246, 0.05)',
               color: '#0f172a',
               borderRadius: '3px',
               padding: '0 3px',
@@ -126,7 +164,7 @@ export const ReadyDocSheetRenderer: React.FC<ReadyDocSheetRendererProps> = ({
             }}
             title={label}
           >
-            {val}
+            {renderRichText(val, `rdi-${key}-${idx}`)}
           </span>
         );
       }
@@ -810,8 +848,23 @@ export const ReadyDocSheetRenderer: React.FC<ReadyDocSheetRendererProps> = ({
     }
   };
 
+  const resolvedFontStack =
+    template.lang === 'en' && fontFamily === DEFAULT_BANGLA_FONT
+      ? `'Georgia', 'Times New Roman', ${getBanglaFontStack(fontFamily)}`
+      : getBanglaFontStack(fontFamily);
+
+  const rootFormatClasses = [
+    'bangla-font-root',
+    textBold ? 'bangla-manual-bold' : '',
+    textItalic ? 'bangla-manual-italic' : '',
+    textUnderline ? 'bangla-manual-underline' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <div
+      className={rootFormatClasses}
       style={{
         width: `${paper.widthPx}px`,
         minHeight: `${paper.heightPx}px`,
@@ -819,10 +872,7 @@ export const ReadyDocSheetRenderer: React.FC<ReadyDocSheetRendererProps> = ({
         color: '#0f172a',
         position: 'relative',
         boxSizing: 'border-box',
-        fontFamily:
-          template.lang === 'en'
-            ? "'Georgia', 'Times New Roman', 'Plus Jakarta Sans', serif"
-            : "'Hind Siliguri', 'Noto Serif Bengali', 'SolaimanLipi', system-ui, sans-serif",
+        fontFamily: resolvedFontStack,
         fontSize: `${fontSizePx}px`,
         lineHeight,
         padding: showBorder ? '28px' : '0px',

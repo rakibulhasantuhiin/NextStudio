@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    font-family: 'Plus Jakarta Sans', 'Hind Siliguri', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: 'Plus Jakarta Sans', 'SolaimanLipi', 'Hind Siliguri', 'Noto Sans Bengali', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     letter-spacing: -0.005em;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -490,6 +490,53 @@
     visibility: visible !important;
     box-shadow: none !important;
   }
+
+  .bangla-manual-bold,
+  .bangla-font-root .rt-bold,
+  .bangla-font-root strong {
+    font-weight: 700 !important;
+    -webkit-text-stroke: 0.28px currentColor !important;
+  }
+}
+
+/* ==========================================================================
+   BANGLA TYPOGRAPHY & UNIVERSAL MANUAL BOLD + RICH TEXT FORMATTING
+   Guarantees crisp manual bold on single-weight fonts (SolaimanLipi, Tiro Bangla, Sonar Bangla)
+   ========================================================================== */
+.bangla-font-root {
+  font-synthesis: weight style;
+}
+
+.bangla-manual-bold,
+.bangla-font-root .rt-bold,
+.bangla-font-root strong {
+  font-weight: 700 !important;
+  -webkit-text-stroke: 0.28px currentColor;
+}
+
+.bangla-manual-italic,
+.bangla-font-root .rt-italic {
+  font-style: italic !important;
+}
+
+.bangla-manual-underline,
+.bangla-font-root .rt-underline {
+  text-decoration: underline !important;
+  text-underline-offset: 2.5px;
+}
+
+.bangla-font-root .rt-mark {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* Hide scrollbars cleanly for mobile touch pill strips */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Custom thin scrollbars for studio panels */

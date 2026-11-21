@@ -586,13 +586,13 @@ export function triggerDirectPrint(options?: DirectPrintOptions) {
 
   const inlineCss = collectSameOriginCss();
 
-  // Include Google Fonts link only if online (cached in browser memory, never blocks offline)
+  // Include Google Fonts & SolaimanLipi webfont links only if online (cached in browser memory, never blocks offline)
   const fontLinksHtml =
     typeof navigator !== 'undefined' && navigator.onLine
       ? Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
           .filter((el) => {
             const href = el.getAttribute('href') || '';
-            return href.includes('fonts.googleapis.com');
+            return href.includes('fonts.googleapis.com') || href.includes('fonts.maateen.me');
           })
           .map((el) => `<link rel="stylesheet" href="${escapeHtml(el.getAttribute('href') || '')}" />`)
           .join('\n')

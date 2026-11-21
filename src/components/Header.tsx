@@ -77,6 +77,7 @@ export const Header: React.FC<HeaderProps> = ({
   const t = translations[lang];
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState<'none' | 'download' | 'more'>('none');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,7 +147,245 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="no-print sticky top-0 z-40 glass-bar transition-colors">
-      <div className="w-full px-3 sm:px-5 h-14 flex items-center justify-between gap-3">
+      {/* Shared Hidden Backup File Input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
+      {/* MOBILE-ONLY 2-TIER LIQUID GLASS HEADER (< lg screens ONLY) */}
+      <div className="lg:hidden flex flex-col w-full">
+        {/* Tier 1: Brand + Compact Touch Utilities (Zero Overflow on 360px phones) */}
+        <div className="w-full px-3 h-12 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 shrink-0 min-w-0">
+            <div className="w-7 h-7 rounded-xl bg-slate-900/95 dark:bg-slate-800/90 border border-white/20 shadow-sm flex items-center justify-center shrink-0">
+              <svg viewBox="0 0 32 32" className="w-4 h-4" fill="none" aria-hidden="true">
+                <path
+                  d="M7 24V8H11.2L20.8 19.4V8H25V24H20.8L11.2 12.6V24H7Z"
+                  fill="#FFFFFF"
+                />
+                <rect x="20.8" y="8" width="4.2" height="4.2" rx="1" fill="#3B82F6" />
+              </svg>
+            </div>
+            <span className="text-[15px] font-extrabold tracking-tight text-slate-900 dark:text-white whitespace-nowrap">
+              NextStudio
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Undo / Redo */}
+            <div className="flex items-center gap-0.5 glass-track p-0.5 rounded-xl shrink-0">
+              <button
+                type="button"
+                onClick={onUndo}
+                disabled={!canUndo}
+                className="p-1.5 rounded-lg text-slate-700 dark:text-slate-200 active:scale-95 disabled:opacity-35 transition cursor-pointer"
+                aria-label={lang === 'bn' ? 'পূর্বের অবস্থা' : 'Undo'}
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={onRedo}
+                disabled={!canRedo}
+                className="p-1.5 rounded-lg text-slate-700 dark:text-slate-200 active:scale-95 disabled:opacity-35 transition cursor-pointer"
+                aria-label={lang === 'bn' ? 'পুনরায় ফিরিয়ে আনুন' : 'Redo'}
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Export Trigger */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMobileMenu((v) => (v === 'download' ? 'none' : 'download'))}
+                disabled={isProcessing}
+                className="glass-tile p-2 rounded-xl text-slate-800 dark:text-slate-100 active:scale-95 disabled:opacity-60 cursor-pointer flex items-center gap-0.5"
+                aria-label={lang === 'bn' ? 'ডাউনলোড' : 'Export'}
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                )}
+              </button>
+
+              {mobileMenu === 'download' && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setMobileMenu('none')}
+                  />
+                  <div className="glass-dropdown absolute right-0 mt-2 w-60 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenu('none');
+                        onDownloadPdf();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-200 active:bg-white/60 dark:active:bg-white/10 flex items-center gap-3 cursor-pointer"
+                    >
+                      <FileDown className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <div>
+                        <div className="font-semibold text-slate-900 dark:text-white">{t.downloadPdf}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {lang === 'en' ? 'Print-ready millimeter PDF' : 'প্রিন্ট রেডি PDF'}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenu('none');
+                        onDownloadPng();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-200 active:bg-white/60 dark:active:bg-white/10 flex items-center gap-3 cursor-pointer"
+                    >
+                      <ImageIcon className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <div>
+                        <div className="font-semibold text-slate-900 dark:text-white">{t.downloadPng}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {lang === 'en' ? 'High-resolution PNG' : 'হাই-রেজোলিউশন PNG'}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenu('none');
+                        onDownloadJpg();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-xs text-slate-700 dark:text-slate-200 active:bg-white/60 dark:active:bg-white/10 flex items-center gap-3 cursor-pointer"
+                    >
+                      <ImageIcon className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      <div>
+                        <div className="font-semibold text-slate-900 dark:text-white">{t.downloadJpg}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {lang === 'en' ? 'Studio print JPG' : 'স্টুডিও প্রিন্ট JPG'}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Theme Switcher */}
+            <button
+              type="button"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="glass-tile p-2 rounded-xl text-slate-700 dark:text-slate-200 active:scale-95 cursor-pointer shrink-0"
+              aria-label="Toggle Light / Dark Theme"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-700" />
+              )}
+            </button>
+
+            {/* Language Switcher */}
+            <button
+              type="button"
+              onClick={() => setLang(lang === 'bn' ? 'en' : 'bn')}
+              className="glass-tile px-2 py-2 rounded-xl text-slate-800 dark:text-slate-100 text-[11px] font-bold active:scale-95 cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0"
+              aria-label="Toggle Language"
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+              <span>{lang === 'bn' ? 'EN' : 'বাং'}</span>
+            </button>
+
+            {/* More Menu */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMobileMenu((v) => (v === 'more' ? 'none' : 'more'))}
+                className="glass-tile p-2 rounded-xl text-slate-700 dark:text-slate-200 active:scale-95 cursor-pointer shrink-0"
+                aria-label="More Options"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+
+              {mobileMenu === 'more' && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setMobileMenu('none')}
+                  />
+                  <div className="glass-dropdown absolute right-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenu('none');
+                        onExportJson();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-slate-700 dark:text-slate-200 active:bg-white/60 dark:active:bg-white/10 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{lang === 'bn' ? 'প্রজেক্ট ব্যাকআপ সেভ (JSON)' : 'Save Project Backup (JSON)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenu('none');
+                        fileInputRef.current?.click();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-slate-700 dark:text-slate-200 active:bg-white/60 dark:active:bg-white/10 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <FolderUp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{lang === 'bn' ? 'ব্যাকআপ লোড করুন' : 'Open Project Backup'}</span>
+                    </button>
+                    <div className="h-px bg-slate-900/8 dark:bg-white/10 my-1" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileMenu('none');
+                        onReset();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-red-600 dark:text-red-400 active:bg-red-500/10 flex items-center gap-2.5 cursor-pointer font-medium"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                      <span>{lang === 'bn' ? 'সবকিছু রিসেট করুন' : 'Reset Workspace'}</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Tier 2: Full-Width Scrollable Studio Mode Rail */}
+        <nav
+          aria-label="Mobile workspace modes"
+          className="w-full px-2.5 pb-2 pt-0.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar border-t border-slate-900/5 dark:border-white/5"
+        >
+          {navModes.map((item) => {
+            const active = mode === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setMode(item.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0 ${
+                  active
+                    ? 'glass-btn-primary text-white shadow-sm'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
+                }`}
+              >
+                {item.icon}
+                <span>{lang === 'bn' ? item.shortBn : item.shortEn}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* DESKTOP SINGLE-ROW HEADER (lg: and above — 100% Untouched) */}
+      <div className="hidden lg:flex w-full px-3 sm:px-5 h-14 items-center justify-between gap-3">
         {/* Zone 1: Brand Wordmark */}
         <div className="flex items-center gap-2.5 shrink-0">
           <div className="w-8 h-8 rounded-xl bg-slate-900/95 dark:bg-slate-800/90 border border-white/20 shadow-sm flex items-center justify-center shrink-0">
@@ -409,13 +648,6 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               </>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleFileChange}
-              className="hidden"
-            />
           </div>
         </div>
       </div>

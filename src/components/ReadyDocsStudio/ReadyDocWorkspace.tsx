@@ -30,6 +30,8 @@ import {
 import { ReadyDocFieldModal } from './ReadyDocFieldModal';
 import { ReadyDocGallery } from './ReadyDocGallery';
 import { ReadyDocSheetRenderer } from './ReadyDocSheetRenderer';
+import { DocumentTypographyBar } from '../RichTextToolbar';
+import { DEFAULT_BANGLA_FONT } from '../../utils/richText';
 
 interface ReadyDocWorkspaceProps {
   lang: 'bn' | 'en';
@@ -285,8 +287,8 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
   return (
     <div className="flex-1 flex flex-col min-h-full relative">
       {/* Top Floating Liquid Glass Document Toolbar (Matching Screenshots 10–12) */}
-      <div className="sticky top-0 z-20 px-3 sm:px-5 pt-3 pb-2 space-y-2">
-        <div className="glass-strip rounded-2xl px-2.5 sm:px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="sticky top-0 z-20 px-2 pt-2 pb-1.5 lg:px-5 lg:pt-3 lg:pb-2 space-y-1.5 lg:space-y-2">
+        <div className="glass-strip rounded-2xl px-2 lg:px-3.5 py-1.5 lg:py-2 flex flex-wrap items-center justify-between gap-1.5 lg:gap-2">
           {/* Left: Switch Doc + Progress + Next Empty Field + Options + Page Size */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
@@ -367,44 +369,45 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
             </div>
           </div>
 
-          {/* Right: Font Size (অ- / অ+ বড়) + Zoom + Final Preview + PDF + Print */}
+          {/* Right: Bangla Font + Size + Bold/Italic/Underline/Highlight + Zoom + Final Preview + PDF + Print */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {/* Font Size Controls matching Screenshot 10 */}
-            <div className="flex items-center gap-1 glass-track p-0.5 rounded-xl">
-              <button
-                type="button"
-                onClick={() =>
-                  setReadyDocState((p) => ({
-                    ...p,
-                    fontSizePx: Math.max(11, Math.round((p.fontSizePx - 1) * 10) / 10),
-                  }))
-                }
-                className="px-2 py-1 rounded-lg text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-white/60 dark:hover:bg-white/10 cursor-pointer"
-                title={isBn ? 'লেখা ছোট করুন' : 'Decrease Text Size'}
-              >
-                {isBn ? 'অ-' : 'A-'}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setReadyDocState((p) => ({
-                    ...p,
-                    fontSizePx: Math.min(20, Math.round((p.fontSizePx + 1) * 10) / 10),
-                  }))
-                }
-                className="glass-btn-primary px-2.5 py-1 rounded-lg text-xs font-bold text-white cursor-pointer"
-                title={isBn ? 'লেখা বড় করুন' : 'Increase Text Size'}
-              >
-                {isBn ? 'অ+ বড়' : 'A+ Big'}
-              </button>
-            </div>
+            <DocumentTypographyBar
+              lang={lang}
+              fontFamily={readyDocState.fontFamily || DEFAULT_BANGLA_FONT}
+              onChangeFontFamily={(fontFamily) =>
+                setReadyDocState((p) => ({ ...p, fontFamily }))
+              }
+              fontSizePx={readyDocState.fontSizePx}
+              onChangeFontSizePx={(fontSizePx) =>
+                setReadyDocState((p) => ({ ...p, fontSizePx }))
+              }
+              minFontSize={10}
+              maxFontSize={24}
+              bold={Boolean(readyDocState.textBold)}
+              onToggleBold={() =>
+                setReadyDocState((p) => ({ ...p, textBold: !p.textBold }))
+              }
+              italic={Boolean(readyDocState.textItalic)}
+              onToggleItalic={() =>
+                setReadyDocState((p) => ({ ...p, textItalic: !p.textItalic }))
+              }
+              underline={Boolean(readyDocState.textUnderline)}
+              onToggleUnderline={() =>
+                setReadyDocState((p) => ({ ...p, textUnderline: !p.textUnderline }))
+              }
+              highlight={readyDocState.textHighlight || 'none'}
+              onChangeHighlight={(textHighlight) =>
+                setReadyDocState((p) => ({ ...p, textHighlight }))
+              }
+              compact
+            />
 
-            {/* Zoom Strip */}
-            <div className="hidden md:flex items-center gap-0.5 glass-track p-0.5 rounded-xl">
+            {/* Zoom Strip (visible on both Desktop and Mobile!) */}
+            <div className="flex items-center gap-0.5 glass-track p-0.5 rounded-xl">
               <button
                 type="button"
                 onClick={() => setScrollZoomEnabled((v) => !v)}
-                className={`p-1.5 rounded-lg transition cursor-pointer ${
+                className={`hidden md:inline-flex p-1.5 rounded-lg transition cursor-pointer ${
                   scrollZoomEnabled
                     ? 'glass-tab-active text-blue-600 dark:text-blue-400'
                     : 'text-slate-500 dark:text-slate-400'
@@ -415,8 +418,9 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setZoom((z) => Math.max(0.38, Math.round((z - 0.1) * 100) / 100))}
+                onClick={() => setZoom((z) => Math.max(0.32, Math.round((z - 0.1) * 100) / 100))}
                 className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer"
+                aria-label="Zoom out"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
@@ -427,6 +431,7 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
                 type="button"
                 onClick={() => setZoom((z) => Math.min(1.8, Math.round((z + 0.1) * 100) / 100))}
                 className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer"
+                aria-label="Zoom in"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
               </button>
@@ -434,6 +439,7 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
                 type="button"
                 onClick={onFitZoom}
                 className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-white/10 cursor-pointer"
+                aria-label="Fit to screen"
               >
                 <Maximize2 className="w-3.5 h-3.5" />
               </button>
@@ -465,7 +471,7 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
               type="button"
               onClick={onDownloadDocPdf}
               disabled={isExporting}
-              className="glass-btn-emerald px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
+              className="hidden lg:flex glass-btn-emerald px-3 py-1.5 rounded-xl text-white text-xs font-bold items-center gap-1.5 cursor-pointer disabled:opacity-60"
             >
               {isExporting ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -478,7 +484,7 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
             <button
               type="button"
               onClick={onPrintDoc}
-              className="glass-btn-primary px-3 py-1.5 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+              className="hidden lg:flex glass-btn-primary px-3 py-1.5 rounded-xl text-white text-xs font-bold items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>{isBn ? 'প্রিন্ট' : 'Print'}</span>
@@ -599,8 +605,13 @@ export const ReadyDocWorkspace: React.FC<ReadyDocWorkspaceProps> = ({
                 values={values}
                 tableRows={tableRows}
                 photoSrc={photoSrc}
+                fontFamily={readyDocState.fontFamily || DEFAULT_BANGLA_FONT}
                 fontSizePx={readyDocState.fontSizePx}
                 lineHeight={readyDocState.lineHeight}
+                textBold={Boolean(readyDocState.textBold)}
+                textItalic={Boolean(readyDocState.textItalic)}
+                textUnderline={Boolean(readyDocState.textUnderline)}
+                textHighlight={readyDocState.textHighlight || 'none'}
                 stampTopMm={readyDocState.stampTopMm}
                 showHeader={readyDocState.showHeader}
                 showBorder={readyDocState.showBorder}
