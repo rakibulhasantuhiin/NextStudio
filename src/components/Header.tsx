@@ -12,6 +12,7 @@ import {
   Globe,
   HelpCircle,
   Image as ImageIcon,
+  Layers,
   Loader2,
   Moon,
   MoreHorizontal,
@@ -142,6 +143,14 @@ export const Header: React.FC<HeaderProps> = ({
       labelBn: 'রেডিমেড কাগজ',
       shortEn: 'Docs',
       shortBn: 'কাগজ',
+    },
+    {
+      id: 'tools',
+      icon: <Layers className="w-4 h-4 shrink-0" />,
+      labelEn: 'Image & PDF Tools',
+      labelBn: 'ছবি ও PDF টুলস',
+      shortEn: 'Tools',
+      shortBn: 'টুলস',
     },
   ];
 

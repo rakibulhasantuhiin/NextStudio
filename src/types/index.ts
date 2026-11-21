@@ -3,7 +3,14 @@ import { ReadyDocState } from './readyDocs';
 export * from './cv';
 export * from './readyDocs';
 
-export type StudioMode = 'passport' | 'nid' | 'lamination' | 'document' | 'cv' | 'readydocs';
+export type StudioMode =
+  | 'passport'
+  | 'nid'
+  | 'lamination'
+  | 'document'
+  | 'cv'
+  | 'readydocs'
+  | 'tools';
 
 export type PhotoPresetType =
   | 'bd-passport'

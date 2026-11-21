@@ -23,6 +23,7 @@ import { ReadyDocControls } from './components/ReadyDocsStudio/ReadyDocControls'
 import { ReadyDocSheetRenderer } from './components/ReadyDocsStudio/ReadyDocSheetRenderer';
 import { ReadyDocWorkspace } from './components/ReadyDocsStudio/ReadyDocWorkspace';
 import { ShortcutsModal } from './components/ShortcutsModal';
+import { ToolsWorkspace } from './components/ToolsStudio/ToolsWorkspace';
 import {
   CropRect,
   CuttingGuideStyle,
@@ -1837,6 +1838,7 @@ export default function App() {
 
   const handleDownloadPdf = async (overrideDocPages?: DocumentPageItem[]) => {
     const effectiveMode: StudioMode = overrideDocPages ? 'document' : mode;
+    if (effectiveMode === 'tools') return;
     if (effectiveMode === 'cv') {
       const exportNode = document.getElementById('cv-clean-export-node');
       if (!exportNode) return;
@@ -1915,6 +1917,7 @@ export default function App() {
   };
 
   const handleDownloadImage = async (format: 'png' | 'jpeg') => {
+    if (mode === 'tools') return;
     const ext = format === 'png' ? 'png' : 'jpg';
     if (mode === 'cv') {
       const exportNode = document.getElementById('cv-clean-export-node');
@@ -2154,7 +2157,8 @@ export default function App() {
           onRedo={handleRedo}
         />
 
-        {/* Mobile Tab Switcher Bar (Visible only on < lg screens) */}
+        {/* Mobile Tab Switcher Bar (Visible only on < lg screens for print/document modes) */}
+        {mode !== 'tools' && (
         <div className="lg:hidden no-print sticky top-[91px] z-30 glass-bar px-3 py-1.5 flex items-center justify-center">
           <div className="grid grid-cols-2 gap-1 glass-track p-1 rounded-xl w-full max-w-md">
             <button
@@ -2203,8 +2207,14 @@ export default function App() {
             </button>
           </div>
         </div>
+        )}
 
         {/* 2. Main Desktop Workstation Shell */}
+        {mode === 'tools' ? (
+          <main className="no-print flex-1 flex flex-col overflow-hidden w-full">
+            <ToolsWorkspace lang={lang} />
+          </main>
+        ) : (
         <main className="no-print flex-1 flex flex-col lg:flex-row overflow-hidden w-full pb-24 lg:pb-0">
           {/* Left Floating Liquid Glass Studio Inspector Panel */}
           <aside
@@ -2479,6 +2489,7 @@ export default function App() {
           )}
         </section>
       </main>
+      )}
 
       {/* Hidden File Inputs for Canvas Direct Click-to-Upload */}
       <input
@@ -2591,7 +2602,8 @@ export default function App() {
         className="hidden"
       />
 
-      {/* Mobile Sticky Bottom Action Bar (Mobile Only) */}
+      {/* Mobile Sticky Bottom Action Bar (Mobile Only — Hidden in Tools mode which has dedicated actions) */}
+      {mode !== 'tools' && (
       <div className="lg:hidden no-print fixed bottom-0 inset-x-0 z-40 glass-bar border-t border-b-0 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] px-3 flex items-center justify-between gap-2 shadow-2xl">
         {mode === 'passport' && photos.length > 0 && (
           <button
@@ -2685,6 +2697,7 @@ export default function App() {
           <span className="truncate">{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
         </button>
       </div>
+      )}
 
       {/* 5. Photo Enhancement & Background Removal Modal */}
       {editingPhotoIndex !== null && photos[editingPhotoIndex] && (
