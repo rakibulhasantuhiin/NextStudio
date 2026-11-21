@@ -1005,7 +1005,14 @@ export function getScannerPaperSpec(
   paperSize: ScannerPaperSize,
   docWidth: number,
   docHeight: number
-): { widthMm: number; heightMm: number; labelBn: string; pxW: number; pxH: number } {
+): {
+  widthMm: number;
+  heightMm: number;
+  labelEn: string;
+  labelBn: string;
+  pxW: number;
+  pxH: number;
+} {
   const isLandscape = docWidth > docHeight * 1.06;
 
   if (paperSize === 'a4-fit' || paperSize === 'a4-fill') {
@@ -1017,6 +1024,7 @@ export function getScannerPaperSpec(
     return {
       widthMm: wMm,
       heightMm: hMm,
+      labelEn: isLandscape ? 'A4 Landscape' : 'A4 Portrait',
       labelBn: isLandscape ? 'A4 ল্যান্ডস্কেপ' : 'A4 পোর্ট্রেট',
       pxW,
       pxH,
@@ -1031,6 +1039,7 @@ export function getScannerPaperSpec(
     return {
       widthMm: wMm,
       heightMm: hMm,
+      labelEn: isLandscape ? 'Legal Landscape' : 'Legal Portrait',
       labelBn: isLandscape ? 'লিগ্যাল ল্যান্ডস্কেপ' : 'লিগ্যাল পোর্ট্রেট',
       pxW,
       pxH,
@@ -1045,6 +1054,7 @@ export function getScannerPaperSpec(
     return {
       widthMm: wMm,
       heightMm: hMm,
+      labelEn: 'A5 (Receipt / Half A4)',
       labelBn: 'A5 (রসিদ / হাফ A4)',
       pxW,
       pxH,
@@ -1059,6 +1069,7 @@ export function getScannerPaperSpec(
   return {
     widthMm,
     heightMm,
+    labelEn: 'Auto (Document Aspect)',
     labelBn: 'ডকুমেন্টের নিজস্ব মাপ (অটো)',
     pxW: docWidth,
     pxH: docHeight,
@@ -1141,7 +1152,8 @@ export interface ScannedPageInput {
  * Full-HD render pipeline for a single scanned page -> Blob + metadata.
  */
 export async function renderFullHdScannedPage(
-  page: ScannedPageInput
+  page: ScannedPageInput,
+  lang: 'en' | 'bn' = 'en'
 ): Promise<{
   result: ProcessedFileResult;
   canvas: HTMLCanvasElement;
@@ -1182,7 +1194,10 @@ export async function renderFullHdScannedPage(
       previewUrl,
       width: canvas.width,
       height: canvas.height,
-      infoText: `Full HD (${toBnDigits(canvas.width)}×${toBnDigits(canvas.height)} px)`,
+      infoText:
+        lang === 'bn'
+          ? `Full HD (${toBnDigits(canvas.width)}×${toBnDigits(canvas.height)} px)`
+          : `Full HD (${canvas.width}×${canvas.height} px)`,
     },
   };
 }
@@ -1192,14 +1207,15 @@ export async function renderFullHdScannedPage(
  */
 export async function buildScannedPdf(
   pages: ScannedPageInput[],
-  pdfFileName = 'NextStudio_Scanned_Document.pdf'
+  pdfFileName = 'NextStudio_Scanned_Document.pdf',
+  lang: 'en' | 'bn' = 'en'
 ): Promise<ProcessedFileResult> {
   const pdfDoc = await PDFDocument.create();
   let totalOrigSize = 0;
 
   for (const page of pages) {
     totalOrigSize += page.file.size;
-    const { canvas, widthMm, heightMm } = await renderFullHdScannedPage(page);
+    const { canvas, widthMm, heightMm } = await renderFullHdScannedPage(page, lang);
     const jpgBlob = await canvasToBlob(canvas, 'image/jpeg', 0.95);
     const bytes = new Uint8Array(await jpgBlob.arrayBuffer());
     const embedded = await pdfDoc.embedJpg(bytes);
@@ -1225,7 +1241,10 @@ export async function buildScannedPdf(
     originalName: pdfFileName,
     originalSize: totalOrigSize,
     blob,
-    infoText: `${toBnDigits(pages.length)} পাতার Full HD প্রিন্ট-রেডি PDF`,
+    infoText:
+      lang === 'bn'
+        ? `${toBnDigits(pages.length)} পাতার Full HD প্রিন্ট-রেডি PDF`
+        : `${pages.length}-page Full HD Print-Ready PDF`,
   };
 }
 

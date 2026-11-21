@@ -384,7 +384,8 @@ function applySubtleTextSharpen(
  */
 export async function processWatermarkRemovalFile(
   file: File,
-  opts: WatermarkRemoveOptions
+  opts: WatermarkRemoveOptions,
+  lang: 'en' | 'bn' = 'en'
 ): Promise<ProcessedFileResult> {
   const img = await loadImageFromFile(file);
   const outCanvas = renderWatermarkRemovedCanvas(img, opts);
@@ -402,7 +403,10 @@ export async function processWatermarkRemovalFile(
     previewUrl,
     width: outCanvas.width,
     height: outCanvas.height,
-    infoText: `হাই-কোয়ালিটি (${toBnDigits(outCanvas.width)}×${toBnDigits(outCanvas.height)} px)`,
+    infoText:
+      lang === 'bn'
+        ? `হাই-কোয়ালিটি (${toBnDigits(outCanvas.width)}×${toBnDigits(outCanvas.height)} px)`
+        : `High Quality (${outCanvas.width}×${outCanvas.height} px)`,
   };
 }
 

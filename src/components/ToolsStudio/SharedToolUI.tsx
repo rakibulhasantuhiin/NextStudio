@@ -19,6 +19,12 @@ import {
   toBnDigits,
 } from '../../utils/toolsEngine';
 
+export type ToolsLang = 'en' | 'bn';
+
+export function fmtToolNum(value: number | string, lang: ToolsLang = 'en'): string {
+  return lang === 'bn' ? toBnDigits(value) : String(value);
+}
+
 export type ToolId =
   | 'dashboard'
   | 'doc-scanner'
@@ -81,6 +87,7 @@ export interface SelectedFileItem {
 }
 
 interface FileDropzoneProps {
+  lang?: ToolsLang;
   accept: string;
   multiple?: boolean;
   title: string;
@@ -97,11 +104,12 @@ interface FileDropzoneProps {
 }
 
 export const FileDropzone: React.FC<FileDropzoneProps> = ({
+  lang = 'en',
   accept,
   multiple = true,
   title,
   subtitle,
-  buttonLabel = 'ফাইল বাছুন',
+  buttonLabel,
   files,
   onAddFiles,
   onRemoveFile,
@@ -111,6 +119,8 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
   fileKind = 'image',
   compact = false,
 }) => {
+  const isBn = lang === 'bn';
+  const resolvedButtonLabel = buttonLabel ?? (isBn ? 'ফাইল বাছুন' : 'Choose Files');
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -158,7 +168,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
           }}
           className="glass-btn-primary px-4 py-2 rounded-xl text-white text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer"
         >
-          {buttonLabel}
+          {resolvedButtonLabel}
         </button>
 
         <input
@@ -179,7 +189,9 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs px-1">
             <span className="font-bold text-slate-700 dark:text-slate-200 tabular-nums">
-              নির্বাচিত ফাইল ({toBnDigits(files.length)}টি)
+              {isBn
+                ? `নির্বাচিত ফাইল (${toBnDigits(files.length)}টি)`
+                : `Selected files (${files.length})`}
             </span>
             {onClearAll && files.length > 1 && (
               <button
@@ -187,7 +199,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                 onClick={onClearAll}
                 className="text-red-600 dark:text-red-400 hover:underline font-semibold cursor-pointer"
               >
-                সব মুছুন
+                {isBn ? 'সব মুছুন' : 'Clear All'}
               </button>
             )}
           </div>
@@ -201,7 +213,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                 <div className="flex items-center gap-2.5 min-w-0">
                   {allowReorder && (
                     <span className="text-[11px] font-mono font-bold text-slate-400 w-5 text-center shrink-0 tabular-nums">
-                      {toBnDigits(idx + 1)}
+                      {fmtToolNum(idx + 1, lang)}
                     </span>
                   )}
                   {fileKind === 'image' && item.previewUrl ? (
@@ -224,7 +236,7 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                       {item.file.name}
                     </div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono tabular-nums flex items-center gap-1.5">
-                      <span>{formatBytes(item.file.size, 'bn')}</span>
+                      <span>{formatBytes(item.file.size, lang)}</span>
                       {item.metaText && (
                         <>
                           <span aria-hidden="true">·</span>
@@ -243,8 +255,8 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                         onClick={() => onMoveFile(idx, -1)}
                         disabled={idx === 0}
                         className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/10 disabled:opacity-30 cursor-pointer"
-                        title="উপরে নিন"
-                        aria-label="উপরে নিন"
+                        title={isBn ? 'উপরে নিন' : 'Move up'}
+                        aria-label={isBn ? 'উপরে নিন' : 'Move up'}
                       >
                         <ArrowUp className="w-3.5 h-3.5" />
                       </button>
@@ -253,8 +265,8 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                         onClick={() => onMoveFile(idx, 1)}
                         disabled={idx === files.length - 1}
                         className="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/10 disabled:opacity-30 cursor-pointer"
-                        title="নিচে নিন"
-                        aria-label="নিচে নিন"
+                        title={isBn ? 'নিচে নিন' : 'Move down'}
+                        aria-label={isBn ? 'নিচে নিন' : 'Move down'}
                       >
                         <ArrowDown className="w-3.5 h-3.5" />
                       </button>
@@ -264,8 +276,8 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
                     type="button"
                     onClick={() => onRemoveFile(item.id)}
                     className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-red-500/10 cursor-pointer"
-                    title="বাদ দিন"
-                    aria-label="বাদ দিন"
+                    title={isBn ? 'বাদ দিন' : 'Remove'}
+                    aria-label={isBn ? 'বাদ দিন' : 'Remove'}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -279,18 +291,24 @@ export const FileDropzone: React.FC<FileDropzoneProps> = ({
   );
 };
 
-export const BulkZipNotice: React.FC<{ text?: string }> = ({
-  text = 'বাল্ক চালু — একসাথে অনেক ফাইল দিতে পারবেন, সবগুলো ZIP-এ নামাতে পারবেন',
+export const BulkZipNotice: React.FC<{ text?: string; lang?: ToolsLang }> = ({
+  text,
+  lang = 'en',
 }) => {
+  const defaultText =
+    lang === 'bn'
+      ? 'বাল্ক চালু — একসাথে অনেক ফাইল দিতে পারবেন, সবগুলো ZIP-এ নামাতে পারবেন'
+      : 'Bulk enabled — upload multiple files at once and download all as ZIP';
   return (
     <div className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs font-semibold">
       <Check className="w-3.5 h-3.5 shrink-0" />
-      <span>{text}</span>
+      <span>{text ?? defaultText}</span>
     </div>
   );
 };
 
 interface ProcessedResultsListProps {
+  lang?: ToolsLang;
   results: ProcessedFileResult[];
   zipFileName: string;
   onClear?: () => void;
@@ -298,14 +316,18 @@ interface ProcessedResultsListProps {
 }
 
 export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
+  lang = 'en',
   results,
   zipFileName,
   onClear,
-  title = 'প্রসেস করা ফাইল প্রস্তুত',
+  title,
 }) => {
+  const isBn = lang === 'bn';
   const [isZipping, setIsZipping] = useState(false);
 
   if (results.length === 0) return null;
+
+  const resolvedTitle = title ?? (isBn ? 'প্রসেস করা ফাইল প্রস্তুত' : 'Processed Files Ready');
 
   const handleDownloadZip = async () => {
     setIsZipping(true);
@@ -326,11 +348,15 @@ export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
           <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
             <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             <span>
-              {title} ({toBnDigits(results.length)}টি)
+              {isBn
+                ? `${resolvedTitle} (${toBnDigits(results.length)}টি)`
+                : `${resolvedTitle} (${results.length})`}
             </span>
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            আলাদাভাবে প্রতিটি ফাইল নামান অথবা এক ক্লিকে সবগুলো ZIP-এ ডাউনলোড করুন।
+            {isBn
+              ? 'আলাদাভাবে প্রতিটি ফাইল নামান অথবা এক ক্লিকে সবগুলো ZIP-এ ডাউনলোড করুন।'
+              : 'Download each file individually or save all of them together as a ZIP archive.'}
           </p>
         </div>
 
@@ -343,7 +369,15 @@ export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
               className="glass-btn-emerald px-4 py-2 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 whitespace-nowrap"
             >
               <Archive className="w-3.5 h-3.5" />
-              <span>{isZipping ? 'ZIP তৈরি হচ্ছে...' : `সবগুলো ZIP-এ নামান (${toBnDigits(results.length)})`}</span>
+              <span>
+                {isZipping
+                  ? isBn
+                    ? 'ZIP তৈরি হচ্ছে...'
+                    : 'Creating ZIP...'
+                  : isBn
+                  ? `সবগুলো ZIP-এ নামান (${toBnDigits(results.length)})`
+                  : `Download All ZIP (${results.length})`}
+              </span>
             </button>
           )}
           {results.length === 1 && (
@@ -353,7 +387,7 @@ export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
               className="glass-btn-emerald px-4 py-2 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>ডাউনলোড করুন</span>
+              <span>{isBn ? 'ডাউনলোড করুন' : 'Download'}</span>
             </button>
           )}
           {onClear && (
@@ -362,7 +396,7 @@ export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
               onClick={onClear}
               className="glass-tile px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer"
             >
-              পরিষ্কার করুন
+              {isBn ? 'পরিষ্কার করুন' : 'Clear'}
             </button>
           )}
         </div>
@@ -400,17 +434,17 @@ export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
                     {item.width && item.height && (
                       <>
                         <span>
-                          {toBnDigits(item.width)}×{toBnDigits(item.height)} px
+                          {fmtToolNum(item.width, lang)}×{fmtToolNum(item.height, lang)} px
                         </span>
                         <span aria-hidden="true">·</span>
                       </>
                     )}
                     <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                      {formatBytes(item.blob.size, 'bn')}
+                      {formatBytes(item.blob.size, lang)}
                     </span>
                     {savedPct > 0 && item.blob.size < item.originalSize && (
                       <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                        ({toBnDigits(savedPct)}% কমেছে)
+                        {isBn ? `(${toBnDigits(savedPct)}% কমেছে)` : `(${savedPct}% smaller)`}
                       </span>
                     )}
                   </div>
@@ -428,7 +462,7 @@ export const ProcessedResultsList: React.FC<ProcessedResultsListProps> = ({
                 className="glass-btn-primary px-3 py-2 rounded-xl text-white text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">ডাউনলোড</span>
+                <span className="hidden sm:inline">{isBn ? 'ডাউনলোড' : 'Download'}</span>
               </button>
             </div>
           );

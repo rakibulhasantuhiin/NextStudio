@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { LayoutGrid } from 'lucide-react';
-import { ToolId } from './SharedToolUI';
-import { ALL_TOOL_QUICK_LIST, ToolsDashboard } from './ToolsDashboard';
+import { ToolId, ToolsLang } from './SharedToolUI';
+import { ToolsDashboard, getToolQuickList } from './ToolsDashboard';
 import {
   GovtPhotoSignTool,
   ImageCompressTool,
@@ -22,11 +22,14 @@ import { DocumentScannerTool } from './DocumentScannerTool';
 import { WatermarkRemoveTool } from './WatermarkRemoveTool';
 
 interface ToolsWorkspaceProps {
-  lang?: 'bn' | 'en';
+  lang?: ToolsLang;
   initialTool?: ToolId;
 }
 
-export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({ initialTool }) => {
+export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({
+  lang = 'en',
+  initialTool,
+}) => {
   const [activeTool, setActiveTool] = useState<ToolId>(initialTool || 'dashboard');
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -36,6 +39,8 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({ initialTool }) =
     }
   }, [initialTool]);
 
+  const quickList = useMemo(() => getToolQuickList(lang), [lang]);
+
   const navigateTool = (id: ToolId) => {
     setActiveTool(id);
     containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -44,40 +49,41 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({ initialTool }) =
   const renderActiveTool = () => {
     switch (activeTool) {
       case 'doc-scanner':
-        return <DocumentScannerTool onBack={() => navigateTool('dashboard')} />;
+        return <DocumentScannerTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'govt-photo-sign':
-        return <GovtPhotoSignTool onBack={() => navigateTool('dashboard')} />;
+        return <GovtPhotoSignTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'watermark-remove':
-        return <WatermarkRemoveTool onBack={() => navigateTool('dashboard')} />;
+        return <WatermarkRemoveTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'image-resize':
         return (
           <ImageResizeTool
+            lang={lang}
             onBack={() => navigateTool('dashboard')}
             onNavigateTool={navigateTool}
           />
         );
       case 'image-compress':
-        return <ImageCompressTool onBack={() => navigateTool('dashboard')} />;
+        return <ImageCompressTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'image-convert':
-        return <ImageConvertTool onBack={() => navigateTool('dashboard')} />;
+        return <ImageConvertTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'image-to-pdf':
-        return <ImageToPdfTool onBack={() => navigateTool('dashboard')} />;
+        return <ImageToPdfTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-merge':
-        return <PdfMergeTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfMergeTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-split':
-        return <PdfSplitTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfSplitTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-organize':
-        return <PdfOrganizeTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfOrganizeTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-to-image':
-        return <PdfToImageTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfToImageTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-compress':
-        return <PdfCompressTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfCompressTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-extract-text':
-        return <PdfExtractTextTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfExtractTextTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-watermark-number':
-        return <PdfWatermarkNumberTool onBack={() => navigateTool('dashboard')} />;
+        return <PdfWatermarkNumberTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       default:
-        return <ToolsDashboard onSelectTool={navigateTool} />;
+        return <ToolsDashboard lang={lang} onSelectTool={navigateTool} />;
     }
   };
 
@@ -96,12 +102,12 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({ initialTool }) =
               className="glass-tile px-3 py-1.5 rounded-xl text-xs font-extrabold text-blue-600 dark:text-blue-400 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <LayoutGrid className="w-3.5 h-3.5" />
-              <span>সব টুলস</span>
+              <span>{lang === 'bn' ? 'সব টুলস' : 'All Tools'}</span>
             </button>
 
             <div className="h-4 w-px bg-slate-900/10 dark:bg-white/15 shrink-0 mx-0.5" />
 
-            {ALL_TOOL_QUICK_LIST.map((item) => {
+            {quickList.map((item) => {
               const isCurrent = activeTool === item.id;
               return (
                 <button

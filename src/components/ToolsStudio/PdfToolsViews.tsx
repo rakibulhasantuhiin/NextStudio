@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Archive,
   ArrowLeft,
@@ -29,7 +29,6 @@ import {
   renderPdfPageThumbnails,
   renderPdfToImages,
   splitPdfFile,
-  toBnDigits,
 } from '../../utils/toolsEngine';
 import {
   BulkZipNotice,
@@ -37,18 +36,22 @@ import {
   ProcessedResultsList,
   SelectedFileItem,
   ToolHeader,
+  ToolsLang,
   createFileItems,
+  fmtToolNum,
 } from './SharedToolUI';
 
 interface PdfToolProps {
+  lang?: ToolsLang;
   onBack: () => void;
 }
 
 // ============================================================================
-// 6A. PDF জোড়া (মার্জ)
+// 6A. PDF Merge
 // ============================================================================
 
-export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfMergeTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<ProcessedFileResult[]>([]);
@@ -64,7 +67,14 @@ export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
         const count = await getPdfPageCount(item.file);
         setFiles((prev) =>
           prev.map((f) =>
-            f.id === item.id ? { ...f, metaText: `${toBnDigits(count)} পাতা` } : f
+            f.id === item.id
+              ? {
+                  ...f,
+                  metaText: isBn
+                    ? `${fmtToolNum(count, lang)} পাতা`
+                    : `${count} page${count === 1 ? '' : 's'}`,
+                }
+              : f
           )
         );
       } catch {
@@ -97,11 +107,19 @@ export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
           originalName: files[0].file.name,
           originalSize: totalOrig,
           blob,
-          infoText: `${toBnDigits(files.length)}টি PDF একসাথে জোড়া দেওয়া হয়েছে`,
+          infoText: isBn
+            ? `${fmtToolNum(files.length, lang)}টি PDF একসাথে জোড়া দেওয়া হয়েছে`
+            : `${files.length} PDF files merged into one`,
         },
       ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF জোড়া দিতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF জোড়া দিতে সমস্যা হয়েছে।'
+          : 'Failed to merge PDFs.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -110,21 +128,30 @@ export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF জোড়া (মার্জ)"
-        subtitle="একাধিক PDF ফাইলকে আপনার পছন্দমতো ক্রম অনুযায়ী সাজিয়ে একটি PDF-এ রূপান্তর করুন।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF জোড়া (মার্জ)' : 'Merge PDF'}
+        subtitle={
+          isBn
+            ? 'একাধিক PDF ফাইলকে আপনার পছন্দমতো ক্রম অনুযায়ী সাজিয়ে একটি PDF-এ রূপান্তর করুন।'
+            : 'Combine multiple PDF files into a single document in your preferred order.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
       <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-5">
         <FileDropzone
+          lang={lang}
           accept="application/pdf,.pdf"
           multiple
           allowReorder
           onMoveFile={handleMove}
           fileKind="pdf"
-          title="PDF ফাইল বেছে নিন"
-          subtitle="একাধিক PDF দিন · তালিকার ↑ ↓ বাটনে চাপ দিয়ে ক্রম বদলান"
+          title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose PDF Files'}
+          subtitle={
+            isBn
+              ? 'একাধিক PDF দিন · তালিকার ↑ ↓ বাটনে চাপ দিয়ে ক্রম বদলান'
+              : 'Upload multiple PDFs · use ↑ ↓ buttons to reorder'
+          }
           files={files}
           onAddFiles={(f) => void handleAddFiles(f)}
           onRemoveFile={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
@@ -139,10 +166,21 @@ export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
             className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
           >
             {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-            <span>PDF জোড়া দিন ({toBnDigits(files.length)}টি)</span>
+            <span>
+              {isBn
+                ? `PDF জোড়া দিন (${fmtToolNum(files.length, lang)}টি)`
+                : `Merge PDFs (${files.length})`}
+            </span>
           </button>
 
-          <BulkZipNotice text="১০০% অফলাইন — আপনার PDF ফাইল ব্রাউজারের বাইরে যায় না" />
+          <BulkZipNotice
+            lang={lang}
+            text={
+              isBn
+                ? '১০০% অফলাইন — আপনার PDF ফাইল ব্রাউজারের বাইরে যায় না'
+                : '100% offline — your PDF files never leave your browser'
+            }
+          />
         </div>
       </div>
 
@@ -153,6 +191,7 @@ export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Merged_PDF.zip"
         onClear={() => setResults([])}
@@ -162,10 +201,11 @@ export const PdfMergeTool: React.FC<PdfToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 6B. PDF ভাগ / পাতা বের করা (PDF Split / Extract)
+// 6B. PDF Split / Extract Pages
 // ============================================================================
 
-export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfSplitTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [splitMode, setSplitMode] = useState<'extract' | 'each'>('extract');
   const [rangeText, setRangeText] = useState<string>('1-3');
@@ -181,7 +221,14 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
         const count = await getPdfPageCount(item.file);
         setFiles((prev) =>
           prev.map((f) =>
-            f.id === item.id ? { ...f, metaText: `মোট ${toBnDigits(count)} পাতা` } : f
+            f.id === item.id
+              ? {
+                  ...f,
+                  metaText: isBn
+                    ? `মোট ${fmtToolNum(count, lang)} পাতা`
+                    : `${count} total page${count === 1 ? '' : 's'}`,
+                }
+              : f
           )
         );
       } catch {
@@ -197,12 +244,18 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
     try {
       const allOut: ProcessedFileResult[] = [];
       for (const item of files) {
-        const res = await splitPdfFile(item.file, splitMode, rangeText);
+        const res = await splitPdfFile(item.file, splitMode, rangeText, lang);
         allOut.push(...res);
       }
       setResults(allOut);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF ভাগ করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF ভাগ করতে সমস্যা হয়েছে।'
+          : 'Failed to split PDF.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -211,9 +264,13 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF ভাগ / পাতা বের করা"
-        subtitle="PDF থেকে বেছে নেওয়া নির্দিষ্ট পাতা আলাদা করুন অথবা প্রতিটি পাতাকে আলাদা PDF ফাইল বানিয়ে ZIP-এ নামান।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF ভাগ / পাতা বের করা' : 'Split / Extract PDF Pages'}
+        subtitle={
+          isBn
+            ? 'PDF থেকে বেছে নেওয়া নির্দিষ্ট পাতা আলাদা করুন অথবা প্রতিটি পাতাকে আলাদা PDF ফাইল বানিয়ে ZIP-এ নামান।'
+            : 'Extract specific page ranges or split every page into individual PDF files ready to download as a ZIP.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -221,11 +278,16 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="application/pdf,.pdf"
               multiple
               fileKind="pdf"
-              title="PDF ফাইল বেছে নিন"
-              subtitle="এক বা একাধিক PDF ফাইল দিন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose PDF Files'}
+              subtitle={
+                isBn
+                  ? 'এক বা একাধিক PDF ফাইল দিন · টেনে এনে ছাড়ুন'
+                  : 'Upload one or multiple PDFs · drag & drop'
+              }
               files={files}
               onAddFiles={(f) => void handleAddFiles(f)}
               onRemoveFile={(id) => setFiles((prev) => prev.filter((f) => f.id !== id))}
@@ -236,7 +298,7 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
           <div className="lg:col-span-7 space-y-4">
             <div className="space-y-1.5">
               <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                কীভাবে ভাগ করবেন?
+                {isBn ? 'কীভাবে ভাগ করবেন?' : 'Split Mode'}
               </div>
               <div className="flex flex-wrap gap-2">
                 <label
@@ -253,7 +315,7 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     onChange={() => setSplitMode('extract')}
                     className="accent-blue-600"
                   />
-                  <span>নির্দিষ্ট পাতা বের করুন</span>
+                  <span>{isBn ? 'নির্দিষ্ট পাতা বের করুন' : 'Extract Specific Pages'}</span>
                 </label>
                 <label
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer ${
@@ -269,7 +331,11 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     onChange={() => setSplitMode('each')}
                     className="accent-blue-600"
                   />
-                  <span>প্রতিটি পাতা আলাদা PDF করুন (ZIP)</span>
+                  <span>
+                    {isBn
+                      ? 'প্রতিটি পাতা আলাদা PDF করুন (ZIP)'
+                      : 'Split Every Page to Separate PDFs (ZIP)'}
+                  </span>
                 </label>
               </div>
             </div>
@@ -277,17 +343,19 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
             {splitMode === 'extract' && (
               <div className="space-y-1.5 max-w-md">
                 <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                  কোন কোন পাতা লাগবে?
+                  {isBn ? 'কোন কোন পাতা লাগবে?' : 'Page Range'}
                 </label>
                 <input
                   type="text"
                   value={rangeText}
                   onChange={(e) => setRangeText(e.target.value)}
-                  placeholder="যেমন: 1-3, 5, 7-9 অথবা ১-৩, ৫"
+                  placeholder={isBn ? 'যেমন: 1-3, 5, 7-9 অথবা ১-৩, ৫' : 'e.g., 1-3, 5, 7-9'}
                   className="glass-input w-full px-3.5 py-2.5 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  কমা (,) ও হাইফেন (-) দিয়ে লিখুন — বাংলা বা ইংরেজি দুই অঙ্কেই কাজ করবে।
+                  {isBn
+                    ? 'কমা (,) ও হাইফেন (-) দিয়ে লিখুন — বাংলা বা ইংরেজি দুই অঙ্কেই কাজ করবে।'
+                    : 'Use commas (,) and hyphens (-) — supports both English and Bengali digits.'}
                 </p>
               </div>
             )}
@@ -299,13 +367,28 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{splitMode === 'each' ? 'সব পাতা আলাদা করুন' : 'পাতা বের করুন'}</span>
+              <span>
+                {splitMode === 'each'
+                  ? isBn
+                    ? 'সব পাতা আলাদা করুন'
+                    : 'Split All Pages'
+                  : isBn
+                  ? 'পাতা বের করুন'
+                  : 'Extract Pages'}
+              </span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice text="ZIP চালু — আলাদা করা সব পাতা এক ক্লিকে ZIP-এ নামাতে পারবেন" />
+          <BulkZipNotice
+            lang={lang}
+            text={
+              isBn
+                ? 'ZIP চালু — আলাদা করা সব পাতা এক ক্লিকে ZIP-এ নামাতে পারবেন'
+                : 'ZIP enabled — download all split PDFs together in one click'
+            }
+          />
         </div>
       </div>
 
@@ -316,6 +399,7 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Split_PDFs.zip"
         onClear={() => setResults([])}
@@ -325,10 +409,11 @@ export const PdfSplitTool: React.FC<PdfToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 6C. PDF পাতা সাজান / ঘোরান / মুছুন (Visual Organizer)
+// 6C. PDF Visual Organizer (Reorder / Rotate / Delete)
 // ============================================================================
 
-export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [sourceFile, setSourceFile] = useState<SelectedFileItem | null>(null);
   const [pages, setPages] = useState<PdfPageThumb[]>([]);
   const [initialPages, setInitialPages] = useState<PdfPageThumb[]>([]);
@@ -349,9 +434,20 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
       const thumbs = await renderPdfPageThumbnails(file, 210);
       setPages(thumbs);
       setInitialPages(thumbs);
-      setSourceFile({ ...item, metaText: `মোট ${toBnDigits(thumbs.length)} পাতা` });
+      setSourceFile({
+        ...item,
+        metaText: isBn
+          ? `মোট ${fmtToolNum(thumbs.length, lang)} পাতা`
+          : `${thumbs.length} total page${thumbs.length === 1 ? '' : 's'}`,
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF পাতাগুলো প্রিভিউ করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF পাতাগুলো প্রিভিউ করা যায়নি।'
+          : 'Failed to render PDF page previews.'
+      );
     } finally {
       setIsLoadingThumbs(false);
     }
@@ -384,7 +480,8 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
     try {
       const blob = await rebuildOrganizedPdf(
         sourceFile.file,
-        pages.map((p) => ({ originalIndex: p.originalIndex, rotation: p.rotation }))
+        pages.map((p) => ({ originalIndex: p.originalIndex, rotation: p.rotation })),
+        lang
       );
       setResults([
         {
@@ -393,11 +490,19 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
           originalName: sourceFile.file.name,
           originalSize: sourceFile.file.size,
           blob,
-          infoText: `${toBnDigits(pages.length)}টি পাতা সাজানো হয়েছে`,
+          infoText: isBn
+            ? `${fmtToolNum(pages.length, lang)}টি পাতা সাজানো হয়েছে`
+            : `${pages.length} page${pages.length === 1 ? '' : 's'} organized`,
         },
       ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'নতুন PDF তৈরি করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'নতুন PDF তৈরি করা যায়নি।'
+          : 'Failed to build organized PDF.'
+      );
     } finally {
       setIsSaving(false);
     }
@@ -406,19 +511,28 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF পাতা সাজান / ঘোরান / মুছুন"
-        subtitle="প্রতিটি পাতার প্রিভিউ ছবি দেখে রোটেট করুন, অপ্রয়োজনীয় পাতা বাদ দিন বা আগে-পরে সাজিয়ে নতুন PDF বানান।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF পাতা সাজান / ঘোরান / মুছুন' : 'Organize / Rotate / Delete PDF'}
+        subtitle={
+          isBn
+            ? 'প্রতিটি পাতার প্রিভিউ ছবি দেখে রোটেট করুন, অপ্রয়োজনীয় পাতা বাদ দিন বা আগে-পরে সাজিয়ে নতুন PDF বানান।'
+            : 'Preview every page thumbnail to rotate, delete unwanted pages, or reorder pages and save a clean PDF.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
       <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-5">
         <FileDropzone
+          lang={lang}
           accept="application/pdf,.pdf"
           multiple={false}
           fileKind="pdf"
-          title="PDF ফাইল বেছে নিন"
-          subtitle="যেকোনো PDF দিলে প্রতিটি পাতার প্রিভিউ এখানে দেখা যাবে"
+          title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose a PDF File'}
+          subtitle={
+            isBn
+              ? 'যেকোনো PDF দিলে প্রতিটি পাতার প্রিভিউ এখানে দেখা যাবে'
+              : 'Upload a PDF to view and edit thumbnails of every page'
+          }
           files={sourceFile ? [sourceFile] : []}
           onAddFiles={(f) => void handleSelectPdf(f)}
           onRemoveFile={() => {
@@ -431,7 +545,9 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
         {isLoadingThumbs && (
           <div className="py-10 flex flex-col items-center justify-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-300">
             <Loader2 className="w-6 h-6 animate-spin text-blue-600 dark:text-blue-400" />
-            <span>সব পাতার প্রিভিউ তৈরি হচ্ছে...</span>
+            <span>
+              {isBn ? 'সব পাতার প্রিভিউ তৈরি হচ্ছে...' : 'Rendering page previews...'}
+            </span>
           </div>
         )}
 
@@ -439,8 +555,9 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-900/8 dark:border-white/10">
               <div className="text-xs font-bold text-slate-700 dark:text-slate-200 tabular-nums">
-                বর্তমানে {toBnDigits(pages.length)}টি পাতা রয়েছে (আগে ছিল{' '}
-                {toBnDigits(initialPages.length)}টি)
+                {isBn
+                  ? `বর্তমানে ${fmtToolNum(pages.length, lang)}টি পাতা রয়েছে (আগে ছিল ${fmtToolNum(initialPages.length, lang)}টি)`
+                  : `Showing ${pages.length} page${pages.length === 1 ? '' : 's'} (originally ${initialPages.length})`}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -453,7 +570,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   className="glass-tile px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <RotateCw className="w-3.5 h-3.5" />
-                  <span>সব ৯০° ঘোরান</span>
+                  <span>{isBn ? 'সব ৯০° ঘোরান' : 'Rotate All 90°'}</span>
                 </button>
                 <button
                   type="button"
@@ -461,7 +578,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   className="glass-tile px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 cursor-pointer"
                 >
                   <Undo2 className="w-3.5 h-3.5" />
-                  <span>আগের অবস্থায় ফিরুন</span>
+                  <span>{isBn ? 'আগের অবস্থায় ফিরুন' : 'Reset Order'}</span>
                 </button>
                 <button
                   type="button"
@@ -470,7 +587,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   className="glass-btn-primary px-4 py-1.5 rounded-xl text-white text-xs font-extrabold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>নতুন PDF তৈরি করুন</span>
+                  <span>{isBn ? 'নতুন PDF তৈরি করুন' : 'Build New PDF'}</span>
                 </button>
               </div>
             </div>
@@ -482,14 +599,18 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   className="glass-tile rounded-xl p-2.5 flex flex-col justify-between gap-2"
                 >
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300 tabular-nums">
-                    <span>ক্রম {toBnDigits(idx + 1)}</span>
-                    <span className="text-slate-400">মূল #{toBnDigits(page.pageNumber)}</span>
+                    <span>
+                      {isBn ? `ক্রম ${fmtToolNum(idx + 1, lang)}` : `Pos ${idx + 1}`}
+                    </span>
+                    <span className="text-slate-400">
+                      {isBn ? `মূল #${fmtToolNum(page.pageNumber, lang)}` : `Orig #${page.pageNumber}`}
+                    </span>
                   </div>
 
                   <div className="aspect-[3/4] w-full rounded-lg bg-slate-100 dark:bg-slate-900/60 overflow-hidden flex items-center justify-center p-1">
                     <img
                       src={page.thumbUrl}
-                      alt={`পাতা ${page.pageNumber}`}
+                      alt={isBn ? `পাতা ${page.pageNumber}` : `Page ${page.pageNumber}`}
                       style={{ transform: `rotate(${page.rotation}deg)` }}
                       className="max-w-full max-h-full object-contain transition-transform duration-150 shadow-sm bg-white"
                     />
@@ -500,7 +621,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                       type="button"
                       onClick={() => movePage(idx, -1)}
                       disabled={idx === 0}
-                      title="বামে নিন"
+                      title={isBn ? 'বামে নিন' : 'Move left'}
                       className="p-1.5 rounded-lg bg-white/70 dark:bg-white/5 hover:bg-blue-500/15 text-slate-700 dark:text-slate-200 disabled:opacity-25 flex items-center justify-center cursor-pointer"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
@@ -509,7 +630,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                       type="button"
                       onClick={() => movePage(idx, 1)}
                       disabled={idx === pages.length - 1}
-                      title="ডানে নিন"
+                      title={isBn ? 'ডানে নিন' : 'Move right'}
                       className="p-1.5 rounded-lg bg-white/70 dark:bg-white/5 hover:bg-blue-500/15 text-slate-700 dark:text-slate-200 disabled:opacity-25 flex items-center justify-center cursor-pointer"
                     >
                       <ArrowRight className="w-3.5 h-3.5" />
@@ -517,7 +638,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     <button
                       type="button"
                       onClick={() => rotatePage(page.id, -90)}
-                      title="বামে ৯০° ঘোরান"
+                      title={isBn ? 'বামে ৯০° ঘোরান' : 'Rotate 90° left'}
                       className="p-1.5 rounded-lg bg-white/70 dark:bg-white/5 hover:bg-blue-500/15 text-slate-700 dark:text-slate-200 flex items-center justify-center cursor-pointer"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
@@ -525,7 +646,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     <button
                       type="button"
                       onClick={() => rotatePage(page.id, 90)}
-                      title="ডানে ৯০° ঘোরান"
+                      title={isBn ? 'ডানে ৯০° ঘোরান' : 'Rotate 90° right'}
                       className="p-1.5 rounded-lg bg-white/70 dark:bg-white/5 hover:bg-blue-500/15 text-slate-700 dark:text-slate-200 flex items-center justify-center cursor-pointer"
                     >
                       <RotateCw className="w-3.5 h-3.5" />
@@ -533,7 +654,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     <button
                       type="button"
                       onClick={() => deletePage(page.id)}
-                      title="পাতা মুছুন"
+                      title={isBn ? 'পাতা মুছুন' : 'Delete page'}
                       className="p-1.5 rounded-lg bg-white/70 dark:bg-white/5 hover:bg-red-500/15 text-red-600 dark:text-red-400 flex items-center justify-center cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -553,6 +674,7 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Organized_PDF.zip"
         onClear={() => setResults([])}
@@ -562,10 +684,11 @@ export const PdfOrganizeTool: React.FC<PdfToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 6D. PDF থেকে ছবি (JPG / PNG)
+// 6D. PDF to Images (JPG / PNG)
 // ============================================================================
 
-export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfToImageTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [format, setFormat] = useState<'image/jpeg' | 'image/png'>('image/jpeg');
   const [dpi, setDpi] = useState<number>(150);
@@ -583,16 +706,31 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
       const out: ProcessedFileResult[] = [];
       for (let fIdx = 0; fIdx < files.length; fIdx++) {
         const item = files[fIdx];
-        const imgs = await renderPdfToImages(item.file, format, dpi, quality / 100, (cur, tot) => {
-          setProgressText(
-            `ফাইল ${toBnDigits(fIdx + 1)}/${toBnDigits(files.length)} · পাতা ${toBnDigits(cur)}/${toBnDigits(tot)}`
-          );
-        });
+        const imgs = await renderPdfToImages(
+          item.file,
+          format,
+          dpi,
+          quality / 100,
+          (cur, tot) => {
+            setProgressText(
+              isBn
+                ? `ফাইল ${fmtToolNum(fIdx + 1, lang)}/${fmtToolNum(files.length, lang)} · পাতা ${fmtToolNum(cur, lang)}/${fmtToolNum(tot, lang)}`
+                : `File ${fIdx + 1}/${files.length} · Page ${cur}/${tot}`
+            );
+          },
+          lang
+        );
         out.push(...imgs);
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF থেকে ছবি তৈরি করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF থেকে ছবি তৈরি করা যায়নি।'
+          : 'Failed to convert PDF to images.'
+      );
     } finally {
       setIsProcessing(false);
       setProgressText('');
@@ -602,9 +740,13 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF থেকে ছবি (JPG / PNG)"
-        subtitle="PDF-এর প্রতিটি পাতাকে উচ্চমানের (DPI নির্ধারণসহ) ছবিতে রূপান্তর করে একসাথে ZIP আকারে ডাউনলোড করুন।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF থেকে ছবি (JPG / PNG)' : 'PDF to Image (JPG / PNG)'}
+        subtitle={
+          isBn
+            ? 'PDF-এর প্রতিটি পাতাকে উচ্চমানের (DPI নির্ধারণসহ) ছবিতে রূপান্তর করে একসাথে ZIP আকারে ডাউনলোড করুন।'
+            : 'Render every PDF page to crisp JPG or PNG images with selectable DPI and bulk ZIP download.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -612,11 +754,16 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="application/pdf,.pdf"
               multiple
               fileKind="pdf"
-              title="PDF ফাইল বেছে নিন"
-              subtitle="একসাথে অনেকগুলো PDF দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose PDF Files'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলো PDF দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple PDFs at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'pdf')])
@@ -630,7 +777,7 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                  ছবির ফরম্যাট
+                  {isBn ? 'ছবির ফরম্যাট' : 'Image Format'}
                 </label>
                 <select
                   value={format}
@@ -638,24 +785,24 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   className="glass-input w-full px-3 py-2.5 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value="image/jpeg" className="text-slate-900">
-                    JPG (দ্রুত ও ছোট সাইজ)
+                    {isBn ? 'JPG (দ্রুত ও ছোট সাইজ)' : 'JPG (Fast & Smaller)'}
                   </option>
                   <option value="image/png" className="text-slate-900">
-                    PNG (সর্বোচ্চ শার্প)
+                    {isBn ? 'PNG (সর্বোচ্চ শার্প)' : 'PNG (Lossless Sharp)'}
                   </option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                  ছবির মান (DPI)
+                  {isBn ? 'ছবির মান (DPI)' : 'Resolution (DPI)'}
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {[
-                    { v: 72, label: '৭২ (হালকা)' },
-                    { v: 150, label: '১৫০ (ভালো)' },
-                    { v: 200, label: '২০০ (HD)' },
-                    { v: 300, label: '৩০০ (প্রিন্ট)' },
+                    { v: 72, labelEn: '72 (Light)', labelBn: '৭২ (হালকা)' },
+                    { v: 150, labelEn: '150 (Good)', labelBn: '১৫০ (ভালো)' },
+                    { v: 200, labelEn: '200 (HD)', labelBn: '২০০ (HD)' },
+                    { v: 300, labelEn: '300 (Print)', labelBn: '৩০০ (প্রিন্ট)' },
                   ].map((opt) => (
                     <button
                       key={opt.v}
@@ -667,7 +814,7 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
                           : 'glass-tile text-slate-700 dark:text-slate-200'
                       }`}
                     >
-                      {opt.label}
+                      {isBn ? opt.labelBn : opt.labelEn}
                     </button>
                   ))}
                 </div>
@@ -677,7 +824,7 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
             {format === 'image/jpeg' && (
               <div className="flex items-center gap-3 max-w-xs">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                  কোয়ালিটি
+                  {isBn ? 'কোয়ালিটি' : 'Quality'}
                 </span>
                 <input
                   type="range"
@@ -688,7 +835,7 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   className="flex-1 accent-blue-600 cursor-pointer"
                 />
                 <span className="text-xs font-mono font-extrabold text-slate-900 dark:text-white w-10 text-right tabular-nums">
-                  {toBnDigits(quality)}%
+                  {fmtToolNum(quality, lang)}%
                 </span>
               </div>
             )}
@@ -700,13 +847,22 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{progressText || 'ছবিতে রূপান্তর করুন'}</span>
+              <span>
+                {progressText || (isBn ? 'ছবিতে রূপান্তর করুন' : 'Convert to Images')}
+              </span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice text="বাল্ক ও ZIP চালু — সব পাতার ছবি এক ক্লিকে ZIP-এ নামাতে পারবেন" />
+          <BulkZipNotice
+            lang={lang}
+            text={
+              isBn
+                ? 'বাল্ক ও ZIP চালু — সব পাতার ছবি এক ক্লিকে ZIP-এ নামাতে পারবেন'
+                : 'Bulk & ZIP enabled — download all rendered page images as a single ZIP'
+            }
+          />
         </div>
       </div>
 
@@ -717,6 +873,7 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName={`NextStudio_PDF_Images_${dpi}DPI.zip`}
         onClear={() => setResults([])}
@@ -726,12 +883,13 @@ export const PdfToImageTool: React.FC<PdfToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 6E. PDF-এর সাইজ কমান (KB)
+// 6E. PDF Compressor (KB)
 // ============================================================================
 
 const QUICK_PDF_KB = [100, 200, 300, 500, 1000, 2000];
 
-export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfCompressTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [targetKb, setTargetKb] = useState<number>(300);
   const [progressText, setProgressText] = useState<string>('');
@@ -746,14 +904,29 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
     try {
       const out: ProcessedFileResult[] = [];
       for (let i = 0; i < files.length; i++) {
-        const res = await compressPdfToTargetKb(files[i].file, targetKb || 300, (msg) => {
-          setProgressText(`ফাইল ${toBnDigits(i + 1)}/${toBnDigits(files.length)} · ${msg}`);
-        });
+        const res = await compressPdfToTargetKb(
+          files[i].file,
+          targetKb || 300,
+          (msg) => {
+            setProgressText(
+              isBn
+                ? `ফাইল ${fmtToolNum(i + 1, lang)}/${fmtToolNum(files.length, lang)} · ${msg}`
+                : `File ${i + 1}/${files.length} · ${msg}`
+            );
+          },
+          lang
+        );
         out.push(res);
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF কমপ্রেস করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF কমপ্রেস করতে সমস্যা হয়েছে।'
+          : 'Failed to compress PDF.'
+      );
     } finally {
       setIsProcessing(false);
       setProgressText('');
@@ -763,9 +936,13 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF-এর সাইজ কমান (KB)"
-        subtitle="PDF ছোট করুন — যত KB লাগে তত KB-তে নামান, একসাথে অনেকগুলো ফাইল কমপ্রেস করে ZIP-এ নামান।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF-এর সাইজ কমান (KB)' : 'Compress PDF (KB)'}
+        subtitle={
+          isBn
+            ? 'PDF ছোট করুন — যত KB লাগে তত KB-তে নামান, একসাথে অনেকগুলো ফাইল কমপ্রেস করে ZIP-এ নামান।'
+            : 'Shrink PDF file size under any custom KB target — process multiple PDFs and save as ZIP.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -773,11 +950,16 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="application/pdf,.pdf"
               multiple
               fileKind="pdf"
-              title="PDF ফাইল বেছে নিন"
-              subtitle="একসাথে অনেকগুলো PDF দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose PDF Files'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলো PDF দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple PDFs at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'pdf')])
@@ -790,7 +972,7 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
           <div className="lg:col-span-7 space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                PDF কত KB-র নিচে চান?
+                {isBn ? 'PDF কত KB-র নিচে চান?' : 'Target PDF Size Under (KB)'}
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -816,7 +998,9 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
                         : 'glass-tile text-slate-700 dark:text-slate-200'
                     }`}
                   >
-                    {kb >= 1000 ? `${toBnDigits(kb / 1000)} MB` : `${toBnDigits(kb)} KB`}
+                    {kb >= 1000
+                      ? `${fmtToolNum(kb / 1000, lang)} MB`
+                      : `${fmtToolNum(kb, lang)} KB`}
                   </button>
                 ))}
               </div>
@@ -829,13 +1013,13 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>{progressText || 'PDF সাইজ কমান'}</span>
+              <span>{progressText || (isBn ? 'PDF সাইজ কমান' : 'Compress PDF')}</span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice />
+          <BulkZipNotice lang={lang} />
         </div>
       </div>
 
@@ -846,6 +1030,7 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName={`NextStudio_Compressed_PDFs_${targetKb}KB.zip`}
         onClear={() => setResults([])}
@@ -855,10 +1040,11 @@ export const PdfCompressTool: React.FC<PdfToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 6F. PDF থেকে লেখা বের করুন (PDF Text Extractor)
+// 6F. PDF Text Extractor
 // ============================================================================
 
-export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [extracted, setExtracted] = useState<ExtractedPdfTextResult[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -872,11 +1058,17 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
     try {
       const out: ExtractedPdfTextResult[] = [];
       for (const item of files) {
-        out.push(await extractTextFromPdf(item.file));
+        out.push(await extractTextFromPdf(item.file, lang));
       }
       setExtracted(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF থেকে লেখা বের করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF থেকে লেখা বের করা যায়নি।'
+          : 'Failed to extract text from PDF.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -910,19 +1102,28 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF থেকে লেখা বের করুন"
-        subtitle="PDF-এর ভেতরের সব লেখা বের করে এক ক্লিকে কপি করুন অথবা .txt ফাইলে ডাউনলোড করুন।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF থেকে লেখা বের করুন' : 'Extract Text from PDF'}
+        subtitle={
+          isBn
+            ? 'PDF-এর ভেতরের সব লেখা বের করে এক ক্লিকে কপি করুন অথবা .txt ফাইলে ডাউনলোড করুন।'
+            : 'Extract all selectable text from PDF documents to copy in one click or save as .txt files.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
       <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-5">
         <FileDropzone
+          lang={lang}
           accept="application/pdf,.pdf"
           multiple
           fileKind="pdf"
-          title="PDF ফাইল বেছে নিন"
-          subtitle="এক বা একাধিক PDF ফাইল দিন · টেনে এনে ছাড়ুন"
+          title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose PDF Files'}
+          subtitle={
+            isBn
+              ? 'এক বা একাধিক PDF ফাইল দিন · টেনে এনে ছাড়ুন'
+              : 'Upload one or multiple PDFs · drag & drop'
+          }
           files={files}
           onAddFiles={(newFiles) =>
             setFiles((prev) => [...prev, ...createFileItems(newFiles, 'pdf')])
@@ -939,10 +1140,17 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
             className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
           >
             {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-            <span>লেখা বের করুন</span>
+            <span>{isBn ? 'লেখা বের করুন' : 'Extract Text'}</span>
           </button>
 
-          <BulkZipNotice text="বাল্ক চালু — একাধিক PDF দিলে সবগুলো .txt একসাথে ZIP-এ নামাতে পারবেন" />
+          <BulkZipNotice
+            lang={lang}
+            text={
+              isBn
+                ? 'বাল্ক চালু — একাধিক PDF দিলে সবগুলো .txt একসাথে ZIP-এ নামাতে পারবেন'
+                : 'Bulk enabled — download all extracted .txt files together as a ZIP'
+            }
+          />
         </div>
       </div>
 
@@ -962,21 +1170,29 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
                 className="glass-btn-emerald px-4 py-2 rounded-xl text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
               >
                 <Archive className="w-3.5 h-3.5" />
-                <span>সবগুলো .txt ZIP-এ নামান ({toBnDigits(extracted.length)})</span>
+                <span>
+                  {isBn
+                    ? `সবগুলো .txt ZIP-এ নামান (${fmtToolNum(extracted.length, lang)})`
+                    : `Download All .txt as ZIP (${extracted.length})`}
+                </span>
               </button>
             </div>
           )}
 
           {extracted.map((res, idx) => (
-            <div key={`${res.fileName}-${idx}`} className="glass-panel rounded-2xl p-4 sm:p-5 space-y-3">
+            <div
+              key={`${res.fileName}-${idx}`}
+              className="glass-panel rounded-2xl p-4 sm:p-5 space-y-3"
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
                     {res.fileName}
                   </h3>
                   <div className="text-xs text-slate-500 dark:text-slate-400">
-                    মোট {toBnDigits(res.pageCount)} পাতা ·{' '}
-                    {toBnDigits(res.fullText.length)} অক্ষর
+                    {isBn
+                      ? `মোট ${fmtToolNum(res.pageCount, lang)} পাতা · ${fmtToolNum(res.fullText.length, lang)} অক্ষর`
+                      : `${res.pageCount} page${res.pageCount === 1 ? '' : 's'} · ${res.fullText.length} characters`}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -988,12 +1204,12 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     {copiedIdx === idx ? (
                       <>
                         <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>কপি হয়েছে</span>
+                        <span>{isBn ? 'কপি হয়েছে' : 'Copied'}</span>
                       </>
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        <span>কপি করুন</span>
+                        <span>{isBn ? 'কপি করুন' : 'Copy'}</span>
                       </>
                     )}
                   </button>
@@ -1003,7 +1219,7 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
                     className="glass-btn-primary px-3.5 py-1.5 rounded-xl text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>.txt ডাউনলোড</span>
+                    <span>{isBn ? '.txt ডাউনলোড' : 'Download .txt'}</span>
                   </button>
                 </div>
               </div>
@@ -1013,7 +1229,9 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
                 rows={10}
                 value={
                   res.fullText.trim() ||
-                  'এই PDF-এ কোনো সিলেক্টেবল টেক্সট পাওয়া যায়নি (সম্ভবত এটি স্ক্যান করা ছবি-ভিত্তিক PDF)।'
+                  (isBn
+                    ? 'এই PDF-এ কোনো সিলেক্টেবল টেক্সট পাওয়া যায়নি (সম্ভবত এটি স্ক্যান করা ছবি-ভিত্তিক PDF)।'
+                    : 'No selectable text was found in this PDF (it may be a scanned image-based PDF).')
                 }
                 className="glass-input w-full rounded-xl p-3.5 text-xs sm:text-sm text-slate-800 dark:text-slate-100 leading-relaxed focus:outline-none"
               />
@@ -1026,19 +1244,20 @@ export const PdfExtractTextTool: React.FC<PdfToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 6G. PDF-এ পেজ নম্বর ও ওয়াটারমার্ক (Bangla & English Page Numbers + Watermark)
+// 6G. PDF Page Numbers & Watermark (English & Bengali Unicode)
 // ============================================================================
 
-export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
+export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [opts, setOpts] = useState<PdfStampOptions>({
     enablePageNumber: true,
-    pageNumberScript: 'bn',
+    pageNumberScript: lang === 'bn' ? 'bn' : 'en',
     pageNumberFormat: 'ofTotal',
     pageNumberPosition: 'bottom-center',
     pageNumberFontSize: 11,
     enableWatermark: true,
-    watermarkText: 'গোপনীয় কপি',
+    watermarkText: lang === 'bn' ? 'গোপনীয় কপি' : 'CONFIDENTIAL',
     watermarkOpacity: 0.16,
     watermarkFontSize: 44,
     watermarkAngle: -38,
@@ -1048,10 +1267,29 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
   const [results, setResults] = useState<ProcessedFileResult[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Sync default watermark placeholder & script if user hasn't customized it
+  useEffect(() => {
+    setOpts((prev) => {
+      const next = { ...prev };
+      if (lang === 'bn' && prev.watermarkText === 'CONFIDENTIAL') {
+        next.watermarkText = 'গোপনীয় কপি';
+        next.pageNumberScript = 'bn';
+      } else if (lang === 'en' && prev.watermarkText === 'গোপনীয় কপি') {
+        next.watermarkText = 'CONFIDENTIAL';
+        next.pageNumberScript = 'en';
+      }
+      return next;
+    });
+  }, [lang]);
+
   const handleApply = async () => {
     if (files.length === 0) return;
     if (!opts.enablePageNumber && !opts.enableWatermark) {
-      setError('পেজ নম্বর অথবা ওয়াটারমার্কের অন্তত একটি চালু রাখুন।');
+      setError(
+        isBn
+          ? 'পেজ নম্বর অথবা ওয়াটারমার্কের অন্তত একটি চালু রাখুন।'
+          : 'Enable at least Page Numbers or Watermark.'
+      );
       return;
     }
     setError(null);
@@ -1059,11 +1297,17 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
     try {
       const out: ProcessedFileResult[] = [];
       for (const item of files) {
-        out.push(await addPageNumbersAndWatermark(item.file, opts));
+        out.push(await addPageNumbersAndWatermark(item.file, opts, lang));
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'পেজ নম্বর/ওয়াটারমার্ক বসানো যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'পেজ নম্বর/ওয়াটারমার্ক বসানো যায়নি।'
+          : 'Failed to apply page numbers/watermark.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -1072,9 +1316,13 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="PDF-এ পেজ নম্বর ও ওয়াটারমার্ক"
-        subtitle="পাতায় বাংলা বা ইংরেজি পেজ নম্বর এবং কাস্টম হালকা ওয়াটারমার্ক বসান — একসাথে অনেকগুলো PDF-এ।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'PDF-এ পেজ নম্বর ও ওয়াটারমার্ক' : 'PDF Page Numbers & Watermark'}
+        subtitle={
+          isBn
+            ? 'পাতায় বাংলা বা ইংরেজি পেজ নম্বর এবং কাস্টম হালকা ওয়াটারমার্ক বসান — একসাথে অনেকগুলো PDF-এ।'
+            : 'Stamp English or Bengali page numbers and subtle custom text watermarks across multiple PDFs.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -1082,11 +1330,16 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="application/pdf,.pdf"
               multiple
               fileKind="pdf"
-              title="PDF ফাইল বেছে নিন"
-              subtitle="একসাথে অনেকগুলো PDF দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'PDF ফাইল বেছে নিন' : 'Choose PDF Files'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলো PDF দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple PDFs at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'pdf')])
@@ -1106,14 +1359,14 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   onChange={(e) => setOpts((p) => ({ ...p, enablePageNumber: e.target.checked }))}
                   className="accent-blue-600 w-4 h-4"
                 />
-                <span>পেজ নম্বর বসান</span>
+                <span>{isBn ? 'পেজ নম্বর বসান' : 'Add Page Numbers'}</span>
               </label>
 
               {opts.enablePageNumber && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="space-y-1">
                     <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      নম্বরের ভাষা
+                      {isBn ? 'নম্বরের ভাষা' : 'Number Script'}
                     </span>
                     <select
                       value={opts.pageNumberScript}
@@ -1125,18 +1378,18 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                       }
                       className="glass-input w-full px-2.5 py-2 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
                     >
-                      <option value="bn" className="text-slate-900">
-                        বাংলা (১, ২, ৩)
-                      </option>
                       <option value="en" className="text-slate-900">
-                        ইংরেজি (1, 2, 3)
+                        {isBn ? 'ইংরেজি (1, 2, 3)' : 'English (1, 2, 3)'}
+                      </option>
+                      <option value="bn" className="text-slate-900">
+                        {isBn ? 'বাংলা (১, ২, ৩)' : 'Bengali (১, ২, ৩)'}
                       </option>
                     </select>
                   </div>
 
                   <div className="space-y-1">
                     <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      নম্বরের ধরন
+                      {isBn ? 'নম্বরের ধরন' : 'Format'}
                     </span>
                     <select
                       value={opts.pageNumberFormat}
@@ -1152,14 +1405,20 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                         {opts.pageNumberScript === 'bn' ? 'পৃষ্ঠা ১ / ৫' : 'Page 1 / 5'}
                       </option>
                       <option value="plain" className="text-slate-900">
-                        {opts.pageNumberScript === 'bn' ? 'শুধু নম্বর (১)' : 'শুধু নম্বর (1)'}
+                        {opts.pageNumberScript === 'bn'
+                          ? isBn
+                            ? 'শুধু নম্বর (১)'
+                            : 'Number only (১)'
+                          : isBn
+                          ? 'শুধু নম্বর (1)'
+                          : 'Number only (1)'}
                       </option>
                     </select>
                   </div>
 
                   <div className="space-y-1">
                     <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                      অবস্থান
+                      {isBn ? 'অবস্থান' : 'Position'}
                     </span>
                     <select
                       value={opts.pageNumberPosition}
@@ -1172,13 +1431,13 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                       className="glass-input w-full px-2.5 py-2 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
                     >
                       <option value="bottom-center" className="text-slate-900">
-                        নিচে মাঝখানে
+                        {isBn ? 'নিচে মাঝখানে' : 'Bottom Center'}
                       </option>
                       <option value="bottom-right" className="text-slate-900">
-                        নিচে ডানে
+                        {isBn ? 'নিচে ডানে' : 'Bottom Right'}
                       </option>
                       <option value="top-right" className="text-slate-900">
-                        উপরে ডানে
+                        {isBn ? 'উপরে ডানে' : 'Top Right'}
                       </option>
                     </select>
                   </div>
@@ -1195,20 +1454,28 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   onChange={(e) => setOpts((p) => ({ ...p, enableWatermark: e.target.checked }))}
                   className="accent-blue-600 w-4 h-4"
                 />
-                <span>হালকা ওয়াটারমার্ক বসান (বাংলা / ইংরেজি)</span>
+                <span>
+                  {isBn
+                    ? 'হালকা ওয়াটারমার্ক বসান (বাংলা / ইংরেজি)'
+                    : 'Add Subtle Watermark (English / Bengali)'}
+                </span>
               </label>
 
               {opts.enableWatermark && (
                 <div className="space-y-3">
                   <div>
                     <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block mb-1">
-                      ওয়াটারমার্কের লেখা
+                      {isBn ? 'ওয়াটারমার্কের লেখা' : 'Watermark Text'}
                     </label>
                     <input
                       type="text"
                       value={opts.watermarkText}
                       onChange={(e) => setOpts((p) => ({ ...p, watermarkText: e.target.value }))}
-                      placeholder="যেমন: গোপনীয় কপি / NextStudio / নমুনা"
+                      placeholder={
+                        isBn
+                          ? 'যেমন: গোপনীয় কপি / NextStudio / নমুনা'
+                          : 'e.g., CONFIDENTIAL / NextStudio / DRAFT'
+                      }
                       className="glass-input w-full px-3 py-2 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -1216,8 +1483,10 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
                     <div className="space-y-1">
                       <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        <span>স্বচ্ছতা (Opacity)</span>
-                        <span className="font-mono">{toBnDigits(Math.round(opts.watermarkOpacity * 100))}%</span>
+                        <span>{isBn ? 'স্বচ্ছতা (Opacity)' : 'Opacity'}</span>
+                        <span className="font-mono">
+                          {fmtToolNum(Math.round(opts.watermarkOpacity * 100), lang)}%
+                        </span>
                       </div>
                       <input
                         type="range"
@@ -1233,8 +1502,10 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
 
                     <div className="space-y-1">
                       <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        <span>ফন্ট সাইজ</span>
-                        <span className="font-mono">{toBnDigits(opts.watermarkFontSize)}</span>
+                        <span>{isBn ? 'ফন্ট সাইজ' : 'Font Size'}</span>
+                        <span className="font-mono">
+                          {fmtToolNum(opts.watermarkFontSize, lang)}
+                        </span>
                       </div>
                       <input
                         type="range"
@@ -1250,7 +1521,7 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
 
                     <div className="space-y-1">
                       <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 block">
-                        কোণ ও রং
+                        {isBn ? 'কোণ ও রং' : 'Angle & Color'}
                       </span>
                       <div className="flex items-center gap-2">
                         <select
@@ -1261,10 +1532,10 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                           className="glass-input flex-1 px-2 py-1.5 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
                         >
                           <option value={-38} className="text-slate-900">
-                            তির্যক
+                            {isBn ? 'তির্যক' : 'Diagonal'}
                           </option>
                           <option value={0} className="text-slate-900">
-                            সোজা
+                            {isBn ? 'সোজা' : 'Horizontal'}
                           </option>
                         </select>
                         <input
@@ -1274,7 +1545,7 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
                             setOpts((p) => ({ ...p, watermarkColor: e.target.value }))
                           }
                           className="w-8 h-8 rounded-lg border border-slate-300 dark:border-white/15 cursor-pointer bg-transparent"
-                          title="ওয়াটারমার্কের রং"
+                          title={isBn ? 'ওয়াটারমার্কের রং' : 'Watermark Color'}
                         />
                       </div>
                     </div>
@@ -1290,13 +1561,13 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>PDF-এ বসান</span>
+              <span>{isBn ? 'PDF-এ বসান' : 'Apply to PDF'}</span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice />
+          <BulkZipNotice lang={lang} />
         </div>
       </div>
 
@@ -1307,6 +1578,7 @@ export const PdfWatermarkNumberTool: React.FC<PdfToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Watermarked_PDFs.zip"
         onClear={() => setResults([])}

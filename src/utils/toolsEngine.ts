@@ -20,7 +20,7 @@ export function fromBnDigits(input: string): string {
   return input.replace(/[০-৯]/g, (ch) => String(BN_DIGITS.indexOf(ch)));
 }
 
-export function formatBytes(bytes: number, lang: 'bn' | 'en' = 'bn'): string {
+export function formatBytes(bytes: number, lang: 'bn' | 'en' = 'en'): string {
   if (bytes < 1024) {
     const val = `${bytes} B`;
     return lang === 'bn' ? toBnDigits(val) : val;
@@ -97,7 +97,7 @@ export function loadImageFromFile(file: File): Promise<HTMLImageElement> {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error(`ছবি লোড করা যায়নি: ${file.name}`));
+      reject(new Error(`Failed to load image: ${file.name}`));
     };
     img.src = url;
   });
@@ -112,7 +112,7 @@ export function canvasToBlob(
     canvas.toBlob(
       (blob) => {
         if (blob) resolve(blob);
-        else reject(new Error('ক্যানভাস থেকে ছবি তৈরি করা যায়নি।'));
+        else reject(new Error('Failed to generate image from canvas.'));
       },
       mime,
       mime === 'image/png' ? undefined : quality
@@ -719,8 +719,10 @@ export function parsePageRanges(rangeStr: string, totalPages: number): number[] 
 export async function splitPdfFile(
   file: File,
   mode: 'extract' | 'each',
-  rangeStr: string
+  rangeStr: string,
+  lang: 'en' | 'bn' = 'en'
 ): Promise<ProcessedFileResult[]> {
+  const isBn = lang === 'bn';
   const bytes = await file.arrayBuffer();
   const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const total = src.getPageCount();
@@ -740,7 +742,7 @@ export async function splitPdfFile(
         originalName: file.name,
         originalSize: file.size,
         blob,
-        infoText: `পাতা ${toBnDigits(i + 1)}`,
+        infoText: isBn ? `পাতা ${toBnDigits(i + 1)}` : `Page ${i + 1}`,
       });
     }
     return results;
@@ -748,7 +750,11 @@ export async function splitPdfFile(
 
   const indices = parsePageRanges(rangeStr, total);
   if (indices.length === 0) {
-    throw new Error('সঠিক পাতার নম্বর লিখুন (যেমন: 1-3, 5)');
+    throw new Error(
+      isBn
+        ? 'সঠিক পাতার নম্বর লিখুন (যেমন: 1-3, 5)'
+        : 'Please enter valid page numbers (e.g., 1-3, 5)'
+    );
   }
   const extracted = await PDFDocument.create();
   const copied = await extracted.copyPages(src, indices);
@@ -763,7 +769,9 @@ export async function splitPdfFile(
       originalName: file.name,
       originalSize: file.size,
       blob,
-      infoText: `${toBnDigits(indices.length)}টি পাতা আলাদা করা হয়েছে`,
+      infoText: isBn
+        ? `${toBnDigits(indices.length)}টি পাতা আলাদা করা হয়েছে`
+        : `${indices.length} page${indices.length === 1 ? '' : 's'} extracted`,
     },
   ];
 }
@@ -819,10 +827,11 @@ export async function renderPdfPageThumbnails(
 
 export async function rebuildOrganizedPdf(
   file: File,
-  pages: { originalIndex: number; rotation: number }[]
+  pages: { originalIndex: number; rotation: number }[],
+  lang: 'en' | 'bn' = 'en'
 ): Promise<Blob> {
   if (pages.length === 0) {
-    throw new Error('অন্তত ১টি পাতা থাকতে হবে।');
+    throw new Error(lang === 'bn' ? 'অন্তত ১টি পাতা থাকতে হবে।' : 'At least 1 page is required.');
   }
   const bytes = await file.arrayBuffer();
   const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
@@ -848,8 +857,10 @@ export async function renderPdfToImages(
   format: 'image/jpeg' | 'image/png',
   dpi: number,
   quality: number,
-  onProgress?: (current: number, total: number) => void
+  onProgress?: (current: number, total: number) => void,
+  lang: 'en' | 'bn' = 'en'
 ): Promise<ProcessedFileResult[]> {
+  const isBn = lang === 'bn';
   const bytes = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({ data: bytes });
   const pdf = await loadingTask.promise;
@@ -882,7 +893,9 @@ export async function renderPdfToImages(
       previewUrl,
       width: canvas.width,
       height: canvas.height,
-      infoText: `পাতা ${toBnDigits(i)} · ${toBnDigits(dpi)} DPI`,
+      infoText: isBn
+        ? `পাতা ${toBnDigits(i)} · ${toBnDigits(dpi)} DPI`
+        : `Page ${i} · ${dpi} DPI`,
     });
   }
 
@@ -897,8 +910,10 @@ export async function renderPdfToImages(
 export async function compressPdfToTargetKb(
   file: File,
   targetKb: number,
-  onProgress?: (label: string) => void
+  onProgress?: (label: string) => void,
+  lang: 'en' | 'bn' = 'en'
 ): Promise<ProcessedFileResult> {
+  const isBn = lang === 'bn';
   const maxBytes = Math.max(15 * 1024, Math.floor(targetKb * 1024));
 
   // If original file is already smaller than target, still optimize streams via pdf-lib
@@ -913,7 +928,7 @@ export async function compressPdfToTargetKb(
       originalName: file.name,
       originalSize: file.size,
       blob,
-      infoText: 'ইতিমধ্যেই টার্গেট সাইজের নিচে রয়েছে',
+      infoText: isBn ? 'ইতিমধ্যেই টার্গেট সাইজের নিচে রয়েছে' : 'Already below target size',
     };
   }
 
@@ -936,7 +951,11 @@ export async function compressPdfToTargetKb(
     const scale = useDpi / 72;
 
     for (let i = 1; i <= numPages; i++) {
-      onProgress?.(`পাতা ${toBnDigits(i)}/${toBnDigits(numPages)} কমপ্রেস হচ্ছে...`);
+      onProgress?.(
+        isBn
+          ? `পাতা ${toBnDigits(i)}/${toBnDigits(numPages)} কমপ্রেস হচ্ছে...`
+          : `Compressing page ${i}/${numPages}...`
+      );
       const page = await pdf.getPage(i);
       const baseVp = page.getViewport({ scale: 1 });
       const vp = page.getViewport({ scale });
@@ -988,7 +1007,9 @@ export async function compressPdfToTargetKb(
     originalName: file.name,
     originalSize: file.size,
     blob: bestBlob,
-    infoText: `${toBnDigits(numPages)} পাতা`,
+    infoText: isBn
+      ? `${toBnDigits(numPages)} পাতা`
+      : `${numPages} page${numPages === 1 ? '' : 's'}`,
   };
 }
 
@@ -1003,7 +1024,11 @@ export interface ExtractedPdfTextResult {
   pages: { pageNumber: number; text: string }[];
 }
 
-export async function extractTextFromPdf(file: File): Promise<ExtractedPdfTextResult> {
+export async function extractTextFromPdf(
+  file: File,
+  lang: 'en' | 'bn' = 'en'
+): Promise<ExtractedPdfTextResult> {
+  const isBn = lang === 'bn';
   const bytes = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({ data: bytes });
   const pdf = await loadingTask.promise;
@@ -1038,7 +1063,11 @@ export async function extractTextFromPdf(file: File): Promise<ExtractedPdfTextRe
   await loadingTask.destroy();
 
   const fullText = pages
-    .map((p) => `--- পাতা ${toBnDigits(p.pageNumber)} ---\n${p.text}`)
+    .map((p) =>
+      isBn
+        ? `--- পাতা ${toBnDigits(p.pageNumber)} ---\n${p.text}`
+        : `--- Page ${p.pageNumber} ---\n${p.text}`
+    )
     .join('\n\n');
 
   return {
@@ -1112,8 +1141,10 @@ async function renderUnicodeTextPng(
 
 export async function addPageNumbersAndWatermark(
   file: File,
-  opts: PdfStampOptions
+  opts: PdfStampOptions,
+  lang: 'en' | 'bn' = 'en'
 ): Promise<ProcessedFileResult> {
+  const isBn = lang === 'bn';
   const bytes = await file.arrayBuffer();
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const pages = doc.getPages();
@@ -1211,6 +1242,8 @@ export async function addPageNumbersAndWatermark(
     originalName: file.name,
     originalSize: file.size,
     blob,
-    infoText: `${toBnDigits(total)} পাতা আপডেট হয়েছে`,
+    infoText: isBn
+      ? `${toBnDigits(total)} পাতা আপডেট হয়েছে`
+      : `${total} page${total === 1 ? '' : 's'} updated`,
   };
 }

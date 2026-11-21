@@ -16,7 +16,6 @@ import {
   processImageConvert,
   processImageResize,
   processImagesToPdf,
-  toBnDigits,
 } from '../../utils/toolsEngine';
 import {
   BulkZipNotice,
@@ -25,21 +24,25 @@ import {
   SelectedFileItem,
   ToolHeader,
   ToolId,
+  ToolsLang,
   createFileItems,
+  fmtToolNum,
 } from './SharedToolUI';
 
 interface CommonToolProps {
+  lang?: ToolsLang;
   onBack: () => void;
   onNavigateTool?: (id: ToolId) => void;
 }
 
 // ============================================================================
-// 1. সরকারি আবেদনের ছবি ও স্বাক্ষর (Govt Job Photo & Signature Maker)
+// 1. Govt Job Photo & Signature Maker
 // ============================================================================
 
 interface GovtPreset {
   id: string;
-  label: string;
+  labelEn: string;
+  labelBn: string;
   photoW: number;
   photoH: number;
   photoMaxKb: number;
@@ -51,7 +54,8 @@ interface GovtPreset {
 const GOVT_PRESETS: GovtPreset[] = [
   {
     id: 'teletalk',
-    label: 'বিসিএস / প্রাথমিক শিক্ষক / টেলিটক-ভিত্তিক আবেদন',
+    labelEn: 'BCS / Primary Teacher / Teletalk Application',
+    labelBn: 'বিসিএস / প্রাথমিক শিক্ষক / টেলিটক-ভিত্তিক আবেদন',
     photoW: 300,
     photoH: 300,
     photoMaxKb: 100,
@@ -61,7 +65,8 @@ const GOVT_PRESETS: GovtPreset[] = [
   },
   {
     id: 'nbr',
-    label: 'এনবিআর ক্যারিয়ার পোর্টাল',
+    labelEn: 'NBR Career Portal',
+    labelBn: 'এনবিআর ক্যারিয়ার পোর্টাল',
     photoW: 300,
     photoH: 300,
     photoMaxKb: 100,
@@ -71,7 +76,8 @@ const GOVT_PRESETS: GovtPreset[] = [
   },
   {
     id: 'cuet',
-    label: 'CUET ভর্তি',
+    labelEn: 'CUET Admission',
+    labelBn: 'CUET ভর্তি',
     photoW: 300,
     photoH: 300,
     photoMaxKb: 100,
@@ -81,7 +87,8 @@ const GOVT_PRESETS: GovtPreset[] = [
   },
 ];
 
-export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
+export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [presetId, setPresetId] = useState<string>('teletalk');
 
   // Photo state
@@ -133,7 +140,13 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ছবি প্রসেস করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'ছবি প্রসেস করা যায়নি।'
+          : 'Failed to process photo.'
+      );
     } finally {
       setIsProcessing('none');
     }
@@ -159,7 +172,13 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'স্বাক্ষর প্রসেস করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'স্বাক্ষর প্রসেস করা যায়নি।'
+          : 'Failed to process signature.'
+      );
     } finally {
       setIsProcessing('none');
     }
@@ -197,7 +216,13 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ফাইল প্রসেস করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'ফাইল প্রসেস করা যায়নি।'
+          : 'Failed to process files.'
+      );
     } finally {
       setIsProcessing('none');
     }
@@ -206,15 +231,21 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="সরকারি আবেদনের ছবি ও স্বাক্ষর"
-        subtitle="চাকরি বা ভর্তির অনলাইন আবেদনে চাওয়া মাপে ছবি (৩০০×৩০০) ও স্বাক্ষর (৩০০×৮০) — KB সীমাসহ, একটা বা অনেকগুলো একসাথে।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'সরকারি আবেদনের ছবি ও স্বাক্ষর' : 'Govt Job Photo & Signature'}
+        subtitle={
+          isBn
+            ? 'চাকরি বা ভর্তির অনলাইন আবেদনে চাওয়া মাপে ছবি (৩০০×৩০০) ও স্বাক্ষর (৩০০×৮০) — KB সীমাসহ, একটা বা অনেকগুলো একসাথে।'
+            : 'Prepare exact-size photos (300×300 px) and signatures (300×80 px) with strict KB limits for online job & admission portals — single or bulk.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
       {/* Step 1: Presets */}
       <div className="glass-panel rounded-2xl p-4 sm:p-5 space-y-3 mb-4">
-        <div className="text-sm font-extrabold text-slate-900 dark:text-white">১. কোন আবেদন?</div>
+        <div className="text-sm font-extrabold text-slate-900 dark:text-white">
+          {isBn ? '১. কোন আবেদন?' : '1. Choose Portal Preset'}
+        </div>
         <div className="flex flex-wrap gap-2">
           {GOVT_PRESETS.map((p) => {
             const active = presetId === p.id;
@@ -229,7 +260,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                     : 'glass-tile text-slate-700 dark:text-slate-200'
                 }`}
               >
-                {p.label}
+                {isBn ? p.labelBn : p.labelEn}
               </button>
             );
           })}
@@ -238,29 +269,37 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
         <div className="rounded-xl px-3.5 py-2.5 bg-amber-50/90 dark:bg-amber-500/10 border border-amber-300/70 dark:border-amber-400/30 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
           <Star className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
           <span>
-            আবেদনের সার্কুলারে যে মাপ ও KB লেখা আছে সেটাই চূড়ান্ত। নিচের মাপ আগে থেকে বসানো আছে,
-            ঘরে নিজে বদলে নিতে পারবেন।
+            {isBn
+              ? 'আবেদনের সার্কুলারে যে মাপ ও KB লেখা আছে সেটাই চূড়ান্ত। নিচের মাপ আগে থেকে বসানো আছে, ঘরে নিজে বদলে নিতে পারবেন।'
+              : 'Always follow the exact dimensions and KB limit stated in your official circular. Default values are prefilled below and can be customized anytime.'}
           </span>
         </div>
       </div>
 
       {/* Step 2 & 3: Separate Photo & Signature Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Card 2: ছবি */}
+        {/* Card 2: Photo */}
         <div className="glass-panel rounded-2xl p-4 sm:p-5 space-y-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 text-white flex items-center justify-center shadow-sm">
               <ImageIcon className="w-4 h-4" />
             </div>
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">২. ছবি</h2>
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
+              {isBn ? '২. ছবি' : '2. Photo'}
+            </h2>
           </div>
 
           <FileDropzone
+            lang={lang}
             accept="image/*"
             multiple
             compact
-            title="ছবি বেছে নিন"
-            subtitle="টেনে ছাড়ুন · একসাথে অনেকগুলোও চলে"
+            title={isBn ? 'ছবি বেছে নিন' : 'Select Photo(s)'}
+            subtitle={
+              isBn
+                ? 'টেনে ছাড়ুন · একসাথে অনেকগুলোও চলে'
+                : 'Drag & drop · multiple files supported'
+            }
             files={photoFiles}
             onAddFiles={(newFiles) =>
               setPhotoFiles((prev) => [...prev, ...createFileItems(newFiles, 'image')])
@@ -271,7 +310,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block">
-              মাপ ও সর্বোচ্চ সাইজ
+              {isBn ? 'মাপ ও সর্বোচ্চ সাইজ' : 'Dimensions & Max File Size'}
             </label>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <input
@@ -291,7 +330,9 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                 onChange={(e) => setPhotoH(Math.max(20, Number(e.target.value) || 0))}
                 className="glass-input w-20 px-2.5 py-2 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <span className="font-semibold text-slate-600 dark:text-slate-300">px, সর্বোচ্চ</span>
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                {isBn ? 'px, সর্বোচ্চ' : 'px, max'}
+              </span>
               <input
                 type="number"
                 min={5}
@@ -306,7 +347,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
 
           <div className="space-y-1.5">
             <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-              ছবি কীভাবে বসবে
+              {isBn ? 'ছবি কীভাবে বসবে' : 'Image Fit Mode'}
             </div>
             <div className="flex flex-wrap gap-2">
               <label
@@ -323,7 +364,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                   onChange={() => setPhotoFit('crop')}
                   className="accent-blue-600"
                 />
-                <span>ঠিক মাপে ক্রপ</span>
+                <span>{isBn ? 'ঠিক মাপে ক্রপ' : 'Exact Center Crop'}</span>
               </label>
               <label
                 className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition ${
@@ -339,7 +380,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                   onChange={() => setPhotoFit('contain')}
                   className="accent-blue-600"
                 />
-                <span>পুরোটা আঁটান (সাদা ফাঁকা)</span>
+                <span>{isBn ? 'পুরোটা আঁটান (সাদা ফাঁকা)' : 'Fit Full Image (White Pad)'}</span>
               </label>
             </div>
           </div>
@@ -351,25 +392,32 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
             className="glass-btn-primary px-5 py-2.5 rounded-xl text-white text-xs font-bold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
           >
             {isProcessing === 'photo' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            <span>ছবি তৈরি করুন</span>
+            <span>{isBn ? 'ছবি তৈরি করুন' : 'Generate Photo'}</span>
           </button>
         </div>
 
-        {/* Card 3: স্বাক্ষর */}
+        {/* Card 3: Signature */}
         <div className="glass-panel rounded-2xl p-4 sm:p-5 space-y-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-sm">
               <PenTool className="w-4 h-4" />
             </div>
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">৩. স্বাক্ষর</h2>
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
+              {isBn ? '৩. স্বাক্ষর' : '3. Signature'}
+            </h2>
           </div>
 
           <FileDropzone
+            lang={lang}
             accept="image/*"
             multiple
             compact
-            title="স্বাক্ষর বেছে নিন"
-            subtitle="টেনে ছাড়ুন · একসাথে অনেকগুলোও চলে"
+            title={isBn ? 'স্বাক্ষর বেছে নিন' : 'Select Signature(s)'}
+            subtitle={
+              isBn
+                ? 'টেনে ছাড়ুন · একসাথে অনেকগুলোও চলে'
+                : 'Drag & drop · multiple files supported'
+            }
             files={signFiles}
             onAddFiles={(newFiles) =>
               setSignFiles((prev) => [...prev, ...createFileItems(newFiles, 'image')])
@@ -380,7 +428,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-200 block">
-              মাপ ও সর্বোচ্চ সাইজ
+              {isBn ? 'মাপ ও সর্বোচ্চ সাইজ' : 'Dimensions & Max File Size'}
             </label>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <input
@@ -400,7 +448,9 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                 onChange={(e) => setSignH(Math.max(20, Number(e.target.value) || 0))}
                 className="glass-input w-20 px-2.5 py-2 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <span className="font-semibold text-slate-600 dark:text-slate-300">px, সর্বোচ্চ</span>
+              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                {isBn ? 'px, সর্বোচ্চ' : 'px, max'}
+              </span>
               <input
                 type="number"
                 min={5}
@@ -415,7 +465,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
 
           <div className="space-y-1.5">
             <div className="text-xs font-bold text-slate-700 dark:text-slate-200">
-              ছবি কীভাবে বসবে
+              {isBn ? 'ছবি কীভাবে বসবে' : 'Signature Fit Mode'}
             </div>
             <div className="flex flex-wrap gap-2">
               <label
@@ -432,7 +482,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                   onChange={() => setSignFit('crop')}
                   className="accent-blue-600"
                 />
-                <span>ঠিক মাপে ক্রপ</span>
+                <span>{isBn ? 'ঠিক মাপে ক্রপ' : 'Exact Center Crop'}</span>
               </label>
               <label
                 className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition ${
@@ -448,7 +498,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                   onChange={() => setSignFit('contain')}
                   className="accent-blue-600"
                 />
-                <span>পুরোটা আঁটান (সাদা ফাঁকা)</span>
+                <span>{isBn ? 'পুরোটা আঁটান (সাদা ফাঁকা)' : 'Fit Full Image (White Pad)'}</span>
               </label>
             </div>
           </div>
@@ -467,10 +517,16 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
                 onChange={(e) => setCleanSign(e.target.checked)}
                 className="accent-blue-600 w-3.5 h-3.5"
               />
-              <span>স্বাক্ষর পরিষ্কার করুন (কাগজ সাদা, কালি গাঢ়)</span>
+              <span>
+                {isBn
+                  ? 'স্বাক্ষর পরিষ্কার করুন (কাগজ সাদা, কালি গাঢ়)'
+                  : 'Clean Signature (Pure White Paper & Crisp Ink)'}
+              </span>
             </label>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              সাদা কাগজে কলমে স্বাক্ষর করে ফোনে ছবি তুললে এটা চালু রাখুন।
+              {isBn
+                ? 'সাদা কাগজে কলমে স্বাক্ষর করে ফোনে ছবি তুললে এটা চালু রাখুন।'
+                : 'Keep enabled if you photographed a pen signature on white paper with a phone camera.'}
             </p>
           </div>
 
@@ -481,7 +537,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
             className="glass-btn-primary px-5 py-2.5 rounded-xl text-white text-xs font-bold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
           >
             {isProcessing === 'sign' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            <span>স্বাক্ষর তৈরি করুন</span>
+            <span>{isBn ? 'স্বাক্ষর তৈরি করুন' : 'Generate Signature'}</span>
           </button>
         </div>
       </div>
@@ -499,10 +555,10 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
           ) : (
             <Sparkles className="w-4 h-4" />
           )}
-          <span>দুটোই প্রসেস করুন</span>
+          <span>{isBn ? 'দুটোই প্রসেস করুন' : 'Process Both'}</span>
         </button>
 
-        <BulkZipNotice />
+        <BulkZipNotice lang={lang} />
       </div>
 
       {error && (
@@ -512,6 +568,7 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Govt_Photo_Signature.zip"
         onClear={() => setResults([])}
@@ -521,18 +578,23 @@ export const GovtPhotoSignTool: React.FC<CommonToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 2. ছবি রিসাইজ (Image Resizer)
+// 2. Image Resizer
 // ============================================================================
 
-const RESIZE_PRESETS: { label: string; w: number; h: number }[] = [
-  { label: 'ছবি ৩০০×৩০০', w: 300, h: 300 },
-  { label: 'স্বাক্ষর ৩০০×৮০', w: 300, h: 80 },
-  { label: 'পাসপোর্ট ৩৫×৪৫ মিমি', w: 413, h: 531 },
-  { label: 'ফেসবুক ১০৮০×১০৮০', w: 1080, h: 1080 },
-  { label: 'ফেসবুক শেয়ার ১২০০×৬৩০', w: 1200, h: 630 },
+const RESIZE_PRESETS: { labelEn: string; labelBn: string; w: number; h: number }[] = [
+  { labelEn: 'Photo 300×300', labelBn: 'ছবি ৩০০×৩০০', w: 300, h: 300 },
+  { labelEn: 'Signature 300×80', labelBn: 'স্বাক্ষর ৩০০×৮০', w: 300, h: 80 },
+  { labelEn: 'Passport 35×45 mm', labelBn: 'পাসপোর্ট ৩৫×৪৫ মিমি', w: 413, h: 531 },
+  { labelEn: 'Facebook 1080×1080', labelBn: 'ফেসবুক ১০৮০×১০৮০', w: 1080, h: 1080 },
+  { labelEn: 'Facebook Share 1200×630', labelBn: 'ফেসবুক শেয়ার ১২০০×৬৩০', w: 1200, h: 630 },
 ];
 
-export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateTool }) => {
+export const ImageResizeTool: React.FC<CommonToolProps> = ({
+  lang = 'en',
+  onBack,
+  onNavigateTool,
+}) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [unit, setUnit] = useState<'px' | 'percent'>('px');
   const [widthStr, setWidthStr] = useState<string>('');
@@ -574,7 +636,13 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'রিসাইজ করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'রিসাইজ করতে সমস্যা হয়েছে।'
+          : 'Failed to resize images.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -583,9 +651,13 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
   return (
     <div>
       <ToolHeader
-        title="ছবি রিসাইজ"
-        subtitle="ছবির মাপ (পিক্সেল বা শতাংশ) বদলান — চাকরির আবেদনের ছবি ও স্বাক্ষরের মাপসহ রেডি সাইজ।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'ছবি রিসাইজ' : 'Resize Image'}
+        subtitle={
+          isBn
+            ? 'ছবির মাপ (পিক্সেল বা শতাংশ) বদলান — চাকরির আবেদনের ছবি ও স্বাক্ষরের মাপসহ রেডি সাইজ।'
+            : 'Change image dimensions by pixels or percentage, with ready presets for job applications, passports, and social posts.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -594,10 +666,15 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
           {/* Left: Dropzone */}
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="image/*"
               multiple
-              title="ছবি বেছে নিন"
-              subtitle="একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'ছবি বেছে নিন' : 'Choose Images'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple images at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'image')])
@@ -612,7 +689,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
             {/* Presets */}
             <div className="space-y-2">
               <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                রেডি মাপ
+                {isBn ? 'রেডি মাপ' : 'Quick Presets'}
               </div>
               <div className="flex flex-wrap gap-2">
                 {RESIZE_PRESETS.map((p) => {
@@ -620,7 +697,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                     unit === 'px' && widthStr === String(p.w) && heightStr === String(p.h);
                   return (
                     <button
-                      key={p.label}
+                      key={p.labelEn}
                       type="button"
                       onClick={() => {
                         setUnit('px');
@@ -633,33 +710,36 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                           : 'glass-tile text-slate-700 dark:text-slate-200'
                       }`}
                     >
-                      {p.label}
+                      {isBn ? p.labelBn : p.labelEn}
                     </button>
                   );
                 })}
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                সরকারি চাকরি/ভর্তির আবেদনের জন্য সরাসরি{' '}
+                {isBn ? 'সরকারি চাকরি/ভর্তির আবেদনের জন্য সরাসরি ' : 'For government job/admission portals, use the dedicated '}
                 {onNavigateTool ? (
                   <button
                     type="button"
                     onClick={() => onNavigateTool('govt-photo-sign')}
                     className="text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
                   >
-                    সরকারি আবেদনের ছবি ও স্বাক্ষর
+                    {isBn ? 'সরকারি আবেদনের ছবি ও স্বাক্ষর' : 'Govt Job Photo & Signature'}
                   </button>
                 ) : (
-                  <span className="font-bold">সরকারি আবেদনের ছবি ও স্বাক্ষর</span>
-                )}{' '}
-                টুল ব্যবহার করুন। আবেদনের বিজ্ঞপ্তিতে যে মাপ ও KB লেখা আছে, সেটাই নিজে লিখে দিন —
-                ওপরেরগুলো শুধু উদাহরণ।
+                  <span className="font-bold">
+                    {isBn ? 'সরকারি আবেদনের ছবি ও স্বাক্ষর' : 'Govt Job Photo & Signature'}
+                  </span>
+                )}
+                {isBn
+                  ? ' টুল ব্যবহার করুন। আবেদনের বিজ্ঞপ্তিতে যে মাপ ও KB লেখা আছে, সেটাই নিজে লিখে দিন — ওপরেরগুলো শুধু উদাহরণ।'
+                  : ' tool. Always verify exact dimensions and KB limits from your official circular.'}
               </p>
             </div>
 
             {/* Unit Radio */}
             <div className="space-y-1.5">
               <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                মাপের ধরন
+                {isBn ? 'মাপের ধরন' : 'Resize Unit'}
               </div>
               <div className="flex flex-wrap gap-2">
                 <label
@@ -676,7 +756,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                     onChange={() => setUnit('px')}
                     className="accent-blue-600"
                   />
-                  <span>পিক্সেল (px)</span>
+                  <span>{isBn ? 'পিক্সেল (px)' : 'Pixels (px)'}</span>
                 </label>
                 <label
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer ${
@@ -692,7 +772,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                     onChange={() => setUnit('percent')}
                     className="accent-blue-600"
                   />
-                  <span>শতাংশ (%)</span>
+                  <span>{isBn ? 'শতাংশ (%)' : 'Percentage (%)'}</span>
                 </label>
               </div>
             </div>
@@ -701,13 +781,13 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
             {unit === 'px' ? (
               <div className="space-y-1.5">
                 <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                  নতুন মাপ (px)
+                  {isBn ? 'নতুন মাপ (px)' : 'New Dimensions (px)'}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="number"
                     min={1}
-                    placeholder="চওড়া"
+                    placeholder={isBn ? 'চওড়া' : 'Width'}
                     value={widthStr}
                     onChange={(e) => setWidthStr(e.target.value)}
                     className="glass-input w-28 px-3 py-2 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -716,22 +796,24 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                   <input
                     type="number"
                     min={1}
-                    placeholder="উচ্চতা"
+                    placeholder={isBn ? 'উচ্চতা' : 'Height'}
                     value={heightStr}
                     onChange={(e) => setHeightStr(e.target.value)}
                     className="glass-input w-28 px-3 py-2 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  একটা ঘর ফাঁকা রাখলে অনুপাত ঠিক রেখে অন্যটা নিজে হিসাব হবে।
+                  {isBn
+                    ? 'একটা ঘর ফাঁকা রাখলে অনুপাত ঠিক রেখে অন্যটা নিজে হিসাব হবে।'
+                    : 'Leave one field blank to auto-calculate while preserving aspect ratio.'}
                 </p>
               </div>
             ) : (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                  <span>শতাংশ (%)</span>
+                  <span>{isBn ? 'শতাংশ (%)' : 'Scale Percentage (%)'}</span>
                   <span className="font-mono text-blue-600 dark:text-blue-400">
-                    {toBnDigits(percent)}%
+                    {fmtToolNum(percent, lang)}%
                   </span>
                 </div>
                 <input
@@ -751,9 +833,13 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
               <div className="flex flex-wrap gap-2">
                 {(
                   [
-                    { id: 'fit', label: 'ছোট করা (অনুপাত ঠিক)' },
-                    { id: 'crop', label: 'ঠিক মাপে ক্রপ' },
-                    { id: 'stretch', label: 'টেনে ঠিক মাপে' },
+                    {
+                      id: 'fit',
+                      labelEn: 'Fit (Keep Aspect)',
+                      labelBn: 'ছোট করা (অনুপাত ঠিক)',
+                    },
+                    { id: 'crop', labelEn: 'Exact Crop', labelBn: 'ঠিক মাপে ক্রপ' },
+                    { id: 'stretch', labelEn: 'Stretch to Exact', labelBn: 'টেনে ঠিক মাপে' },
                   ] as const
                 ).map((m) => (
                   <label
@@ -771,7 +857,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                       onChange={() => setFitMode(m.id)}
                       className="accent-blue-600"
                     />
-                    <span>{m.label}</span>
+                    <span>{isBn ? m.labelBn : m.labelEn}</span>
                   </label>
                 ))}
               </div>
@@ -781,13 +867,15 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div className="space-y-1.5">
                 <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                  সর্বোচ্চ ফাইল সাইজ (KB) — ইচ্ছা হলে
+                  {isBn
+                    ? 'সর্বোচ্চ ফাইল সাইজ (KB) — ইচ্ছা হলে'
+                    : 'Max File Size (KB) — Optional'}
                 </label>
                 <div className="flex items-center gap-2">
                   <input
                     type="number"
                     min={5}
-                    placeholder="যেমন ১০০"
+                    placeholder={isBn ? 'যেমন ১০০' : 'e.g. 100'}
                     value={maxKbStr}
                     onChange={(e) => setMaxKbStr(e.target.value)}
                     className="glass-input w-32 px-3 py-2 rounded-xl text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -798,7 +886,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
 
               <div className="space-y-1.5">
                 <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                  ফরম্যাট
+                  {isBn ? 'ফরম্যাট' : 'Format'}
                 </label>
                 <select
                   value={format}
@@ -806,7 +894,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                   className="glass-input w-full px-3 py-2 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value="original" className="text-slate-900">
-                    যেমন আছে
+                    {isBn ? 'যেমন আছে' : 'Keep Original'}
                   </option>
                   <option value="image/jpeg" className="text-slate-900">
                     JPG
@@ -823,7 +911,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
 
             <div className="flex items-center gap-3 max-w-sm">
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                কোয়ালিটি
+                {isBn ? 'কোয়ালিটি' : 'Quality'}
               </span>
               <input
                 type="range"
@@ -834,7 +922,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
                 className="flex-1 accent-blue-600 cursor-pointer"
               />
               <span className="text-xs font-mono font-extrabold text-slate-900 dark:text-white w-10 text-right tabular-nums">
-                {toBnDigits(quality)}%
+                {fmtToolNum(quality, lang)}%
               </span>
             </div>
 
@@ -845,13 +933,13 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>রিসাইজ করুন</span>
+              <span>{isBn ? 'রিসাইজ করুন' : 'Resize Images'}</span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice />
+          <BulkZipNotice lang={lang} />
         </div>
       </div>
 
@@ -862,6 +950,7 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Resized_Images.zip"
         onClear={() => setResults([])}
@@ -871,12 +960,13 @@ export const ImageResizeTool: React.FC<CommonToolProps> = ({ onBack, onNavigateT
 };
 
 // ============================================================================
-// 3. ছবির সাইজ কমান (Image Compressor - KB)
+// 3. Image Compressor (Target KB)
 // ============================================================================
 
 const QUICK_KB_TARGETS = [20, 50, 100, 200, 500];
 
-export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
+export const ImageCompressTool: React.FC<CommonToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [targetKb, setTargetKb] = useState<number>(100);
   const [format, setFormat] = useState<'image/jpeg' | 'image/webp' | 'image/png'>('image/jpeg');
@@ -895,7 +985,13 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'কমপ্রেস করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'কমপ্রেস করতে সমস্যা হয়েছে।'
+          : 'Failed to compress images.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -904,9 +1000,13 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="ছবির সাইজ কমান (KB)"
-        subtitle="৫০ KB, ১০০ KB, ২০০ KB — যত KB লাগে তত KB-তে ছবি নামান, কোয়ালিটি যতটা সম্ভব ভালো রেখে।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'ছবির সাইজ কমান (KB)' : 'Compress Image (KB)'}
+        subtitle={
+          isBn
+            ? '৫০ KB, ১০০ KB, ২০০ KB — যত KB লাগে তত KB-তে ছবি নামান, কোয়ালিটি যতটা সম্ভব ভালো রেখে।'
+            : 'Shrink images under 50 KB, 100 KB, 200 KB or any custom target size while preserving maximum visual clarity.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -914,10 +1014,15 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="image/*"
               multiple
-              title="ছবি বেছে নিন"
-              subtitle="একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'ছবি বেছে নিন' : 'Choose Images'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple images at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'image')])
@@ -930,7 +1035,7 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
           <div className="lg:col-span-7 space-y-4">
             <div className="space-y-2">
               <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                ছবি কত KB-র নিচে চান?
+                {isBn ? 'ছবি কত KB-র নিচে চান?' : 'Target File Size Under (KB)'}
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -956,7 +1061,7 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
                         : 'glass-tile text-slate-700 dark:text-slate-200'
                     }`}
                   >
-                    {toBnDigits(kb)} KB
+                    {fmtToolNum(kb, lang)} KB
                   </button>
                 ))}
               </div>
@@ -964,7 +1069,7 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
 
             <div className="space-y-1.5 max-w-xs">
               <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                ফরম্যাট
+                {isBn ? 'ফরম্যাট' : 'Output Format'}
               </label>
               <select
                 value={format}
@@ -972,10 +1077,10 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
                 className="glass-input w-full px-3 py-2.5 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
                 <option value="image/jpeg" className="text-slate-900">
-                  JPG (সবখানে চলে)
+                  {isBn ? 'JPG (সবখানে চলে)' : 'JPG (Universal Compatibility)'}
                 </option>
                 <option value="image/webp" className="text-slate-900">
-                  WebP (সবচেয়ে ছোট সাইজ)
+                  {isBn ? 'WebP (সবচেয়ে ছোট সাইজ)' : 'WebP (Smallest File Size)'}
                 </option>
                 <option value="image/png" className="text-slate-900">
                   PNG
@@ -990,13 +1095,13 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>সাইজ কমান</span>
+              <span>{isBn ? 'সাইজ কমান' : 'Compress Images'}</span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice />
+          <BulkZipNotice lang={lang} />
         </div>
       </div>
 
@@ -1007,6 +1112,7 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName={`NextStudio_Compressed_${targetKb}KB.zip`}
         onClear={() => setResults([])}
@@ -1016,10 +1122,11 @@ export const ImageCompressTool: React.FC<CommonToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 4. ছবি কনভার্ট (JPG / PNG / WebP Converter)
+// 4. Image Format Converter (JPG / PNG / WebP)
 // ============================================================================
 
-export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
+export const ImageConvertTool: React.FC<CommonToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [format, setFormat] = useState<'image/jpeg' | 'image/png' | 'image/webp'>('image/jpeg');
   const [quality, setQuality] = useState<number>(92);
@@ -1038,7 +1145,13 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
       }
       setResults(out);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'কনভার্ট করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'কনভার্ট করতে সমস্যা হয়েছে।'
+          : 'Failed to convert images.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -1047,9 +1160,13 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="ছবি কনভার্ট (JPG / PNG / WebP)"
-        subtitle="এক ফরম্যাট থেকে অন্য ফরম্যাটে — একসাথে অনেক ছবি।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'ছবি কনভার্ট (JPG / PNG / WebP)' : 'Convert Image (JPG / PNG / WebP)'}
+        subtitle={
+          isBn
+            ? 'এক ফরম্যাট থেকে অন্য ফরম্যাটে — একসাথে অনেক ছবি।'
+            : 'Convert images between JPG, PNG, and WebP formats in bulk.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -1057,10 +1174,15 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="image/*"
               multiple
-              title="ছবি বেছে নিন"
-              subtitle="একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'ছবি বেছে নিন' : 'Choose Images'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple images at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'image')])
@@ -1073,7 +1195,7 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
           <div className="lg:col-span-7 space-y-4">
             <div className="space-y-1.5 max-w-xs">
               <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                কোন ফরম্যাটে চান?
+                {isBn ? 'কোন ফরম্যাটে চান?' : 'Convert To Format'}
               </label>
               <select
                 value={format}
@@ -1095,7 +1217,7 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
             <div className="space-y-1 max-w-xs">
               <div className="flex items-center gap-3">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                  কোয়ালিটি
+                  {isBn ? 'কোয়ালিটি' : 'Quality'}
                 </span>
                 <input
                   type="range"
@@ -1107,11 +1229,13 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
                   className="flex-1 accent-blue-600 cursor-pointer disabled:opacity-40"
                 />
                 <span className="text-xs font-mono font-extrabold text-slate-900 dark:text-white w-10 text-right tabular-nums">
-                  {toBnDigits(quality)}%
+                  {fmtToolNum(quality, lang)}%
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                কোয়ালিটি শুধু JPG ও WebP-তে কাজ করে।
+                {isBn
+                  ? 'কোয়ালিটি শুধু JPG ও WebP-তে কাজ করে।'
+                  : 'Quality setting applies only to JPG and WebP formats.'}
               </p>
             </div>
 
@@ -1122,13 +1246,13 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
               className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
             >
               {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-              <span>কনভার্ট করুন</span>
+              <span>{isBn ? 'কনভার্ট করুন' : 'Convert Images'}</span>
             </button>
           </div>
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice />
+          <BulkZipNotice lang={lang} />
         </div>
       </div>
 
@@ -1139,6 +1263,7 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Converted_Images.zip"
         onClear={() => setResults([])}
@@ -1148,10 +1273,11 @@ export const ImageConvertTool: React.FC<CommonToolProps> = ({ onBack }) => {
 };
 
 // ============================================================================
-// 5. ছবি থেকে PDF (Image to PDF)
+// 5. Image to PDF
 // ============================================================================
 
-export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
+export const ImageToPdfTool: React.FC<CommonToolProps> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [pageMode, setPageMode] = useState<'a4' | 'image'>('a4');
   const [marginMm, setMarginMm] = useState<number>(10);
@@ -1190,13 +1316,23 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
           originalName: files[0].file.name,
           originalSize: totalOrig,
           blob,
-          infoText: `${toBnDigits(files.length)}টি ছবি · ${
-            pageMode === 'a4' ? 'A4 পাতা' : 'ছবির মাপে পাতা'
-          }`,
+          infoText: isBn
+            ? `${fmtToolNum(files.length, lang)}টি ছবি · ${
+                pageMode === 'a4' ? 'A4 পাতা' : 'ছবির মাপে পাতা'
+              }`
+            : `${files.length} image${files.length === 1 ? '' : 's'} · ${
+                pageMode === 'a4' ? 'A4 Page' : 'Image Size Page'
+              }`,
         },
       ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF তৈরি করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'PDF তৈরি করা যায়নি।'
+          : 'Failed to create PDF.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -1216,7 +1352,13 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
           originalName: item.file.name,
           originalSize: item.file.size,
           blob,
-          infoText: pageMode === 'a4' ? 'A4 পাতা' : 'ছবির মাপে পাতা',
+          infoText: isBn
+            ? pageMode === 'a4'
+              ? 'A4 পাতা'
+              : 'ছবির মাপে পাতা'
+            : pageMode === 'a4'
+            ? 'A4 Page'
+            : 'Image Size Page',
         });
       }
       setResults(out);
@@ -1227,7 +1369,13 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
         );
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'আলাদা PDF তৈরি করা যায়নি।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'আলাদা PDF তৈরি করা যায়নি।'
+          : 'Failed to create separate PDFs.'
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -1236,9 +1384,13 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
   return (
     <div>
       <ToolHeader
-        title="ছবি থেকে PDF"
-        subtitle="এক বা একাধিক ছবি জুড়ে একটা PDF — A4 পাতায় সাজানো, ক্রম বদলানো যায়।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={isBn ? 'ছবি থেকে PDF' : 'Image to PDF'}
+        subtitle={
+          isBn
+            ? 'এক বা একাধিক ছবি জুড়ে একটা PDF — A4 পাতায় সাজানো, ক্রম বদলানো যায়।'
+            : 'Combine one or multiple images into a single A4 or native-sized PDF with custom page ordering.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
@@ -1246,12 +1398,17 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <div className="lg:col-span-5">
             <FileDropzone
+              lang={lang}
               accept="image/*"
               multiple
               allowReorder
               onMoveFile={handleMove}
-              title="ছবি বেছে নিন"
-              subtitle="একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন"
+              title={isBn ? 'ছবি বেছে নিন' : 'Choose Images'}
+              subtitle={
+                isBn
+                  ? 'একসাথে অনেকগুলোও দিতে পারবেন · টেনে এনে ছাড়ুন'
+                  : 'Upload multiple images at once · drag & drop'
+              }
               files={files}
               onAddFiles={(newFiles) =>
                 setFiles((prev) => [...prev, ...createFileItems(newFiles, 'image')])
@@ -1264,7 +1421,7 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
           <div className="lg:col-span-7 space-y-4">
             <div className="space-y-1.5">
               <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                পাতার মাপ
+                {isBn ? 'পাতার মাপ' : 'Page Size'}
               </div>
               <div className="flex flex-wrap gap-2">
                 <label
@@ -1281,7 +1438,7 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
                     onChange={() => setPageMode('a4')}
                     className="accent-blue-600"
                   />
-                  <span>A4 (ছবি মাঝখানে বসবে)</span>
+                  <span>{isBn ? 'A4 (ছবি মাঝখানে বসবে)' : 'A4 (Centered)'}</span>
                 </label>
                 <label
                   className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer ${
@@ -1297,14 +1454,14 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
                     onChange={() => setPageMode('image')}
                     className="accent-blue-600"
                   />
-                  <span>ছবির মাপেই পাতা</span>
+                  <span>{isBn ? 'ছবির মাপেই পাতা' : 'Match Image Size'}</span>
                 </label>
               </div>
             </div>
 
             <div className="space-y-1.5 max-w-xs">
               <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                চারপাশে ফাঁকা (মার্জিন)
+                {isBn ? 'চারপাশে ফাঁকা (মার্জিন)' : 'Page Margin'}
               </label>
               <select
                 value={marginMm}
@@ -1312,23 +1469,25 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
                 className="glass-input w-full px-3 py-2.5 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
               >
                 <option value={0} className="text-slate-900">
-                  ০ মিমি (কোনো ফাঁকা নয়)
+                  {isBn ? '০ মিমি (কোনো ফাঁকা নয়)' : '0 mm (No Margin)'}
                 </option>
                 <option value={5} className="text-slate-900">
-                  ৫ মিমি
+                  {isBn ? '৫ মিমি' : '5 mm'}
                 </option>
                 <option value={10} className="text-slate-900">
-                  ১০ মিমি
+                  {isBn ? '১০ মিমি' : '10 mm'}
                 </option>
                 <option value={15} className="text-slate-900">
-                  ১৫ মিমি
+                  {isBn ? '১৫ মিমি' : '15 mm'}
                 </option>
                 <option value={20} className="text-slate-900">
-                  ২০ মিমি
+                  {isBn ? '২০ মিমি' : '20 mm'}
                 </option>
               </select>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                ছবির ক্রম বদলাতে তালিকার ↑ ↓ বোতাম চাপুন। প্রতিটা ছবি আলাদা পাতায় যাবে।
+                {isBn
+                  ? 'ছবির ক্রম বদলাতে তালিকার ↑ ↓ বোতাম চাপুন। প্রতিটা ছবি আলাদা পাতায় যাবে।'
+                  : 'Use the ↑ ↓ arrows in the list to reorder images. Each image becomes a separate page.'}
               </p>
             </div>
 
@@ -1340,7 +1499,7 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
                 className="glass-btn-primary px-6 py-2.5 rounded-xl text-white text-sm font-extrabold inline-flex items-center gap-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-                <span>PDF বানান</span>
+                <span>{isBn ? 'PDF বানান' : 'Create PDF'}</span>
               </button>
 
               {files.length > 1 && (
@@ -1351,7 +1510,7 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
                   className="glass-tile px-4 py-2.5 rounded-xl text-slate-800 dark:text-slate-100 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-45"
                 >
                   <Archive className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>প্রতিটি ছবি আলাদা PDF (ZIP)</span>
+                  <span>{isBn ? 'প্রতিটি ছবি আলাদা PDF (ZIP)' : 'Separate PDF per Image (ZIP)'}</span>
                 </button>
               )}
             </div>
@@ -1359,7 +1518,7 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice />
+          <BulkZipNotice lang={lang} />
         </div>
       </div>
 
@@ -1370,6 +1529,7 @@ export const ImageToPdfTool: React.FC<CommonToolProps> = ({ onBack }) => {
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Images_To_PDFs.zip"
         onClear={() => setResults([])}

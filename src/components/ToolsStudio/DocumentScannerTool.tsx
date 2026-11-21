@@ -45,9 +45,14 @@ import {
   downloadFilesAsZip,
   getBaseName,
   loadImageFromFile,
-  toBnDigits,
 } from '../../utils/toolsEngine';
-import { BulkZipNotice, ProcessedResultsList, ToolHeader } from './SharedToolUI';
+import {
+  BulkZipNotice,
+  ProcessedResultsList,
+  ToolHeader,
+  ToolsLang,
+  fmtToolNum,
+} from './SharedToolUI';
 
 interface ScannerPageDoc {
   id: string;
@@ -61,30 +66,74 @@ interface ScannerPageDoc {
 
 type DragTarget =
   | { kind: 'corner'; index: 0 | 1 | 2 | 3 }
-  | { kind: 'edge'; edge: 0 | 1 | 2 | 3; startClientX: number; startClientY: number; startQuad: DocumentQuad }
+  | {
+      kind: 'edge';
+      edge: 0 | 1 | 2 | 3;
+      startClientX: number;
+      startClientY: number;
+      startQuad: DocumentQuad;
+    }
   | null;
 
-const PAPER_SIZE_OPTIONS: { id: ScannerPaperSize; label: string; hint: string }[] = [
-  { id: 'a4-fit', label: 'A4 ফিট (প্রিন্ট রেডি)', hint: 'সাদা A4 কাগজে নিখুঁত ফিট' },
-  { id: 'auto', label: 'ডকুমেন্টের নিজস্ব মাপ (অটো)', hint: 'ছবির আসল অনুপাতে অটো সাইজ' },
-  { id: 'a4-fill', label: 'A4 সম্পূর্ণ ভরাট', hint: 'পুরো A4 পাতা জুড়ে ফিট' },
-  { id: 'legal-fit', label: 'লিগ্যাল (Legal)', hint: 'দলিল ও লম্বা কাগজের মাপ' },
-  { id: 'a5-fit', label: 'A5 (রসিদ / মেমো)', hint: 'বিল ও ছোট রসিদের মাপ' },
+const PAPER_SIZE_OPTIONS: {
+  id: ScannerPaperSize;
+  labelEn: string;
+  labelBn: string;
+  hintEn: string;
+  hintBn: string;
+}[] = [
+  {
+    id: 'a4-fit',
+    labelEn: 'A4 Fit (Print Ready)',
+    labelBn: 'A4 ফিট (প্রিন্ট রেডি)',
+    hintEn: 'Clean centered fit on pure white A4 sheet',
+    hintBn: 'সাদা A4 কাগজে নিখুঁত ফিট',
+  },
+  {
+    id: 'auto',
+    labelEn: 'Auto (Document Own Size)',
+    labelBn: 'ডকুমেন্টের নিজস্ব মাপ (অটো)',
+    hintEn: 'Auto paper aspect matching the cropped photo',
+    hintBn: 'ছবির আসল অনুপাতে অটো সাইজ',
+  },
+  {
+    id: 'a4-fill',
+    labelEn: 'A4 Full Page Fill',
+    labelBn: 'A4 সম্পূর্ণ ভরাট',
+    hintEn: 'Fills entire A4 printable area edge-to-edge',
+    hintBn: 'পুরো A4 পাতা জুড়ে ফিট',
+  },
+  {
+    id: 'legal-fit',
+    labelEn: 'Legal Paper',
+    labelBn: 'লিগ্যাল (Legal)',
+    hintEn: 'Long legal / deed document size',
+    hintBn: 'দলিল ও লম্বা কাগজের মাপ',
+  },
+  {
+    id: 'a5-fit',
+    labelEn: 'A5 (Receipt / Cash Memo)',
+    labelBn: 'A5 (রসিদ / মেমো)',
+    hintEn: 'Ideal for bills, memos & half-A4 receipts',
+    hintBn: 'বিল ও ছোট রসিদের মাপ',
+  },
 ];
 
 const MARGIN_OPTIONS = [0, 4, 8, 12];
 
-export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+export const DocumentScannerTool: React.FC<{
+  lang?: ToolsLang;
+  onBack: () => void;
+}> = ({ lang = 'en', onBack }) => {
+  const isBn = lang === 'bn';
   const [pages, setPages] = useState<ScannerPageDoc[]>([]);
   const [activeIndex, setActiveIndex] = useState<number>(0);
   const [step, setStep] = useState<'crop' | 'enhance'>('crop');
   const [isScanningAnim, setIsScanningAnim] = useState(false);
 
-  // Loaded rotated source canvas for the active page (preview resolution up to 1400px for silky interaction)
   const [sourceCanvas, setSourceCanvas] = useState<HTMLCanvasElement | null>(null);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string>('');
 
-  // Rectified (post-perspective warp) canvas for enhance step + filter thumbs
   const [rectifiedPreviewCanvas, setRectifiedPreviewCanvas] = useState<HTMLCanvasElement | null>(
     null
   );
@@ -96,22 +145,18 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     h: 0,
   });
 
-  // Interactive Compare split state (in enhance step)
   const [compareActive, setCompareActive] = useState(false);
   const [compareSplit, setCompareSplit] = useState(50);
   const compareContainerRef = useRef<HTMLDivElement>(null);
   const isDraggingCompareRef = useRef(false);
 
-  // Cropper drag & precision magnifier state
   const cropStageRef = useRef<HTMLDivElement>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
   const [loupePoint, setLoupePoint] = useState<NormPoint | null>(null);
   const loupeCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Fine-tune panel toggle on mobile/desktop
   const [showFineTune, setShowFineTune] = useState(false);
 
-  // Upload & Export busy states
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDraggingUpload, setIsDraggingUpload] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
@@ -122,7 +167,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
 
   const activePage = pages[activeIndex] ?? null;
 
-  // Clean up object URLs on unmount
   useEffect(() => {
     return () => {
       pages.forEach((p) => URL.revokeObjectURL(p.thumbUrl));
@@ -130,7 +174,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load files & automatically detect document 4-corner quad for each uploaded photo
   const handleAddFiles = async (incoming: File[]) => {
     const imageFiles = incoming.filter((f) => f.type.startsWith('image/'));
     if (imageFiles.length === 0) return;
@@ -167,13 +210,16 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
       setStep('crop');
       setCompareActive(false);
     } catch {
-      setErrorMsg('ছবি লোড করতে সমস্যা হয়েছে। অনুগ্রহ করে JPG, PNG বা WebP ফাইল দিন।');
+      setErrorMsg(
+        isBn
+          ? 'ছবি লোড করতে সমস্যা হয়েছে। অনুগ্রহ করে JPG, PNG বা WebP ফাইল দিন।'
+          : 'Could not load image. Please upload a valid JPG, PNG, or WebP file.'
+      );
     } finally {
       setIsLoadingFiles(false);
     }
   };
 
-  // Update active page helper
   const updateActivePage = useCallback(
     (updater: (prev: ScannerPageDoc) => ScannerPageDoc) => {
       setPages((prev) => prev.map((p, i) => (i === activeIndex ? updater(p) : p)));
@@ -181,7 +227,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     [activeIndex]
   );
 
-  // Build rotated source canvas whenever active page file or rotation changes
   useEffect(() => {
     let cancelled = false;
     if (!activePage) {
@@ -202,7 +247,11 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
         setSourceCanvas(rotCanvas);
         setSourcePreviewUrl(rotCanvas.toDataURL('image/jpeg', 0.9));
       } catch {
-        if (!cancelled) setErrorMsg('ছবি প্রিভিউ তৈরি করতে ব্যর্থ হয়েছে।');
+        if (!cancelled) {
+          setErrorMsg(
+            isBn ? 'ছবি প্রিভিউ তৈরি করতে ব্যর্থ হয়েছে।' : 'Failed to render image preview.'
+          );
+        }
       }
     })();
 
@@ -212,7 +261,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePage?.id, activePage?.rotation]);
 
-  // Draw live 2.5x Magnifier Loupe whenever dragging a corner
   useEffect(() => {
     const loupe = loupeCanvasRef.current;
     if (!loupe || !loupePoint || !sourceCanvas) return;
@@ -222,7 +270,10 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
 
     const size = loupe.width;
     const zoom = 2.6;
-    const sampleSize = Math.max(40, Math.round(Math.min(sourceCanvas.width, sourceCanvas.height) / (zoom * 2.2)));
+    const sampleSize = Math.max(
+      40,
+      Math.round(Math.min(sourceCanvas.width, sourceCanvas.height) / (zoom * 2.2))
+    );
     const cx = loupePoint.x * sourceCanvas.width;
     const cy = loupePoint.y * sourceCanvas.height;
 
@@ -242,7 +293,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
       size
     );
 
-    // Precision crosshair
     ctx.strokeStyle = '#14b8a6';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -261,20 +311,17 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     ctx.stroke();
   }, [loupePoint, sourceCanvas]);
 
-  // Trigger perspective warp + scan beam animation when moving from Crop -> Enhance
   const handleProceedToScan = () => {
     if (!sourceCanvas || !activePage) return;
 
     setIsScanningAnim(true);
     setCompareActive(false);
 
-    // Compute warped rectified preview canvas immediately
     window.setTimeout(() => {
       const warped = warpPerspectiveCanvas(sourceCanvas, activePage.quad, 1180);
       setRectifiedPreviewCanvas(warped);
       setOriginalRectifiedUrl(warped.toDataURL('image/jpeg', 0.92));
 
-      // Generate live filter thumbnails (fast 150px thumbnails so every filter shows the user's real document!)
       const thumbScale = Math.min(1, 150 / Math.max(warped.width, warped.height));
       const tw = Math.max(40, Math.round(warped.width * thumbScale));
       const th = Math.max(40, Math.round(warped.height * thumbScale));
@@ -300,7 +347,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     }, 180);
   };
 
-  // If user switches active page while already on 'enhance', automatically rectify the newly selected page
   useEffect(() => {
     if (step !== 'enhance' || !sourceCanvas || !activePage) return;
 
@@ -325,7 +371,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePage?.id, activePage?.rotation, sourceCanvas]);
 
-  // Live filter + paper composition update in Enhance mode
   useEffect(() => {
     if (step !== 'enhance' || !rectifiedPreviewCanvas || !activePage) return;
 
@@ -338,7 +383,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
         activePage.options.sharpness
       );
 
-      // For fast live preview, compose paper at preview scale (not full 3000px) so slider feel is instant
       const previewPaper = composePreviewPaper(
         enhanced,
         activePage.options.paperSize,
@@ -347,7 +391,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
 
       setEnhancedPreviewUrl(previewPaper.toDataURL('image/jpeg', 0.93));
 
-      // Compute exact Full HD output dimensions for display readout
       const spec = getScannerPaperSpec(
         activePage.options.paperSize,
         rectifiedPreviewCanvas.width,
@@ -368,7 +411,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     activePage?.options.marginMm,
   ]);
 
-  // Preview paper composer (keeps live preview snappy around ~1100px while preserving exact A4/Legal/A5/Auto proportions)
   const composePreviewPaper = (
     docCanvas: HTMLCanvasElement,
     paperSize: ScannerPaperSize,
@@ -407,10 +449,9 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     return out;
   };
 
-  // Rotate active page 90 deg left or right & re-detect auto quad
   const handleRotate = async (delta: -90 | 90) => {
     if (!activePage) return;
-    const nextRot = ((activePage.rotation + delta) % 360 + 360) % 360;
+    const nextRot = (((activePage.rotation + delta) % 360) + 360) % 360;
     try {
       const img = await loadImageFromFile(activePage.file);
       const rotCanvas = getRotatedSourceCanvas(img, nextRot, 900);
@@ -426,7 +467,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     }
   };
 
-  // Toggle between Auto Detected Quad and Full Image ("All")
   const isFullQuad = useMemo(() => {
     if (!activePage) return false;
     return activePage.quad.every(
@@ -446,7 +486,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     }));
   };
 
-  // Pointer handlers for 4 corners and 4 edge midpoints
   const handleCropPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragTarget || !cropStageRef.current || !activePage) return;
     const rect = cropStageRef.current.getBoundingClientRect();
@@ -490,7 +529,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     setLoupePoint(null);
   };
 
-  // Compare split bar pointer drag
   const updateCompareFromEvent = (clientX: number) => {
     const el = compareContainerRef.current;
     if (!el) return;
@@ -499,14 +537,12 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     setCompareSplit(pct);
   };
 
-  // Apply active page's filter & paper size to ALL pages in the batch
   const handleApplyOptionsToAll = () => {
     if (!activePage || pages.length <= 1) return;
     const shared = { ...activePage.options };
     setPages((prev) => prev.map((p) => ({ ...p, options: { ...shared } })));
   };
 
-  // Remove a page
   const handleRemovePage = (idx: number) => {
     const target = pages[idx];
     if (target) URL.revokeObjectURL(target.thumbUrl);
@@ -518,7 +554,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     });
   };
 
-  // Export 1: Full HD Image Download (single or bulk ZIP)
   const handleDownloadFullHdImages = async (allPages: boolean) => {
     const targets = allPages ? pages : activePage ? [activePage] : [];
     if (targets.length === 0) return;
@@ -530,9 +565,11 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
       const produced: ProcessedFileResult[] = [];
       for (let i = 0; i < targets.length; i++) {
         setExportStatus(
-          `Full HD প্রস্তুত হচ্ছে (${toBnDigits(i + 1)} / ${toBnDigits(targets.length)})...`
+          isBn
+            ? `Full HD প্রস্তুত হচ্ছে (${fmtToolNum(i + 1, lang)} / ${fmtToolNum(targets.length, lang)})...`
+            : `Preparing Full HD (${i + 1} / ${targets.length})...`
         );
-        const { result } = await renderFullHdScannedPage(targets[i]);
+        const { result } = await renderFullHdScannedPage(targets[i], lang);
         produced.push(result);
       }
       setResults(produced);
@@ -546,36 +583,40 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
         );
       }
     } catch {
-      setErrorMsg('হাই-কোয়ালিটি ছবি তৈরি করতে সমস্যা হয়েছে।');
+      setErrorMsg(
+        isBn
+          ? 'হাই-কোয়ালিটি ছবি তৈরি করতে সমস্যা হয়েছে।'
+          : 'Failed to generate Full HD image.'
+      );
     } finally {
       setIsExporting(false);
       setExportStatus('');
     }
   };
 
-  // Export 2: Print-Ready Multi-Page Full HD PDF
   const handleDownloadPdf = async () => {
     if (pages.length === 0) return;
     setIsExporting(true);
     setErrorMsg(null);
     try {
-      setExportStatus('Full HD প্রিন্ট-রেডি PDF তৈরি হচ্ছে...');
+      setExportStatus(
+        isBn ? 'Full HD প্রিন্ট-রেডি PDF তৈরি হচ্ছে...' : 'Building Full HD Print-Ready PDF...'
+      );
       const pdfName =
         pages.length === 1
           ? `${getBaseName(pages[0].file.name)}_scanned.pdf`
           : `NextStudio_Scanned_${pages.length}_Pages.pdf`;
-      const pdfRes = await buildScannedPdf(pages, pdfName);
+      const pdfRes = await buildScannedPdf(pages, pdfName, lang);
       downloadBlob(pdfRes.blob, pdfRes.name);
       setResults([pdfRes]);
     } catch {
-      setErrorMsg('PDF তৈরি করতে সমস্যা হয়েছে।');
+      setErrorMsg(isBn ? 'PDF তৈরি করতে সমস্যা হয়েছে।' : 'Failed to build PDF.');
     } finally {
       setIsExporting(false);
       setExportStatus('');
     }
   };
 
-  // Export 3: Instant Direct Print (1 or all pages on pure white Full HD paper)
   const handleDirectPrint = async (allPages: boolean) => {
     const targets = allPages ? pages : activePage ? [activePage] : [];
     if (targets.length === 0) return;
@@ -586,26 +627,31 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
       const rendered: { url: string; widthMm: number; heightMm: number }[] = [];
       for (let i = 0; i < targets.length; i++) {
         setExportStatus(
-          `প্রিন্টের জন্য প্রস্তুত হচ্ছে (${toBnDigits(i + 1)} / ${toBnDigits(targets.length)})...`
+          isBn
+            ? `প্রিন্টের জন্য প্রস্তুত হচ্ছে (${fmtToolNum(i + 1, lang)} / ${fmtToolNum(targets.length, lang)})...`
+            : `Preparing print (${i + 1} / ${targets.length})...`
         );
-        const { result, widthMm, heightMm } = await renderFullHdScannedPage(targets[i]);
+        const { result, widthMm, heightMm } = await renderFullHdScannedPage(targets[i], lang);
         if (result.previewUrl) {
           rendered.push({ url: result.previewUrl, widthMm, heightMm });
         }
       }
       printScannedPagesDirectly(rendered);
     } catch {
-      setErrorMsg('প্রিন্ট প্রিভিউ প্রস্তুত করতে সমস্যা হয়েছে।');
+      setErrorMsg(
+        isBn ? 'প্রিন্ট প্রিভিউ প্রস্তুত করতে সমস্যা হয়েছে।' : 'Failed to open print preview.'
+      );
     } finally {
       setIsExporting(false);
       setExportStatus('');
     }
   };
 
-  // Compute SVG overlay geometry for Crop step
   const quadSvgPoints = useMemo(() => {
     if (!activePage) return '';
-    return activePage.quad.map((p) => `${(p.x * 100).toFixed(3)},${(p.y * 100).toFixed(3)}`).join(' ');
+    return activePage.quad
+      .map((p) => `${(p.x * 100).toFixed(3)},${(p.y * 100).toFixed(3)}`)
+      .join(' ');
   }, [activePage]);
 
   const edgeMidpoints = useMemo(() => {
@@ -628,16 +674,23 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
     return getScannerPaperSpec(activePage.options.paperSize, refW, refH);
   }, [activePage, rectifiedPreviewCanvas, sourceCanvas]);
 
+  const activeFilterMeta = activePage
+    ? SCANNER_FILTERS.find((f) => f.id === activePage.options.filter)
+    : null;
+
   return (
     <div className="space-y-5">
       <ToolHeader
-        title="ডকুমেন্ট স্ক্যানার (CamScanner প্রো)"
-        subtitle="যেকোনো ডকুমেন্ট, বিল, রসিদ বা বইয়ের ছবি তুলুন বা আপলোড করুন — অটো বা ম্যানুয়াল ৪-কোনা ক্রপ করে ম্যাজিক প্রো ফিল্টারে সাদা Full HD কাগজে প্রিন্ট ও PDF তৈরি করুন।"
-        categoryLabel="ছবির টুলস"
+        title={isBn ? 'ডকুমেন্ট স্ক্যানার (CamScanner প্রো)' : 'Document Scanner (CamScanner Pro)'}
+        subtitle={
+          isBn
+            ? 'যেকোনো ডকুমেন্ট, বিল, রসিদ বা বইয়ের ছবি তুলুন বা আপলোড করুন — অটো বা ম্যানুয়াল ৪-কোনা ক্রপ করে ম্যাজিক প্রো ফিল্টারে সাদা Full HD কাগজে প্রিন্ট ও PDF তৈরি করুন।'
+            : 'Upload any document, receipt, bill, or photo — auto or manual 4-corner perspective crop with Magic Pro enhancement into a crisp white Full HD print-ready page or PDF.'
+        }
+        categoryLabel={isBn ? 'ছবির টুলস' : 'Image Tools'}
         onBack={onBack}
       />
 
-      {/* Hidden shared upload input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -650,7 +703,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
         className="hidden"
       />
 
-      {/* Empty State: Prominent Upload Dropzone */}
       {pages.length === 0 ? (
         <div className="glass-panel rounded-3xl p-5 sm:p-8 space-y-5">
           <div
@@ -679,11 +731,12 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
 
             <div className="space-y-1.5 max-w-lg">
               <h2 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white">
-                ডকুমেন্ট বা ছবির ফাইল আপলোড করুন
+                {isBn ? 'ডকুমেন্ট বা ছবির ফাইল আপলোড করুন' : 'Upload Document or Photo to Scan'}
               </h2>
               <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                মোবাইলে তোলা বাঁকা বা ছায়াযুক্ত ডকুমেন্ট, রসিদ, মেমো, সার্টিফিকেট বা ফর্মের ছবি দিন —
-                অটোমেটিক ৪-কোনা শনাক্ত করে সাদা ফুল-এইচডি প্রিন্ট পেজে রূপান্তর হবে।
+                {isBn
+                  ? 'মোবাইলে তোলা বাঁকা বা ছায়াযুক্ত ডকুমেন্ট, রসিদ, মেমো, সার্টিফিকেট বা ফর্মের ছবি দিন — অটোমেটিক ৪-কোনা শনাক্ত করে সাদা ফুল-এইচডি প্রিন্ট পেজে রূপান্তর হবে।'
+                  : 'Drop tilted or shadowed photos of documents, bills, certificates, or forms — corners are detected automatically and enhanced onto pure white Full HD pages.'}
               </p>
             </div>
 
@@ -696,28 +749,35 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
               className="glass-btn-emerald px-6 py-3 rounded-xl text-white text-sm font-bold inline-flex items-center gap-2 cursor-pointer"
             >
               <Upload className="w-4 h-4" />
-              <span>ছবি বাছুন (এক বা একাধিক পাতা)</span>
+              <span>
+                {isBn ? 'ছবি বাছুন (এক বা একাধিক পাতা)' : 'Choose Images (Single or Multi-Page)'}
+              </span>
             </button>
 
             <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 pt-1">
-              <span>অটো ও ম্যানুয়াল ৪-কোনা ক্রপ</span>
+              <span>{isBn ? 'অটো ও ম্যানুয়াল ৪-কোনা ক্রপ' : 'Auto & Manual 4-Corner Crop'}</span>
               <span aria-hidden="true">·</span>
-              <span>ম্যাজিক প্রো ও ম্যাজিক কালার</span>
+              <span>{isBn ? 'ম্যাজিক প্রো ও ম্যাজিক কালার' : 'Magic Pro & Magic Color'}</span>
               <span aria-hidden="true">·</span>
-              <span>A4 / অটো পেপার ফিট</span>
+              <span>{isBn ? 'A4 / অটো পেপার ফিট' : 'A4 / Auto Paper Fit'}</span>
               <span aria-hidden="true">·</span>
-              <span>১০০% অফলাইন</span>
+              <span>{isBn ? '১০০% অফলাইন' : '100% Offline'}</span>
             </div>
           </div>
 
-          <BulkZipNotice text="একসাথে অনেক পাতা আপলোড করে প্রতিটা পাতা স্ক্যান করে একত্রে Multi-Page PDF, ZIP বা সরাসরি প্রিন্ট করা যাবে।" />
+          <BulkZipNotice
+            lang={lang}
+            text={
+              isBn
+                ? 'একসাথে অনেক পাতা আপলোড করে প্রতিটা পাতা স্ক্যান করে একত্রে Multi-Page PDF, ZIP বা সরাসরি প্রিন্ট করা যাবে।'
+                : 'Upload multiple pages at once to scan, combine into a Multi-Page PDF, download as ZIP, or print directly.'
+            }
+          />
         </div>
       ) : (
-        /* Active CamScanner Studio Workbench */
         <div className="space-y-4">
           {/* Top Multi-Page & Step Navigation Bar */}
           <div className="glass-panel rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3">
-            {/* Step Segmented Switcher */}
             <div className="flex items-center gap-1 glass-track p-1 rounded-xl">
               <button
                 type="button"
@@ -729,7 +789,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                 }`}
               >
                 <Crop className="w-3.5 h-3.5" />
-                <span>১. ক্রপ ও কোনা ঠিক করুন</span>
+                <span>{isBn ? '১. ক্রপ ও কোনা ঠিক করুন' : '1. Crop & Perspective'}</span>
               </button>
               <button
                 type="button"
@@ -743,11 +803,10 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>২. ম্যাজিক ফিল্টার ও প্রিন্ট</span>
+                <span>{isBn ? '২. ম্যাজিক ফিল্টার ও প্রিন্ট' : '2. Magic Filters & Print'}</span>
               </button>
             </div>
 
-            {/* Page Strip + Add Page */}
             <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-full">
               {pages.map((p, idx) => {
                 const isSel = idx === activeIndex;
@@ -767,19 +826,19 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                     >
                       <img
                         src={p.thumbUrl}
-                        alt={`পাতা ${idx + 1}`}
+                        alt={isBn ? `পাতা ${idx + 1}` : `Page ${idx + 1}`}
                         className="w-7 h-7 rounded-lg object-cover border border-slate-200/80 dark:border-white/15 bg-white"
                       />
                       <span className="text-xs font-bold tabular-nums whitespace-nowrap">
-                        পাতা {toBnDigits(idx + 1)}
+                        {isBn ? `পাতা ${fmtToolNum(idx + 1, lang)}` : `Page ${idx + 1}`}
                       </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleRemovePage(idx)}
                       className="p-0.5 rounded-md text-slate-400 hover:text-red-500 cursor-pointer"
-                      title="পাতা বাদ দিন"
-                      aria-label="পাতা বাদ দিন"
+                      title={isBn ? 'পাতা বাদ দিন' : 'Remove page'}
+                      aria-label={isBn ? 'পাতা বাদ দিন' : 'Remove page'}
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -793,7 +852,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                 className="glass-tile px-3 py-1.5 rounded-xl text-xs font-bold text-blue-600 dark:text-blue-400 inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>আরও পাতা যোগ করুন</span>
+                <span>{isBn ? 'আরও পাতা যোগ করুন' : 'Add Pages'}</span>
               </button>
             </div>
           </div>
@@ -804,12 +863,9 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
             </div>
           )}
 
-          {/* =================================================================
-              STEP 1: CAMSCANNER 4-CORNER & 4-EDGE INTERACTIVE PERSPECTIVE CROP
-             ================================================================= */}
+          {/* STEP 1: PERSPECTIVE CROP */}
           {step === 'crop' && activePage && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-              {/* Left / Center: Dark CamScanner Crop Stage */}
               <div className="lg:col-span-8 glass-panel rounded-3xl overflow-hidden flex flex-col">
                 <div className="bg-slate-950 relative flex items-center justify-center p-4 sm:p-7 min-h-[420px] sm:min-h-[540px] select-none overflow-hidden">
                   {sourcePreviewUrl && sourceCanvas ? (
@@ -826,13 +882,12 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                     >
                       <img
                         src={sourcePreviewUrl}
-                        alt="ডকুমেন্ট ক্রপ প্রিভিউ"
+                        alt={isBn ? 'ডকুমেন্ট ক্রপ প্রিভিউ' : 'Document Crop Preview'}
                         draggable={false}
                         className="block w-full h-full object-contain pointer-events-none select-none rounded-sm"
                         style={{ maxHeight: '62vh' }}
                       />
 
-                      {/* Dimmed Outside Mask + Crisp Teal Perspective Border */}
                       <svg
                         viewBox="0 0 100 100"
                         preserveAspectRatio="none"
@@ -861,12 +916,11 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         />
                       </svg>
 
-                      {/* 4 Edge Midpoint Draggable Capsule Bars (Just like CamScanner!) */}
                       {edgeMidpoints.map((m) => (
                         <div
                           key={`edge-${m.edge}`}
                           role="slider"
-                          aria-label={`ধার ${m.edge + 1} সরান`}
+                          aria-label={isBn ? `ধার ${m.edge + 1} সরান` : `Move edge ${m.edge + 1}`}
                           aria-valuenow={Math.round(m.x * 100)}
                           onPointerDown={(e) => {
                             e.stopPropagation();
@@ -890,12 +944,11 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         </div>
                       ))}
 
-                      {/* 4 Corner Draggable Circular Handles */}
                       {activePage.quad.map((pt, idx) => (
                         <div
                           key={`corner-${idx}`}
                           role="slider"
-                          aria-label={`কোনা ${idx + 1} সরান`}
+                          aria-label={isBn ? `কোনা ${idx + 1} সরান` : `Move corner ${idx + 1}`}
                           aria-valuenow={Math.round(pt.x * 100)}
                           onPointerDown={(e) => {
                             e.stopPropagation();
@@ -919,7 +972,6 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         </div>
                       ))}
 
-                      {/* Glowing Scan Sweep Overlay during Transition */}
                       {isScanningAnim && (
                         <div className="absolute inset-0 z-40 pointer-events-none overflow-hidden bg-slate-950/20">
                           <div className="animate-scan-beam w-full h-24 bg-gradient-to-b from-transparent via-teal-400/45 to-white border-b-2 border-white shadow-[0_6px_28px_rgba(20,184,166,0.9)]" />
@@ -929,23 +981,29 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-slate-400 text-xs">
                       <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
-                      <span>ডকুমেন্ট প্রান্ত শনাক্ত হচ্ছে...</span>
+                      <span>
+                        {isBn ? 'ডকুমেন্ট প্রান্ত শনাক্ত হচ্ছে...' : 'Detecting document edges...'}
+                      </span>
                     </div>
                   )}
 
-                  {/* Precision 2.5x Circular Magnifier Loupe (Appears while dragging a corner) */}
                   {loupePoint && (
                     <div
                       className={`absolute top-4 z-50 w-28 h-28 rounded-full border-2 border-teal-400 shadow-2xl overflow-hidden bg-slate-900 pointer-events-none ${
                         loupePoint.x < 0.45 && loupePoint.y < 0.45 ? 'right-4' : 'left-4'
                       }`}
                     >
-                      <canvas ref={loupeCanvasRef} width={112} height={112} className="w-full h-full" />
+                      <canvas
+                        ref={loupeCanvasRef}
+                        width={112}
+                        height={112}
+                        className="w-full h-full"
+                      />
                     </div>
                   )}
                 </div>
 
-                {/* CamScanner-Style Dark Bottom Action Bar */}
+                {/* Bottom Action Bar */}
                 <div className="bg-slate-900 border-t border-white/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-white">
                   <div className="flex items-center gap-1 sm:gap-2">
                     <button
@@ -954,7 +1012,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       className="px-3 py-2 rounded-xl hover:bg-white/10 active:bg-white/15 flex flex-col sm:flex-row items-center gap-1.5 text-xs font-semibold cursor-pointer transition"
                     >
                       <RotateCcw className="w-4 h-4 text-slate-200" />
-                      <span>বামে ঘোরান</span>
+                      <span>{isBn ? 'বামে ঘোরান' : 'Left'}</span>
                     </button>
 
                     <button
@@ -963,7 +1021,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       className="px-3 py-2 rounded-xl hover:bg-white/10 active:bg-white/15 flex flex-col sm:flex-row items-center gap-1.5 text-xs font-semibold cursor-pointer transition"
                     >
                       <RotateCw className="w-4 h-4 text-slate-200" />
-                      <span>ডানে ঘোরান</span>
+                      <span>{isBn ? 'ডানে ঘোরান' : 'Right'}</span>
                     </button>
 
                     <button
@@ -972,7 +1030,15 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       className="px-3 py-2 rounded-xl hover:bg-white/10 active:bg-white/15 flex flex-col sm:flex-row items-center gap-1.5 text-xs font-semibold cursor-pointer transition"
                     >
                       <Maximize className="w-4 h-4 text-teal-400" />
-                      <span>{isFullQuad ? 'অটো বর্ডার' : 'সম্পূর্ণ ছবি'}</span>
+                      <span>
+                        {isFullQuad
+                          ? isBn
+                            ? 'অটো বর্ডার'
+                            : 'Auto Edge'
+                          : isBn
+                          ? 'সম্পূর্ণ ছবি'
+                          : 'All'}
+                      </span>
                     </button>
                   </div>
 
@@ -985,11 +1051,11 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                     {isScanningAnim ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>স্ক্যান হচ্ছে...</span>
+                        <span>{isBn ? 'স্ক্যান হচ্ছে...' : 'Scanning...'}</span>
                       </>
                     ) : (
                       <>
-                        <span>পরবর্তী (স্ক্যান করুন)</span>
+                        <span>{isBn ? 'পরবর্তী (স্ক্যান করুন)' : 'Next (Scan)'}</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -997,22 +1063,22 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                 </div>
               </div>
 
-              {/* Right Column: Clear Guidance & Paper Mode Quick Pre-Select */}
               <div className="lg:col-span-4 space-y-4">
                 <div className="glass-panel rounded-2xl p-4 sm:p-5 space-y-4">
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      স্মার্ট ৪-কোনা পার্সপেক্টিভ ক্রপ
+                      {isBn ? 'স্মার্ট ৪-কোনা পার্সপেক্টিভ ক্রপ' : 'Smart 4-Corner Perspective Crop'}
                     </h3>
                     <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
-                      ছবি আপলোডের সাথে সাথেই কাগজের ৪ কোনা অটোমেটিক ধরে নেওয়া হয়েছে। প্রয়োজনে যেকোনো
-                      সাদা গোল কোনা বা লম্বা ধারের বার টেনে কাগজের একদম কিনারায় মিলিয়ে নিন।
+                      {isBn
+                        ? 'ছবি আপলোডের সাথে সাথেই কাগজের ৪ কোনা অটোমেটিক ধরে নেওয়া হয়েছে। প্রয়োজনে যেকোনো সাদা গোল কোনা বা লম্বা ধারের বার টেনে কাগজের একদম কিনারায় মিলিয়ে নিন।'
+                        : 'Document boundaries are detected automatically upon upload. Drag any circular corner handle or edge bar to fine-tune the exact paper corners.'}
                     </p>
                   </div>
 
                   <div className="pt-3 border-t border-slate-900/8 dark:border-white/10 space-y-2.5">
                     <label className="text-xs font-bold text-slate-800 dark:text-slate-100 block">
-                      আউটপুট পেপার সাইজ বাছুন
+                      {isBn ? 'আউটপুট পেপার সাইজ বাছুন' : 'Select Output Paper Size'}
                     </label>
                     <div className="grid grid-cols-1 gap-1.5">
                       {PAPER_SIZE_OPTIONS.map((opt) => {
@@ -1034,12 +1100,16 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                             }`}
                           >
                             <div>
-                              <div className="text-xs font-bold">{opt.label}</div>
+                              <div className="text-xs font-bold">
+                                {isBn ? opt.labelBn : opt.labelEn}
+                              </div>
                               <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                {opt.hint}
+                                {isBn ? opt.hintBn : opt.hintEn}
                               </div>
                             </div>
-                            {selected && <Check className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />}
+                            {selected && (
+                              <Check className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                            )}
                           </button>
                         );
                       })}
@@ -1053,31 +1123,33 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                     className="w-full glass-btn-emerald py-3 rounded-xl text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <ScanLine className="w-4 h-4" />
-                    <span>স্ক্যান করে সাদা Full HD পেজ বানান</span>
+                    <span>
+                      {isBn
+                        ? 'স্ক্যান করে সাদা Full HD পেজ বানান'
+                        : 'Scan & Enhance to White Full HD'}
+                    </span>
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* =================================================================
-              STEP 2: CAMSCANNER MAGIC PRO / MAGIC COLOR ENHANCE, PAPER FIT & PRINT
-             ================================================================= */}
+          {/* STEP 2: ENHANCE, PAPER FIT & PRINT */}
           {step === 'enhance' && activePage && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-              {/* Left / Center: Full HD Scanned White Page + Live Thumbnail Filter Strip */}
               <div className="lg:col-span-8 glass-panel rounded-3xl overflow-hidden flex flex-col">
-                {/* Dark Studio Viewport with Top-Right Compare Toggle */}
                 <div className="bg-slate-950 relative flex flex-col items-center justify-center p-4 sm:p-7 min-h-[420px] sm:min-h-[520px] select-none">
-                  {/* Top Bar inside Dark Viewport */}
                   <div className="w-full flex items-center justify-between gap-2 mb-3">
                     <div className="text-[11px] text-slate-300 font-mono tabular-nums flex items-center gap-2">
-                      <span>{activePaperSpec?.labelBn}</span>
+                      <span>
+                        {isBn ? activePaperSpec?.labelBn : activePaperSpec?.labelEn}
+                      </span>
                       {previewDimensions.w > 0 && (
                         <>
                           <span aria-hidden="true">·</span>
                           <span>
-                            {toBnDigits(previewDimensions.w)}×{toBnDigits(previewDimensions.h)} px
+                            {fmtToolNum(previewDimensions.w, lang)}×
+                            {fmtToolNum(previewDimensions.h, lang)} px
                           </span>
                         </>
                       )}
@@ -1093,11 +1165,18 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       }`}
                     >
                       <Columns2 className="w-3.5 h-3.5" />
-                      <span>{compareActive ? 'তুলনা বন্ধ করুন' : 'আগে / পরে তুলনা'}</span>
+                      <span>
+                        {compareActive
+                          ? isBn
+                            ? 'তুলনা বন্ধ করুন'
+                            : 'Exit Compare'
+                          : isBn
+                          ? 'আগে / পরে তুলনা'
+                          : 'Compare'}
+                      </span>
                     </button>
                   </div>
 
-                  {/* Document Paper Sheet Preview */}
                   {enhancedPreviewUrl ? (
                     compareActive && originalRectifiedUrl ? (
                       <div
@@ -1116,26 +1195,23 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         }}
                         className="relative inline-block max-w-full cursor-ew-resize touch-none shadow-2xl rounded-sm overflow-hidden bg-white"
                       >
-                        {/* After (Full HD Enhanced) Base */}
                         <img
                           src={enhancedPreviewUrl}
-                          alt="স্ক্যান করা ডকুমেন্ট"
+                          alt={isBn ? 'স্ক্যান করা ডকুমেন্ট' : 'Scanned Document'}
                           draggable={false}
                           className="block max-w-full max-h-[56vh] object-contain pointer-events-none"
                         />
-                        {/* Before (Raw Cropped Original) Clipped Left */}
                         <div
                           className="absolute inset-0 overflow-hidden pointer-events-none"
                           style={{ clipPath: `inset(0 ${100 - compareSplit}% 0 0)` }}
                         >
                           <img
                             src={originalRectifiedUrl}
-                            alt="মূল ডকুমেন্ট"
+                            alt={isBn ? 'মূল ডকুমেন্ট' : 'Original Document'}
                             draggable={false}
                             className="w-full h-full object-contain bg-white"
                           />
                         </div>
-                        {/* Split Handle */}
                         <div
                           className="absolute top-0 bottom-0 w-0.5 bg-teal-400 shadow-[0_0_12px_rgba(20,184,166,0.9)] pointer-events-none"
                           style={{ left: `${compareSplit}%` }}
@@ -1145,17 +1221,19 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                           </div>
                         </div>
                         <span className="absolute bottom-2.5 left-2.5 px-2 py-0.5 rounded bg-black/70 text-[11px] font-bold text-white pointer-events-none">
-                          আগে (মূল ছবি)
+                          {isBn ? 'আগে (মূল ছবি)' : 'Before (Original)'}
                         </span>
                         <span className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-teal-600/90 text-[11px] font-bold text-white pointer-events-none">
-                          পরে ({SCANNER_FILTERS.find((f) => f.id === activePage.options.filter)?.labelBn})
+                          {isBn
+                            ? `পরে (${activeFilterMeta?.labelBn ?? ''})`
+                            : `After (${activeFilterMeta?.labelEn ?? ''})`}
                         </span>
                       </div>
                     ) : (
                       <div className="relative shadow-[0_22px_55px_-12px_rgba(0,0,0,0.85)] rounded-sm overflow-hidden bg-white">
                         <img
                           src={enhancedPreviewUrl}
-                          alt="স্ক্যান করা Full HD ডকুমেন্ট"
+                          alt={isBn ? 'স্ক্যান করা Full HD ডকুমেন্ট' : 'Scanned Full HD Document'}
                           className="block max-w-full max-h-[56vh] object-contain"
                         />
                         {isScanningAnim && (
@@ -1168,17 +1246,18 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                   ) : (
                     <div className="flex flex-col items-center gap-2 text-slate-400 text-xs">
                       <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
-                      <span>ফিল্টার প্রয়োগ হচ্ছে...</span>
+                      <span>{isBn ? 'ফিল্টার প্রয়োগ হচ্ছে...' : 'Applying filter...'}</span>
                     </div>
                   )}
                 </div>
 
-                {/* CamScanner Live Filter Thumbnail Carousel */}
+                {/* Live Filter Thumbnail Carousel */}
                 <div className="bg-slate-900 border-t border-white/10 px-3 sm:px-4 py-3 space-y-3">
                   <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar pb-0.5">
                     {SCANNER_FILTERS.map((f) => {
                       const isActive = activePage.options.filter === f.id;
                       const thumb = filterThumbs[f.id];
+                      const fLabel = isBn ? f.labelBn : f.labelEn;
                       return (
                         <button
                           key={f.id}
@@ -1199,7 +1278,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                             {thumb ? (
                               <img
                                 src={thumb}
-                                alt={f.labelBn}
+                                alt={fLabel}
                                 className="w-full h-full object-cover"
                               />
                             ) : (
@@ -1208,7 +1287,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                             {f.featured && (
                               <span
                                 className="absolute top-1 right-1 w-4 h-4 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center shadow"
-                                title="সেরা ডকুমেন্ট ফিল্টার"
+                                title={isBn ? 'সেরা ডকুমেন্ট ফিল্টার' : 'Recommended Document Filter'}
                               >
                                 <Star className="w-2.5 h-2.5 fill-current" />
                               </span>
@@ -1221,14 +1300,14 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                                 : 'bg-slate-800/95 text-slate-200 group-hover:text-white'
                             }`}
                           >
-                            {f.labelBn}
+                            {fLabel}
                           </div>
                         </button>
                       );
                     })}
                   </div>
 
-                  {/* Quick Secondary Tools Row under Filter Strip */}
+                  {/* Quick Secondary Tools Row */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-white">
                     <div className="flex items-center gap-1.5">
                       <button
@@ -1237,16 +1316,16 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
                       >
                         <Crop className="w-3.5 h-3.5 text-teal-400" />
-                        <span>পুনরায় ক্রপ</span>
+                        <span>{isBn ? 'পুনরায় ক্রপ' : 'Re-Crop'}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => void handleRotate(-90)}
                         className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-                        title="বামে ঘোরান"
+                        title={isBn ? 'বামে ঘোরান' : 'Rotate Left'}
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">ঘোরান</span>
+                        <span className="hidden sm:inline">{isBn ? 'ঘোরান' : 'Rotate'}</span>
                       </button>
                       <button
                         type="button"
@@ -1258,7 +1337,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         }`}
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
-                        <span>আলো / শার্পনেস</span>
+                        <span>{isBn ? 'আলো / শার্পনেস' : 'Adjustments'}</span>
                       </button>
                     </div>
 
@@ -1268,20 +1347,21 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                         onClick={handleApplyOptionsToAll}
                         className="px-3 py-1.5 rounded-lg bg-teal-500/20 hover:bg-teal-500/30 border border-teal-400/40 text-teal-200 text-xs font-bold cursor-pointer"
                       >
-                        সব পাতায় এই ফিল্টার ও পেপার দিন
+                        {isBn
+                          ? 'সব পাতায় এই ফিল্টার ও পেপার দিন'
+                          : 'Apply Filter & Paper to All Pages'}
                       </button>
                     )}
                   </div>
 
-                  {/* Collapsible Fine-Tune Sliders */}
                   {showFineTune && (
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-white/10 text-xs text-slate-200">
                       <label className="space-y-1">
                         <div className="flex justify-between">
-                          <span>উজ্বলতা (Brightness)</span>
+                          <span>{isBn ? 'উজ্জ্বলতা' : 'Brightness'}</span>
                           <span className="font-mono tabular-nums text-teal-300">
                             {activePage.options.brightness > 0 ? '+' : ''}
-                            {toBnDigits(activePage.options.brightness)}
+                            {fmtToolNum(activePage.options.brightness, lang)}
                           </span>
                         </div>
                         <input
@@ -1301,10 +1381,10 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
 
                       <label className="space-y-1">
                         <div className="flex justify-between">
-                          <span>কনট্রাস্ট (Contrast)</span>
+                          <span>{isBn ? 'কনট্রাস্ট' : 'Contrast'}</span>
                           <span className="font-mono tabular-nums text-teal-300">
                             {activePage.options.contrast > 0 ? '+' : ''}
-                            {toBnDigits(activePage.options.contrast)}
+                            {fmtToolNum(activePage.options.contrast, lang)}
                           </span>
                         </div>
                         <input
@@ -1324,9 +1404,9 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
 
                       <label className="space-y-1">
                         <div className="flex justify-between">
-                          <span>লেখার শার্পনেস</span>
+                          <span>{isBn ? 'লেখার শার্পনেস' : 'Text Sharpness'}</span>
                           <span className="font-mono tabular-nums text-teal-300">
-                            {toBnDigits(activePage.options.sharpness)}%
+                            {fmtToolNum(activePage.options.sharpness, lang)}%
                           </span>
                         </div>
                         <input
@@ -1348,17 +1428,16 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                 </div>
               </div>
 
-              {/* Right Column: Paper Size Auto-Fit, Quality, Direct Print & Download */}
+              {/* Right Column: Paper Size, Quality, Print & Download */}
               <div className="lg:col-span-4 space-y-4">
                 <div className="glass-panel rounded-2xl p-4 sm:p-5 space-y-4">
-                  {/* Paper Size Selector */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-extrabold text-slate-900 dark:text-white">
-                        পেপার সাইজ ও ফিট
+                        {isBn ? 'পেপার সাইজ ও ফিট' : 'Paper Size & Auto-Fit'}
                       </h3>
                       <span className="text-[11px] font-semibold text-teal-600 dark:text-teal-400">
-                        সাদা পেজে Full HD
+                        {isBn ? 'সাদা পেজে Full HD' : 'White Full HD'}
                       </span>
                     </div>
 
@@ -1382,9 +1461,11 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                             }`}
                           >
                             <div>
-                              <div className="text-xs font-bold">{opt.label}</div>
+                              <div className="text-xs font-bold">
+                                {isBn ? opt.labelBn : opt.labelEn}
+                              </div>
                               <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                {opt.hint}
+                                {isBn ? opt.hintBn : opt.hintEn}
                               </div>
                             </div>
                             {selected && (
@@ -1400,10 +1481,10 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                   <div className="pt-3 border-t border-slate-900/8 dark:border-white/10 space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-slate-800 dark:text-slate-100">
-                        কাগজের চারপাশে মার্জিন
+                        {isBn ? 'কাগজের চারপাশে মার্জিন' : 'Page Margin'}
                       </span>
                       <span className="font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                        {toBnDigits(activePage.options.marginMm)} mm
+                        {fmtToolNum(activePage.options.marginMm, lang)} mm
                       </span>
                     </div>
                     <div className="grid grid-cols-4 gap-1.5">
@@ -1423,16 +1504,16 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                               : 'glass-tile text-slate-700 dark:text-slate-200'
                           }`}
                         >
-                          {toBnDigits(mm)} mm
+                          {fmtToolNum(mm, lang)} mm
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  {/* Output Format (Lossless PNG vs Sharp JPG) */}
+                  {/* Output Format */}
                   <div className="pt-3 border-t border-slate-900/8 dark:border-white/10 space-y-2">
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block">
-                      ছবির কোয়ালিটি ফরম্যাট
+                      {isBn ? 'ছবির কোয়ালিটি ফরম্যাট' : 'Image Quality Format'}
                     </span>
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
@@ -1449,7 +1530,7 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                             : 'glass-tile text-slate-700 dark:text-slate-200'
                         }`}
                       >
-                        PNG (সর্বোচ্চ HD)
+                        {isBn ? 'PNG (সর্বোচ্চ HD)' : 'PNG (Lossless HD)'}
                       </button>
                       <button
                         type="button"
@@ -1465,12 +1546,12 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                             : 'glass-tile text-slate-700 dark:text-slate-200'
                         }`}
                       >
-                        JPG (৯৬% শার্প)
+                        {isBn ? 'JPG (৯৬% শার্প)' : 'JPG (96% Sharp)'}
                       </button>
                     </div>
                   </div>
 
-                  {/* Primary Action Buttons: Direct Print, PDF, Full HD Image */}
+                  {/* Primary Action Buttons */}
                   <div className="pt-3 border-t border-slate-900/8 dark:border-white/10 space-y-2.5">
                     <button
                       type="button"
@@ -1481,15 +1562,21 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       {isExporting ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>{exportStatus || 'প্রস্তুত হচ্ছে...'}</span>
+                          <span>
+                            {exportStatus || (isBn ? 'প্রস্তুত হচ্ছে...' : 'Preparing...')}
+                          </span>
                         </>
                       ) : (
                         <>
                           <Printer className="w-4 h-4" />
                           <span>
                             {pages.length > 1
-                              ? `সব পাতা সরাসরি প্রিন্ট করুন (${toBnDigits(pages.length)})`
-                              : 'সরাসরি প্রিন্ট করুন'}
+                              ? isBn
+                                ? `সব পাতা সরাসরি প্রিন্ট করুন (${fmtToolNum(pages.length, lang)})`
+                                : `Print All Pages Directly (${pages.length})`
+                              : isBn
+                              ? 'সরাসরি প্রিন্ট করুন'
+                              : 'Print Directly'}
                           </span>
                         </>
                       )}
@@ -1504,8 +1591,12 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       <FileDown className="w-4 h-4" />
                       <span>
                         {pages.length > 1
-                          ? `সব পাতা একত্রে PDF ডাউনলোড (${toBnDigits(pages.length)})`
-                          : 'প্রিন্ট-রেডি Full HD PDF ডাউনলোড'}
+                          ? isBn
+                            ? `সব পাতা একত্রে PDF ডাউনলোড (${fmtToolNum(pages.length, lang)})`
+                            : `Download Combined PDF (${pages.length} Pages)`
+                          : isBn
+                          ? 'প্রিন্ট-রেডি Full HD PDF ডাউনলোড'
+                          : 'Download Print-Ready Full HD PDF'}
                       </span>
                     </button>
 
@@ -1518,8 +1609,12 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
                       <Download className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       <span>
                         {pages.length > 1
-                          ? `সব পাতা Full HD ছবি (ZIP) ডাউনলোড`
-                          : 'Full HD ছবি ডাউনলোড করুন'}
+                          ? isBn
+                            ? 'সব পাতা Full HD ছবি (ZIP) ডাউনলোড'
+                            : 'Download All Full HD Images (ZIP)'
+                          : isBn
+                          ? 'Full HD ছবি ডাউনলোড করুন'
+                          : 'Download Full HD Image'}
                       </span>
                     </button>
                   </div>
@@ -1528,12 +1623,16 @@ export const DocumentScannerTool: React.FC<{ onBack: () => void }> = ({ onBack }
             </div>
           )}
 
-          {/* Exported Files History Panel */}
           <ProcessedResultsList
+            lang={lang}
             results={results}
             zipFileName="NextStudio_Scanned_Documents.zip"
             onClear={() => setResults([])}
-            title="স্ক্যান করা Full HD ডকুমেন্ট প্রস্তুত"
+            title={
+              isBn
+                ? 'স্ক্যান করা Full HD ডকুমেন্ট প্রস্তুত'
+                : 'Scanned Full HD Documents Ready'
+            }
           />
         </div>
       )}

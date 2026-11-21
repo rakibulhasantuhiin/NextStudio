@@ -20,7 +20,6 @@ import {
   getBaseName,
   loadImageFromFile,
   processImagesToPdf,
-  toBnDigits,
 } from '../../utils/toolsEngine';
 import {
   BrushStroke,
@@ -38,57 +37,82 @@ import {
   ProcessedResultsList,
   SelectedFileItem,
   ToolHeader,
+  ToolsLang,
   createFileItems,
+  fmtToolNum,
 } from './SharedToolUI';
 
 interface WatermarkRemoveToolProps {
+  lang?: ToolsLang;
   onBack: () => void;
 }
 
 type CanvasToolMode = 'compare' | 'erase' | 'restore' | 'pick-color';
 
-const REMOVAL_MODES: { id: WatermarkRemoveMode; label: string; hint: string }[] = [
+const REMOVAL_MODES: {
+  id: WatermarkRemoveMode;
+  labelEn: string;
+  labelBn: string;
+  hintEn: string;
+  hintBn: string;
+}[] = [
   {
     id: 'smart-doc',
-    label: 'স্মার্ট ডকুমেন্ট (সব ওয়াটারমার্ক)',
-    hint: 'হালকা লোগো, জলছাপ ও ধূসর ব্যাকগ্রাউন্ড সাদা করবে — লেখা একদম স্পষ্ট থাকবে।',
+    labelEn: 'Smart Document (All Watermarks)',
+    labelBn: 'স্মার্ট ডকুমেন্ট (সব ওয়াটারমার্ক)',
+    hintEn:
+      'Turns faint logos, text watermarks, and gray background cleanly white while keeping document text crisp.',
+    hintBn: 'হালকা লোগো, জলছাপ ও ধূসর ব্যাকগ্রাউন্ড সাদা করবে — লেখা একদম স্পষ্ট থাকবে।',
   },
   {
     id: 'colored-watermark',
-    label: 'রঙিন লোগো / ওয়াটারমার্ক মুছুন',
-    hint: 'ডকুমেন্টের পেছনের লাল, নীল, সবুজ বা রঙিন লোগো মুছে কালো লেখা অক্ষত রাখবে।',
+    labelEn: 'Remove Colored Logo / Watermark',
+    labelBn: 'রঙিন লোগো / ওয়াটারমার্ক মুছুন',
+    hintEn:
+      'Targets red, blue, green, or pastel colored logos behind documents while keeping black text intact.',
+    hintBn: 'ডকুমেন্টের পেছনের লাল, নীল, সবুজ বা রঙিন লোগো মুছে কালো লেখা অক্ষত রাখবে।',
   },
   {
     id: 'color-pick',
-    label: 'রং বাছাই করে মুছুন (আইড্রপার)',
-    hint: 'প্রিভিউ ছবির ওয়াটারমার্কের ওপর ক্লিক করে নির্দিষ্ট রং বাছুন — শুধু ঐ রঙের লোগো মুছবে।',
+    labelEn: 'Pick Watermark Color (Eyedropper)',
+    labelBn: 'রং বাছাই করে মুছুন (আইড্রপার)',
+    hintEn:
+      'Click directly on the watermark in the preview to sample its exact color and erase only that logo.',
+    hintBn:
+      'প্রিভিউ ছবির ওয়াটারমার্কের ওপর ক্লিক করে নির্দিষ্ট রং বাছুন — শুধু ঐ রঙের লোগো মুছবে।',
   },
   {
     id: 'deep-scan',
-    label: 'ডিপ স্ক্যান (ঝকঝকে কালো-সাদা)',
-    hint: 'ভারী ওয়াটারমার্ক বা ছায়াযুক্ত স্ক্যান কাগজকে একদম ঝকঝকে সাদা কাগজে কালো লেখা বানাবে।',
+    labelEn: 'Deep Scan (Crisp Black & White)',
+    labelBn: 'ডিপ স্ক্যান (ঝকঝকে কালো-সাদা)',
+    hintEn:
+      'Converts heavy watermarks or shadowed scans into spotless pure white paper with razor-sharp black text.',
+    hintBn:
+      'ভারী ওয়াটারমার্ক বা ছায়াযুক্ত স্ক্যান কাগজকে একদম ঝকঝকে সাদা কাগজে কালো লেখা বানাবে।',
   },
 ];
 
-export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack }) => {
+export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({
+  lang = 'en',
+  onBack,
+}) => {
+  const isBn = lang === 'bn';
   const [files, setFiles] = useState<SelectedFileItem[]>([]);
   const [activeFileIndex, setActiveFileIndex] = useState<number>(0);
   const [opts, setOpts] = useState<WatermarkRemoveOptions>(DEFAULT_WATERMARK_OPTIONS);
 
-  // Interactive preview state
   const [loadedImage, setLoadedImage] = useState<HTMLImageElement | null>(null);
   const [beforeUrl, setBeforeUrl] = useState<string>('');
   const [afterUrl, setAfterUrl] = useState<string>('');
   const [canvasTool, setCanvasTool] = useState<CanvasToolMode>('compare');
   const [splitPercent, setSplitPercent] = useState<number>(52);
-  const [brushSize, setBrushSize] = useState<number>(28); // visual px-equivalent mapped to norm
+  const [brushSize, setBrushSize] = useState<number>(28);
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
 
   const previewStageRef = useRef<HTMLDivElement>(null);
   const hiddenOrigCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const activeStrokeRef = useRef<BrushStroke | null>(null);
 
-  // Processing / export states
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
   const [isMakingPdf, setIsMakingPdf] = useState<boolean>(false);
@@ -97,7 +121,6 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
 
   const activeFileItem = files[activeFileIndex] || files[0] || null;
 
-  // Load currently selected file into HTMLImageElement for instant live preview
   useEffect(() => {
     let cancelled = false;
     if (!activeFileItem) {
@@ -114,7 +137,6 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
         if (cancelled) return;
         setLoadedImage(img);
 
-        // Prepare crisp preview-sized original canvas for before preview & eyedropper color sampling
         const maxDim = 1100;
         const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
         const pw = Math.max(1, Math.round(img.naturalWidth * scale));
@@ -130,7 +152,13 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
         setBeforeUrl(c.toDataURL('image/jpeg', 0.92));
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'ছবি প্রিভিউ লোড করা যায়নি।');
+          setError(
+            e instanceof Error
+              ? e.message
+              : isBn
+              ? 'ছবি প্রিভিউ লোড করা যায়নি।'
+              : 'Failed to load image preview.'
+          );
         }
       }
     })();
@@ -138,9 +166,8 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
     return () => {
       cancelled = true;
     };
-  }, [activeFileItem]);
+  }, [activeFileItem, isBn]);
 
-  // Re-render live cleaned preview smoothly whenever options change
   useEffect(() => {
     if (!loadedImage) {
       setAfterUrl('');
@@ -153,7 +180,6 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
     return () => window.clearTimeout(timer);
   }, [loadedImage, opts]);
 
-  // Helper to get normalized (0..1) coordinates inside the image stage
   const getNormalizedPoint = (clientX: number, clientY: number) => {
     const rect = previewStageRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return null;
@@ -162,7 +188,6 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
     return { x, y };
   };
 
-  // Sample exact RGB color from original image when clicking in 'pick-color' mode
   const handlePickColorAt = (nx: number, ny: number) => {
     const c = hiddenOrigCanvasRef.current;
     if (!c) return;
@@ -240,7 +265,6 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
     setCanvasTool('compare');
   };
 
-  // Process all uploaded files at 100% FULL native resolution (zero quality loss)
   const runFullResolutionProcess = async (): Promise<ProcessedFileResult[]> => {
     if (files.length === 0) return [];
     setError(null);
@@ -248,15 +272,20 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
     try {
       const out: ProcessedFileResult[] = [];
       for (let i = 0; i < files.length; i++) {
-        // Apply manual brush strokes only to the active previewed document so other bulk pages stay clean
         const fileOpts: WatermarkRemoveOptions =
           i === activeFileIndex ? opts : { ...opts, strokes: [] };
-        out.push(await processWatermarkRemovalFile(files[i].file, fileOpts));
+        out.push(await processWatermarkRemovalFile(files[i].file, fileOpts, lang));
       }
       setResults(out);
       return out;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ওয়াটারমার্ক রিমুভ করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error
+          ? e.message
+          : isBn
+          ? 'ওয়াটারমার্ক রিমুভ করতে সমস্যা হয়েছে।'
+          : 'Failed to remove watermark.'
+      );
       return [];
     } finally {
       setIsProcessing(false);
@@ -275,15 +304,18 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
     setIsPrinting(true);
     setError(null);
     try {
-      const out = results.length === files.length && results.length > 0
-        ? results
-        : await runFullResolutionProcess();
+      const out =
+        results.length === files.length && results.length > 0
+          ? results
+          : await runFullResolutionProcess();
       const urls = out.map((r) => r.previewUrl).filter((u): u is string => Boolean(u));
       if (urls.length > 0) {
         printCleanedDocumentsDirectly(urls);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'প্রিন্ট করতে সমস্যা হয়েছে।');
+      setError(
+        e instanceof Error ? e.message : isBn ? 'প্রিন্ট করতে সমস্যা হয়েছে।' : 'Failed to print.'
+      );
     } finally {
       setIsPrinting(false);
     }
@@ -306,7 +338,9 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
           : `NextStudio_Clean_Documents_${files.length}pages.pdf`;
       downloadBlob(pdfBlob, pdfName);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'PDF তৈরি করা যায়নি।');
+      setError(
+        e instanceof Error ? e.message : isBn ? 'PDF তৈরি করা যায়নি।' : 'Failed to create PDF.'
+      );
     } finally {
       setIsMakingPdf(false);
     }
@@ -317,19 +351,29 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
   return (
     <div>
       <ToolHeader
-        title="ওয়াটারমার্ক রিমুভ (ডকুমেন্ট পরিষ্কার)"
-        subtitle="ডকুমেন্ট বা ছবির পেছনের লোগো ও ওয়াটারমার্ক মুছে সাদা করুন — মূল লেখা ১০০% স্পষ্ট ও হাই-কোয়ালিটি থাকবে, সরাসরি ডাউনলোড বা প্রিন্ট করুন।"
-        categoryLabel="ছবি ও PDF টুলস"
+        title={
+          isBn ? 'ওয়াটারমার্ক রিমুভ (ডকুমেন্ট পরিষ্কার)' : 'Watermark Remover (Clean Document)'
+        }
+        subtitle={
+          isBn
+            ? 'ডকুমেন্ট বা ছবির পেছনের লোগো ও ওয়াটারমার্ক মুছে সাদা করুন — মূল লেখা ১০০% স্পষ্ট ও হাই-কোয়ালিটি থাকবে, সরাসরি ডাউনলোড বা প্রিন্ট করুন।'
+            : 'Remove logo and text watermarks behind documents cleanly to pure white — keeps text 100% sharp at full native resolution with instant download or direct print.'
+        }
+        categoryLabel={isBn ? 'ছবি ও PDF টুলস' : 'Image & PDF Tools'}
         onBack={onBack}
       />
 
       <div className="glass-panel rounded-2xl p-4 sm:p-6 space-y-5">
-        {/* Upload Zone */}
         <FileDropzone
+          lang={lang}
           accept="image/*"
           multiple
-          title="ডকুমেন্ট বা ছবি বেছে নিন"
-          subtitle="একসাথে অনেকগুলো ডকুমেন্ট দিতে পারবেন · ১০০% অফলাইন · মূল রেজোলিউশন অক্ষত থাকে"
+          title={isBn ? 'ডকুমেন্ট বা ছবি বেছে নিন' : 'Choose Documents or Images'}
+          subtitle={
+            isBn
+              ? 'একসাথে অনেকগুলো ডকুমেন্ট দিতে পারবেন · ১০০% অফলাইন · মূল রেজোলিউশন অক্ষত থাকে'
+              : 'Upload one or multiple files · 100% offline · Preserves full native resolution'
+          }
           files={files}
           onAddFiles={(newFiles) => {
             const added = createFileItems(newFiles, 'image');
@@ -355,11 +399,10 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
           }}
         />
 
-        {/* Multi-file Preview Selector Tabs (when 2+ files uploaded) */}
         {files.length > 1 && (
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0 mr-1">
-              প্রিভিউ ফাইল:
+              {isBn ? 'প্রিভিউ ফাইল:' : 'Preview file:'}
             </span>
             {files.map((f, idx) => (
               <button
@@ -375,21 +418,19 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                     : 'glass-tile text-slate-700 dark:text-slate-200'
                 }`}
               >
-                {toBnDigits(idx + 1)}. {f.file.name.slice(0, 22)}
+                {fmtToolNum(idx + 1, lang)}. {f.file.name.slice(0, 22)}
               </button>
             ))}
           </div>
         )}
 
-        {/* Interactive Workspace: Controls + Live Before/After Preview */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Controls (5 cols) */}
+          {/* Left Controls */}
           <div className="lg:col-span-5 space-y-4">
-            {/* Mode Selector */}
             <div className="space-y-2">
               <div className="text-xs font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span>ওয়াটারমার্ক রিমুভ মোড</span>
+                <span>{isBn ? 'ওয়াটারমার্ক রিমুভ মোড' : 'Watermark Removal Mode'}</span>
               </div>
               <div className="grid grid-cols-1 gap-1.5">
                 {REMOVAL_MODES.map((m) => {
@@ -409,23 +450,22 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                           : 'glass-tile text-slate-700 dark:text-slate-200'
                       }`}
                     >
-                      {m.label}
+                      {isBn ? m.labelBn : m.labelEn}
                     </button>
                   );
                 })}
               </div>
               {activeModeInfo && (
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  {activeModeInfo.hint}
+                  {isBn ? activeModeInfo.hintBn : activeModeInfo.hintEn}
                 </p>
               )}
             </div>
 
-            {/* Sampled Watermark Colors (in color-pick mode) */}
             {opts.mode === 'color-pick' && (
               <div className="rounded-xl glass-track p-3 space-y-2.5">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-200">
-                  <span>বাছাই করা ওয়াটারমার্কের রং</span>
+                  <span>{isBn ? 'বাছাই করা ওয়াটারমার্কের রং' : 'Sampled Watermark Colors'}</span>
                   <button
                     type="button"
                     onClick={() => setCanvasTool('pick-color')}
@@ -436,14 +476,15 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                     }`}
                   >
                     <Pipette className="w-3 h-3" />
-                    <span>ছবি থেকে রং নিন</span>
+                    <span>{isBn ? 'ছবি থেকে রং নিন' : 'Pick from Image'}</span>
                   </button>
                 </div>
 
                 {opts.targetColors.length === 0 ? (
                   <p className="text-[11px] text-amber-700 dark:text-amber-300 font-medium">
-                    ডান পাশের প্রিভিউ ছবির ওয়াটারমার্ক বা লোগোর ওপর ক্লিক করুন — সাথে সাথে সেই রং
-                    সাদা হয়ে যাবে।
+                    {isBn
+                      ? 'ডান পাশের প্রিভিউ ছবির ওয়াটারমার্ক বা লোগোর ওপর ক্লিক করুন — সাথে সাথে সেই রং সাদা হয়ে যাবে।'
+                      : 'Click directly on the watermark or logo in the preview on the right — that color will turn pure white instantly.'}
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
@@ -465,7 +506,7 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                             }))
                           }
                           className="text-slate-500 hover:text-red-500 cursor-pointer"
-                          aria-label="রং বাদ দিন"
+                          aria-label={isBn ? 'রং বাদ দিন' : 'Remove color'}
                         >
                           <X className="w-3 h-3" />
                         </button>
@@ -476,8 +517,8 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
 
                 <div className="space-y-1">
                   <div className="flex justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    <span>রং ম্যাচিং রেঞ্জ (Tolerance)</span>
-                    <span className="font-mono">{toBnDigits(opts.colorTolerance)}%</span>
+                    <span>{isBn ? 'রং ম্যাচিং রেঞ্জ (Tolerance)' : 'Color Match Tolerance'}</span>
+                    <span className="font-mono">{fmtToolNum(opts.colorTolerance, lang)}%</span>
                   </div>
                   <input
                     type="range"
@@ -493,13 +534,12 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
               </div>
             )}
 
-            {/* Sliders: Strength + Text Crispness */}
             <div className="space-y-3 pt-1">
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                  <span>ওয়াটারমার্ক মোছার শক্তি</span>
+                  <span>{isBn ? 'ওয়াটারমার্ক মোছার শক্তি' : 'Removal Strength'}</span>
                   <span className="font-mono text-blue-600 dark:text-blue-400 tabular-nums">
-                    {toBnDigits(opts.strength)}%
+                    {fmtToolNum(opts.strength, lang)}%
                   </span>
                 </div>
                 <input
@@ -511,17 +551,19 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   className="w-full accent-blue-600 cursor-pointer"
                 />
                 <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                  <span>হালকা জলছাপ</span>
-                  <span>মাঝারি লোগো</span>
-                  <span>গাঢ় ওয়াটারমার্ক</span>
+                  <span>{isBn ? 'হালকা জলছাপ' : 'Light Watermark'}</span>
+                  <span>{isBn ? 'মাঝারি লোগো' : 'Medium Logo'}</span>
+                  <span>{isBn ? 'গাঢ় ওয়াটারমার্ক' : 'Strong Watermark'}</span>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-extrabold text-slate-800 dark:text-slate-100">
-                  <span>লেখা স্পষ্ট ও গাঢ় করুন (Text Clarity)</span>
+                  <span>
+                    {isBn ? 'লেখা স্পষ্ট ও গাঢ় করুন (Text Clarity)' : 'Text Clarity & Crispness'}
+                  </span>
                   <span className="font-mono text-blue-600 dark:text-blue-400 tabular-nums">
-                    {toBnDigits(opts.textCrispness)}%
+                    {fmtToolNum(opts.textCrispness, lang)}%
                   </span>
                 </div>
                 <input
@@ -546,15 +588,18 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                     }
                     className="accent-blue-600 w-3.5 h-3.5"
                   />
-                  <span>গাঢ় রঙিন সিল ও নীল/লাল স্বাক্ষর অক্ষত রাখুন</span>
+                  <span>
+                    {isBn
+                      ? 'গাঢ় রঙিন সিল ও নীল/লাল স্বাক্ষর অক্ষত রাখুন'
+                      : 'Preserve dark colored stamps & blue/red signatures'}
+                  </span>
                 </label>
               )}
             </div>
 
-            {/* Output Quality Format */}
             <div className="space-y-1.5">
               <label className="text-xs font-extrabold text-slate-800 dark:text-slate-100 block">
-                আউটপুট ফরম্যাট ও কোয়ালিটি
+                {isBn ? 'আউটপুট ফরম্যাট ও কোয়ালিটি' : 'Output Format & Quality'}
               </label>
               <select
                 value={opts.outputFormat}
@@ -567,15 +612,16 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                 className="glass-input w-full px-3 py-2 rounded-xl text-xs font-bold text-slate-900 dark:text-white cursor-pointer"
               >
                 <option value="image/png" className="text-slate-900">
-                  PNG — সর্বোচ্চ লসলেস কোয়ালিটি (সুপারিশকৃত)
+                  {isBn
+                    ? 'PNG — সর্বোচ্চ লসলেস কোয়ালিটি (সুপারিশকৃত)'
+                    : 'PNG — Maximum Lossless Quality (Recommended)'}
                 </option>
                 <option value="image/jpeg" className="text-slate-900">
-                  JPG — হাই-কোয়ালিটি (৯৮% শার্প)
+                  {isBn ? 'JPG — হাই-কোয়ালিটি (৯৮% শার্প)' : 'JPG — High Quality (98% Sharp)'}
                 </option>
               </select>
             </div>
 
-            {/* Primary Actions: Download, Print, PDF */}
             <div className="space-y-2 pt-2 border-t border-slate-900/8 dark:border-white/10">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <button
@@ -593,8 +639,12 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   )}
                   <span>
                     {files.length > 1
-                      ? `সবগুলো প্রসেস (${toBnDigits(files.length)})`
-                      : 'হাই-কোয়ালিটি ডাউনলোড'}
+                      ? isBn
+                        ? `সবগুলো প্রসেস (${fmtToolNum(files.length, lang)})`
+                        : `Process All (${files.length})`
+                      : isBn
+                      ? 'হাই-কোয়ালিটি ডাউনলোড'
+                      : 'Download High Quality'}
                   </span>
                 </button>
 
@@ -609,7 +659,7 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   ) : (
                     <Printer className="w-4 h-4" />
                   )}
-                  <span>সরাসরি প্রিন্ট করুন</span>
+                  <span>{isBn ? 'সরাসরি প্রিন্ট করুন' : 'Print Directly'}</span>
                 </button>
               </div>
 
@@ -625,7 +675,7 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   ) : (
                     <FileDown className="w-3.5 h-3.5 text-rose-500" />
                   )}
-                  <span>A4 PDF ডাউনলোড</span>
+                  <span>{isBn ? 'A4 PDF ডাউনলোড' : 'Download A4 PDF'}</span>
                 </button>
 
                 <button
@@ -634,15 +684,14 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   className="glass-tile px-3 py-2 rounded-xl text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span>রিসেট করুন</span>
+                  <span>{isBn ? 'রিসেট করুন' : 'Reset'}</span>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Right Live Preview + Brush & Compare Stage (7 cols) */}
+          {/* Right Live Preview Stage */}
           <div className="lg:col-span-7 space-y-3">
-            {/* Preview Tool Bar */}
             <div className="glass-track rounded-2xl p-1.5 flex flex-wrap items-center justify-between gap-1.5">
               <div className="flex flex-wrap items-center gap-1">
                 <button
@@ -655,7 +704,7 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  <span>আগে / পরে তুলনা</span>
+                  <span>{isBn ? 'আগে / পরে তুলনা' : 'Before / After'}</span>
                 </button>
 
                 <button
@@ -666,10 +715,14 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                       ? 'glass-tab-active text-blue-600 dark:text-blue-400'
                       : 'text-slate-600 dark:text-slate-300'
                   }`}
-                  title="কোনো গাঢ় লোগো থেকে গেলে হাত দিয়ে মুছে সাদা করুন"
+                  title={
+                    isBn
+                      ? 'কোনো গাঢ় লোগো থেকে গেলে হাত দিয়ে মুছে সাদা করুন'
+                      : 'Paint over remaining logo spots to turn them pure white'
+                  }
                 >
                   <Eraser className="w-3.5 h-3.5" />
-                  <span>সাদা ব্রাশ (মুছুন)</span>
+                  <span>{isBn ? 'সাদা ব্রাশ (মুছুন)' : 'White Brush (Erase)'}</span>
                 </button>
 
                 <button
@@ -680,10 +733,14 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                       ? 'glass-tab-active text-blue-600 dark:text-blue-400'
                       : 'text-slate-600 dark:text-slate-300'
                   }`}
-                  title="ডকুমেন্টের ছবি বা সিল আগের মতো ফিরিয়ে আনুন"
+                  title={
+                    isBn
+                      ? 'ডকুমেন্টের ছবি বা সিল আগের মতো ফিরিয়ে আনুন'
+                      : 'Paint back original pixels for photos or seals'
+                  }
                 >
                   <Paintbrush className="w-3.5 h-3.5" />
-                  <span>আগের অংশ ফেরান</span>
+                  <span>{isBn ? 'আগের অংশ ফেরান' : 'Restore Original'}</span>
                 </button>
 
                 <button
@@ -699,7 +756,7 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   }`}
                 >
                   <Pipette className="w-3.5 h-3.5" />
-                  <span>রং বাছুন</span>
+                  <span>{isBn ? 'রং বাছুন' : 'Pick Color'}</span>
                 </button>
               </div>
 
@@ -710,22 +767,29 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                   className="glass-tile px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-200 inline-flex items-center gap-1 cursor-pointer"
                 >
                   <Undo2 className="w-3.5 h-3.5" />
-                  <span>আনডু ({toBnDigits(opts.strokes.length)})</span>
+                  <span>
+                    {isBn
+                      ? `আনডু (${fmtToolNum(opts.strokes.length, lang)})`
+                      : `Undo (${opts.strokes.length})`}
+                  </span>
                 </button>
               )}
             </div>
 
-            {/* Brush Size Control when Erase/Restore active */}
             {(canvasTool === 'erase' || canvasTool === 'restore') && (
               <div className="glass-banner rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <span className="font-bold text-slate-700 dark:text-slate-200">
                   {canvasTool === 'erase'
-                    ? 'সাদা ব্রাশ চালু — ছবির যে অংশে ঘষবেন সেটি সাদা হয়ে যাবে'
-                    : 'পুনরুদ্ধার ব্রাশ চালু — ছবির যে অংশে ঘষবেন সেটি মূল ছবির মতো ফিরে আসবে'}
+                    ? isBn
+                      ? 'সাদা ব্রাশ চালু — ছবির যে অংশে ঘষবেন সেটি সাদা হয়ে যাবে'
+                      : 'White brush active — paint over any leftover watermark to make it pure white'
+                    : isBn
+                    ? 'পুনরুদ্ধার ব্রাশ চালু — ছবির যে অংশে ঘষবেন সেটি মূল ছবির মতো ফিরে আসবে'
+                    : 'Restore brush active — paint over areas to bring back the original image'}
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                    ব্রাশ সাইজ
+                    {isBn ? 'ব্রাশ সাইজ' : 'Brush Size'}
                   </span>
                   <input
                     type="range"
@@ -739,7 +803,6 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
               </div>
             )}
 
-            {/* Live Stage Container */}
             <div className="glass-stage rounded-2xl p-3 sm:p-4 min-h-[340px] flex flex-col items-center justify-center">
               {!loadedImage ? (
                 <div className="text-center py-12 px-4 space-y-2">
@@ -747,26 +810,31 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                     <Sparkles className="w-6 h-6" />
                   </div>
                   <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
-                    লাইভ প্রিভিউ এখানে দেখা যাবে
+                    {isBn ? 'লাইভ প্রিভিউ এখানে দেখা যাবে' : 'Live Preview Appears Here'}
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-                    ওপরে যেকোনো ওয়াটারমার্কযুক্ত ডকুমেন্ট বা ছবি আপলোড করলেই সাথে সাথে আগে ও পরের
-                    তুলনা দেখতে পারবেন।
+                    {isBn
+                      ? 'ওপরে যেকোনো ওয়াটারমার্কযুক্ত ডকুমেন্ট বা ছবি আপলোড করলেই সাথে সাথে আগে ও পরের তুলনা দেখতে পারবেন।'
+                      : 'Upload any watermarked document or photo above to compare before and after in real time.'}
                   </p>
                 </div>
               ) : (
                 <div className="w-full space-y-3">
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300 px-1">
                     <span>
-                      মূল রেজোলিউশন: {toBnDigits(loadedImage.naturalWidth)}×
-                      {toBnDigits(loadedImage.naturalHeight)} px (কোয়ালিটি অক্ষত)
+                      {isBn
+                        ? `মূল রেজোলিউশন: ${fmtToolNum(loadedImage.naturalWidth, lang)}×${fmtToolNum(loadedImage.naturalHeight, lang)} px (কোয়ালিটি অক্ষত)`
+                        : `Native Resolution: ${loadedImage.naturalWidth}×${loadedImage.naturalHeight} px (Full Quality)`}
                     </span>
                     {canvasTool === 'compare' && (
-                      <span>বামে: মূল ছবি · ডানে: পরিষ্কার ডকুমেন্ট</span>
+                      <span>
+                        {isBn
+                          ? 'বামে: মূল ছবি · ডানে: পরিষ্কার ডকুমেন্ট'
+                          : 'Left: Original · Right: Clean Document'}
+                      </span>
                     )}
                   </div>
 
-                  {/* Interactive Image Frame */}
                   <div className="w-full flex justify-center">
                     <div
                       ref={previewStageRef}
@@ -782,20 +850,18 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                           : 'cursor-default'
                       }`}
                     >
-                      {/* Base Cleaned Image (After) */}
                       <img
                         src={afterUrl || beforeUrl}
-                        alt="পরিষ্কার ডকুমেন্ট প্রিভিউ"
+                        alt={isBn ? 'পরিষ্কার ডকুমেন্ট প্রিভিউ' : 'Cleaned Document Preview'}
                         draggable={false}
                         className="block max-h-[540px] w-auto max-w-full object-contain pointer-events-none"
                       />
 
-                      {/* Before Overlay (Only in Compare Mode) */}
                       {canvasTool === 'compare' && beforeUrl && (
                         <>
                           <img
                             src={beforeUrl}
-                            alt="মূল ডকুমেন্ট"
+                            alt={isBn ? 'মূল ডকুমেন্ট' : 'Original Document'}
                             draggable={false}
                             style={{ clipPath: `inset(0 ${100 - splitPercent}% 0 0)` }}
                             className="absolute inset-0 w-full h-full object-contain pointer-events-none"
@@ -805,21 +871,20 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                             className="absolute top-0 bottom-0 w-0.5 bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.8)] pointer-events-none"
                           />
                           <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-md bg-slate-900/75 text-white text-[10px] font-bold pointer-events-none">
-                            আগে (মূল)
+                            {isBn ? 'আগে (মূল)' : 'Before (Original)'}
                           </span>
                           <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-md bg-emerald-600/85 text-white text-[10px] font-bold pointer-events-none">
-                            পরে (পরিষ্কার)
+                            {isBn ? 'পরে (পরিষ্কার)' : 'After (Clean)'}
                           </span>
                         </>
                       )}
                     </div>
                   </div>
 
-                  {/* Compare Slider */}
                   {canvasTool === 'compare' && (
                     <div className="flex items-center gap-3 max-w-md mx-auto pt-1">
                       <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 shrink-0">
-                        আগে
+                        {isBn ? 'আগে' : 'Before'}
                       </span>
                       <input
                         type="range"
@@ -828,10 +893,10 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
                         value={splitPercent}
                         onChange={(e) => setSplitPercent(Number(e.target.value))}
                         className="flex-1 accent-blue-600 cursor-pointer"
-                        aria-label="আগে এবং পরের তুলনা স্লাইডার"
+                        aria-label={isBn ? 'আগে এবং পরের তুলনা স্লাইডার' : 'Before and After comparison slider'}
                       />
                       <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
-                        পরে
+                        {isBn ? 'পরে' : 'After'}
                       </span>
                     </div>
                   )}
@@ -842,7 +907,14 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
         </div>
 
         <div className="pt-2 border-t border-slate-900/6 dark:border-white/8">
-          <BulkZipNotice text="বাল্ক ও হাই-কোয়ালিটি চালু — মূল রেজোলিউশন অক্ষত রেখে ডাউনলোড, PDF বা সরাসরি প্রিন্ট করুন" />
+          <BulkZipNotice
+            lang={lang}
+            text={
+              isBn
+                ? 'বাল্ক ও হাই-কোয়ালিটি চালু — মূল রেজোলিউশন অক্ষত রেখে ডাউনলোড, PDF বা সরাসরি প্রিন্ট করুন'
+                : 'Bulk & Full Quality enabled — download, export A4 PDF, or print directly at native resolution'
+            }
+          />
         </div>
       </div>
 
@@ -853,10 +925,15 @@ export const WatermarkRemoveTool: React.FC<WatermarkRemoveToolProps> = ({ onBack
       )}
 
       <ProcessedResultsList
+        lang={lang}
         results={results}
         zipFileName="NextStudio_Watermark_Removed_Docs.zip"
         onClear={() => setResults([])}
-        title="ওয়াটারমার্ক মুক্ত হাই-কোয়ালিটি ডকুমেন্ট"
+        title={
+          isBn
+            ? 'ওয়াটারমার্ক মুক্ত হাই-কোয়ালিটি ডকুমেন্ট'
+            : 'Cleaned High-Quality Documents'
+        }
       />
     </div>
   );

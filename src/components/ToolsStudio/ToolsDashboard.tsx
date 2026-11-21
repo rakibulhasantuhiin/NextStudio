@@ -19,13 +19,16 @@ import {
   UserSquare2,
   Users,
 } from 'lucide-react';
-import { ToolId } from './SharedToolUI';
+import { ToolId, ToolsLang } from './SharedToolUI';
 
 interface ToolCardMeta {
   id: ToolId;
-  title: string;
-  description: string;
-  badge: string;
+  titleEn: string;
+  titleBn: string;
+  descriptionEn: string;
+  descriptionBn: string;
+  badgeEn: string;
+  badgeBn: string;
   iconBg: string;
   icon: React.ReactNode;
 }
@@ -33,62 +36,90 @@ interface ToolCardMeta {
 const IMAGE_TOOLS: ToolCardMeta[] = [
   {
     id: 'doc-scanner',
-    title: 'ডকুমেন্ট স্ক্যানার (CamScanner প্রো)',
-    description:
+    titleEn: 'Document Scanner (CamScanner Pro)',
+    titleBn: 'ডকুমেন্ট স্ক্যানার (CamScanner প্রো)',
+    descriptionEn:
+      'Auto & manual 4-corner perspective crop, Magic Pro / Magic Color filters, crisp white Full HD pages, A4 auto-fit, PDF & direct print.',
+    descriptionBn:
       'যেকোনো ডকুমেন্ট, বিল বা ছবির অটো ও ম্যানুয়াল ৪-কোনা ক্রপ, ম্যাজিক প্রো / ম্যাজিক কালার ফিল্টার, সাদা Full HD পেজ, A4 ফিট, PDF ও সরাসরি প্রিন্ট।',
-    badge: 'ম্যাজিক প্রো · অটো ক্রপ · প্রিন্ট',
+    badgeEn: 'Magic Pro · Auto Crop · Print',
+    badgeBn: 'ম্যাজিক প্রো · অটো ক্রপ · প্রিন্ট',
     iconBg: 'from-teal-500 to-emerald-600',
     icon: <ScanLine className="w-5 h-5 text-white" />,
   },
   {
     id: 'govt-photo-sign',
-    title: 'সরকারি আবেদনের ছবি ও স্বাক্ষর',
-    description:
+    titleEn: 'Govt Job Photo & Signature',
+    titleBn: 'সরকারি আবেদনের ছবি ও স্বাক্ষর',
+    descriptionEn:
+      'Exact online application photo (300×300) & signature (300×80) dimensions with KB limits and automatic ink cleanup.',
+    descriptionBn:
       'চাকরি বা ভর্তির অনলাইন আবেদনে চাওয়া মাপে ছবি (৩০০×৩০০) ও স্বাক্ষর (৩০০×৮০) — KB সীমা ও কালি পরিষ্কারসহ।',
-    badge: 'বাল্ক চালু · ZIP চালু',
+    badgeEn: 'Bulk · ZIP Ready',
+    badgeBn: 'বাল্ক চালু · ZIP চালু',
     iconBg: 'from-indigo-500 to-blue-600',
     icon: <UserSquare2 className="w-5 h-5 text-white" />,
   },
   {
     id: 'watermark-remove',
-    title: 'ওয়াটারমার্ক রিমুভ (ডকুমেন্ট পরিষ্কার)',
-    description:
+    titleEn: 'Watermark Remover (Clean Document)',
+    titleBn: 'ওয়াটারমার্ক রিমুভ (ডকুমেন্ট পরিষ্কার)',
+    descriptionEn:
+      'Cleanly erase logos and watermarks behind documents to pure white while keeping text sharp at full original resolution.',
+    descriptionBn:
       'ডকুমেন্ট বা ছবির পেছনের লোগো ও ওয়াটারমার্ক মুছে সাদা করুন — লেখা স্পষ্ট ও হাই-কোয়ালিটি থাকবে, সরাসরি প্রিন্ট বা ডাউনলোড।',
-    badge: 'বাল্ক · হাই-কোয়ালিটি · প্রিন্ট',
+    badgeEn: 'Bulk · Full HD · Print',
+    badgeBn: 'বাল্ক · হাই-কোয়ালিটি · প্রিন্ট',
     iconBg: 'from-cyan-500 to-teal-600',
     icon: <Eraser className="w-5 h-5 text-white" />,
   },
   {
     id: 'image-resize',
-    title: 'ছবি রিসাইজ',
-    description:
+    titleEn: 'Image Resize',
+    titleBn: 'ছবি রিসাইজ',
+    descriptionEn:
+      'Change image dimensions by pixel or percentage — includes ready presets for job photos, signatures, passport & social media.',
+    descriptionBn:
       'ছবির মাপ (পিক্সেল বা শতাংশ) বদলান — চাকরির আবেদনের ছবি, স্বাক্ষর, পাসপোর্ট ও ফেসবুকের রেডি সাইজসহ।',
-    badge: 'বাল্ক চালু',
+    badgeEn: 'Bulk Ready',
+    badgeBn: 'বাল্ক চালু',
     iconBg: 'from-sky-500 to-blue-600',
     icon: <Maximize2 className="w-5 h-5 text-white" />,
   },
   {
     id: 'image-compress',
-    title: 'ছবির সাইজ কমান (KB)',
-    description:
+    titleEn: 'Compress Image (Target KB)',
+    titleBn: 'ছবির সাইজ কমান (KB)',
+    descriptionEn:
+      'Compress images under 20 KB, 50 KB, 100 KB, or 200 KB with the highest possible visual sharpness.',
+    descriptionBn:
       '২০ KB, ৫০ KB, ১০০ KB, ২০০ KB — যত KB লাগে তত KB-তে ছবি নামান, কোয়ালিটি যতটা সম্ভব ভালো রেখে।',
-    badge: 'বাল্ক চালু',
+    badgeEn: 'Bulk Ready',
+    badgeBn: 'বাল্ক চালু',
     iconBg: 'from-emerald-500 to-green-600',
     icon: <ImageDown className="w-5 h-5 text-white" />,
   },
   {
     id: 'image-convert',
-    title: 'ছবি কনভার্ট (JPG / PNG / WebP)',
-    description: 'এক ফরম্যাট থেকে অন্য ফরম্যাটে রূপান্তর — কোয়ালিটি কন্ট্রোলসহ একসাথে অনেক ছবি।',
-    badge: 'বাল্ক চালু',
+    titleEn: 'Convert Image (JPG / PNG / WebP)',
+    titleBn: 'ছবি কনভার্ট (JPG / PNG / WebP)',
+    descriptionEn:
+      'Batch convert images between JPG, PNG, and WebP formats with customizable output quality.',
+    descriptionBn: 'এক ফরম্যাট থেকে অন্য ফরম্যাটে রূপান্তর — কোয়ালিটি কন্ট্রোলসহ একসাথে অনেক ছবি।',
+    badgeEn: 'Bulk Ready',
+    badgeBn: 'বাল্ক চালু',
     iconBg: 'from-amber-500 to-orange-500',
     icon: <RefreshCw className="w-5 h-5 text-white" />,
   },
   {
     id: 'image-to-pdf',
-    title: 'ছবি থেকে PDF',
-    description: 'এক বা একাধিক ছবি জুড়ে একটা PDF — A4 পাতায় বা ছবির মাপে সাজানো, ক্রম বদলানো যায়।',
-    badge: 'বাল্ক চালু',
+    titleEn: 'Image to PDF',
+    titleBn: 'ছবি থেকে PDF',
+    descriptionEn:
+      'Combine one or multiple images into a single print-ready PDF on A4 or original image size with page reordering.',
+    descriptionBn: 'এক বা একাধিক ছবি জুড়ে একটা PDF — A4 পাতায় বা ছবির মাপে সাজানো, ক্রম বদলানো যায়।',
+    badgeEn: 'Bulk Ready',
+    badgeBn: 'বাল্ক চালু',
     iconBg: 'from-rose-500 to-pink-600',
     icon: <FileOutput className="w-5 h-5 text-white" />,
   },
@@ -97,67 +128,101 @@ const IMAGE_TOOLS: ToolCardMeta[] = [
 const PDF_TOOLS: ToolCardMeta[] = [
   {
     id: 'pdf-merge',
-    title: 'PDF জোড়া (মার্জ)',
-    description: 'একাধিক PDF একটা ফাইলে জুড়ুন — পাতার ক্রম উপরে-নিচে বদলানো যায়।',
-    badge: 'ZIP চালু',
+    titleEn: 'Merge PDF',
+    titleBn: 'PDF জোড়া (মার্জ)',
+    descriptionEn:
+      'Combine multiple PDF documents into one file and reorder files up or down before merging.',
+    descriptionBn: 'একাধিক PDF একটা ফাইলে জুড়ুন — পাতার ক্রম উপরে-নিচে বদলানো যায়।',
+    badgeEn: 'Offline · Fast',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-sky-500 to-blue-600',
     icon: <Combine className="w-5 h-5 text-white" />,
   },
   {
     id: 'pdf-split',
-    title: 'PDF ভাগ / পাতা বের করা',
-    description: 'PDF থেকে বেছে নেওয়া পাতা আলাদা করুন অথবা প্রতিটি পাতাকে আলাদা PDF ফাইল বানান।',
-    badge: 'ZIP চালু',
+    titleEn: 'Split / Extract PDF Pages',
+    titleBn: 'PDF ভাগ / পাতা বের করা',
+    descriptionEn:
+      'Extract specific page ranges or split every page into separate PDF files packaged in a ZIP.',
+    descriptionBn: 'PDF থেকে বেছে নেওয়া পাতা আলাদা করুন অথবা প্রতিটি পাতাকে আলাদা PDF ফাইল বানান।',
+    badgeEn: 'ZIP Ready',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-amber-500 to-orange-500',
     icon: <Scissors className="w-5 h-5 text-white" />,
   },
   {
     id: 'pdf-organize',
-    title: 'PDF পাতা সাজান / ঘোরান / মুছুন',
-    description: 'প্রতিটি পাতার প্রিভিউ ছবি দেখে ঘোরান, বাদ দিন বা আগে-পরে সাজিয়ে নতুন PDF বানান।',
-    badge: 'ZIP চালু',
+    titleEn: 'Organize / Rotate / Delete Pages',
+    titleBn: 'PDF পাতা সাজান / ঘোরান / মুছুন',
+    descriptionEn:
+      'Preview every PDF page visually to rotate, delete, or reorder pages and save a clean new PDF.',
+    descriptionBn: 'প্রতিটি পাতার প্রিভিউ ছবি দেখে ঘোরান, বাদ দিন বা আগে-পরে সাজিয়ে নতুন PDF বানান।',
+    badgeEn: 'Visual Preview',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-violet-500 to-indigo-600',
     icon: <LayoutGrid className="w-5 h-5 text-white" />,
   },
   {
     id: 'pdf-to-image',
-    title: 'PDF থেকে ছবি (JPG / PNG)',
-    description: 'PDF-এর প্রতিটা পাতা উচ্চমানের ছবিতে রূপান্তর করুন — DPI (মান) বেছে নিয়ে ZIP নামান।',
-    badge: 'ZIP চালু',
+    titleEn: 'PDF to Image (JPG / PNG)',
+    titleBn: 'PDF থেকে ছবি (JPG / PNG)',
+    descriptionEn:
+      'Render every PDF page into high-resolution JPG or PNG images with selectable DPI and ZIP download.',
+    descriptionBn: 'PDF-এর প্রতিটা পাতা উচ্চমানের ছবিতে রূপান্তর করুন — DPI (মান) বেছে নিয়ে ZIP নামান।',
+    badgeEn: 'ZIP Ready',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-rose-500 to-pink-600',
     icon: <FileImage className="w-5 h-5 text-white" />,
   },
   {
     id: 'pdf-compress',
-    title: 'PDF-এর সাইজ কমান (KB)',
-    description: 'PDF ছোট করুন — যত KB লাগে তত KB-তে নামান এক বা একাধিক ফাইল একসাথে।',
-    badge: 'ZIP চালু',
+    titleEn: 'Compress PDF (Target KB)',
+    titleBn: 'PDF-এর সাইজ কমান (KB)',
+    descriptionEn:
+      'Shrink PDF file size under your target KB limit — works with single or multiple PDF files at once.',
+    descriptionBn: 'PDF ছোট করুন — যত KB লাগে তত KB-তে নামান এক বা একাধিক ফাইল একসাথে।',
+    badgeEn: 'ZIP Ready',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-emerald-500 to-green-600',
     icon: <ArrowDownUp className="w-5 h-5 text-white" />,
   },
   {
     id: 'pdf-extract-text',
-    title: 'PDF থেকে লেখা বের করুন',
-    description: 'PDF-এর ভেতরের সমস্ত লেখা বের করে এক ক্লিকে কপি করুন বা .txt ফাইলে নামান।',
-    badge: 'ZIP চালু',
+    titleEn: 'Extract Text from PDF',
+    titleBn: 'PDF থেকে লেখা বের করুন',
+    descriptionEn:
+      'Extract all selectable text from PDF documents to copy in one click or save as .txt files.',
+    descriptionBn: 'PDF-এর ভেতরের সমস্ত লেখা বের করে এক ক্লিকে কপি করুন বা .txt ফাইলে নামান।',
+    badgeEn: 'TXT · ZIP',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-amber-500 to-yellow-600',
     icon: <FileType className="w-5 h-5 text-white" />,
   },
   {
     id: 'pdf-watermark-number',
-    title: 'PDF-এ পেজ নম্বর ও ওয়াটারমার্ক',
-    description: 'পাতায় বাংলা বা ইংরেজি পেজ নম্বর এবং কাস্টম হালকা ওয়াটারমার্ক বসান।',
-    badge: 'ZIP চালু',
+    titleEn: 'PDF Page Numbers & Watermark',
+    titleBn: 'PDF-এ পেজ নম্বর ও ওয়াটারমার্ক',
+    descriptionEn:
+      'Stamp English or Bengali page numbers and custom translucent diagonal/straight watermarks onto PDFs.',
+    descriptionBn: 'পাতায় বাংলা বা ইংরেজি পেজ নম্বর এবং কাস্টম হালকা ওয়াটারমার্ক বসান।',
+    badgeEn: 'Bulk · ZIP',
+    badgeBn: 'ZIP চালু',
     iconBg: 'from-indigo-500 to-purple-600',
     icon: <Hash className="w-5 h-5 text-white" />,
   },
 ];
 
 interface ToolsDashboardProps {
+  lang?: ToolsLang;
   onSelectTool: (id: ToolId) => void;
 }
 
-export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) => {
+export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({
+  lang = 'en',
+  onSelectTool,
+}) => {
+  const isBn = lang === 'bn';
+
   const scrollToSection = (sectionId: string) => {
     const el = document.getElementById(sectionId);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -170,9 +235,19 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
         <div className="flex items-start sm:items-center gap-2.5 text-xs sm:text-sm text-slate-700 dark:text-slate-200">
           <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
           <span>
-            <strong className="text-slate-900 dark:text-white">১০০% অফলাইন ও নিরাপদ:</strong> সব
-            কাজ আপনার ফোন বা কম্পিউটারের ব্রাউজারেই হয় — কোনো ছবি বা PDF কোথাও আপলোড হয় না। সব টুলে
-            বাল্ক প্রসেসিং ও ZIP ডাউনলোড চালু আছে।
+            {isBn ? (
+              <>
+                <strong className="text-slate-900 dark:text-white">১০০% অফলাইন ও নিরাপদ:</strong>{' '}
+                সব কাজ আপনার ফোন বা কম্পিউটারের ব্রাউজারেই হয় — কোনো ছবি বা PDF কোথাও আপলোড হয় না।
+                সব টুলে বাল্ক প্রসেসিং ও ZIP ডাউনলোড চালু আছে।
+              </>
+            ) : (
+              <>
+                <strong className="text-slate-900 dark:text-white">100% Offline & Private:</strong>{' '}
+                All processing happens right inside your browser — no images or PDFs are ever
+                uploaded to any server. Bulk processing and ZIP download are built in.
+              </>
+            )}
           </span>
         </div>
 
@@ -182,7 +257,7 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
             onClick={() => scrollToSection('section-image-tools')}
             className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
           >
-            ছবির টুলস ↓
+            {isBn ? 'ছবির টুলস ↓' : 'Image Tools ↓'}
           </button>
           <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">
             ·
@@ -192,29 +267,30 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
             onClick={() => scrollToSection('section-pdf-tools')}
             className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer whitespace-nowrap"
           >
-            PDF টুলস ↓
+            {isBn ? 'PDF টুলস ↓' : 'PDF Tools ↓'}
           </button>
         </div>
       </div>
 
-      {/* Section 1: ছবির টুলস (Image Tools) */}
+      {/* Section 1: Image Tools */}
       <section id="section-image-tools" className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
           <div>
             <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              ছবির টুলস
+              {isBn ? 'ছবির টুলস' : 'Image Tools'}
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
-              ডকুমেন্ট স্ক্যানার (CamScanner), ওয়াটারমার্ক রিমুভ, সরকারি আবেদনের ছবি-স্বাক্ষর, রিসাইজ,
-              KB কমানো, কনভার্ট ও ছবি থেকে PDF — সব অফলাইনে।
+              {isBn
+                ? 'ডকুমেন্ট স্ক্যানার (CamScanner), ওয়াটারমার্ক রিমুভ, সরকারি আবেদনের ছবি-স্বাক্ষর, রিসাইজ, KB কমানো, কনভার্ট ও ছবি থেকে PDF — সব অফলাইনে।'
+                : 'Document Scanner (CamScanner), Watermark Remover, Govt Job Photo & Signature, Resize, KB Compression, Format Convert & Image to PDF — 100% offline.'}
             </p>
           </div>
           <button
             type="button"
             onClick={() => scrollToSection('section-pdf-tools')}
-            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto"
+            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto whitespace-nowrap"
           >
-            PDF টুলস দেখুন →
+            {isBn ? 'PDF টুলস দেখুন →' : 'View PDF Tools →'}
           </button>
         </div>
 
@@ -234,10 +310,10 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
                 </div>
                 <div>
                   <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors leading-snug">
-                    {tool.title}
+                    {isBn ? tool.titleBn : tool.titleEn}
                   </h3>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed line-clamp-3">
-                    {tool.description}
+                    {isBn ? tool.descriptionBn : tool.descriptionEn}
                   </p>
                 </div>
               </div>
@@ -245,10 +321,10 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
               <div className="pt-2.5 border-t border-slate-900/6 dark:border-white/8 flex items-center justify-between text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
                 <span className="inline-flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 shrink-0" />
-                  <span>{tool.badge}</span>
+                  <span>{isBn ? tool.badgeBn : tool.badgeEn}</span>
                 </span>
                 <span className="text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                  খুলুন →
+                  {isBn ? 'খুলুন →' : 'Open →'}
                 </span>
               </div>
             </button>
@@ -256,24 +332,25 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
         </div>
       </section>
 
-      {/* Section 2: PDF টুলস (PDF Tools) */}
+      {/* Section 2: PDF Tools */}
       <section id="section-pdf-tools" className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
           <div>
             <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              PDF টুলস
+              {isBn ? 'PDF টুলস' : 'PDF Tools'}
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
-              সব কাজ আপনার ফোন বা কম্পিউটারেই হয় — PDF কোথাও আপলোড হয় না। একসাথে অনেক ফাইল ও ZIP
-              ডাউনলোড চালু।
+              {isBn
+                ? 'সব কাজ আপনার ফোন বা কম্পিউটারেই হয় — PDF কোথাও আপলোড হয় না। একসাথে অনেক ফাইল ও ZIP ডাউনলোড চালু।'
+                : 'Merge, split, organize, compress, extract text, convert to images, and stamp watermarks — completely local in your browser.'}
             </p>
           </div>
           <button
             type="button"
             onClick={() => scrollToSection('section-image-tools')}
-            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto"
+            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer self-start sm:self-auto whitespace-nowrap"
           >
-            ছবির টুলস দেখুন ↑
+            {isBn ? 'ছবির টুলস দেখুন ↑' : 'View Image Tools ↑'}
           </button>
         </div>
 
@@ -293,10 +370,10 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
                 </div>
                 <div>
                   <h3 className="text-[15px] font-extrabold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors leading-snug">
-                    {tool.title}
+                    {isBn ? tool.titleBn : tool.titleEn}
                   </h3>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed line-clamp-3">
-                    {tool.description}
+                    {isBn ? tool.descriptionBn : tool.descriptionEn}
                   </p>
                 </div>
               </div>
@@ -304,10 +381,10 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
               <div className="pt-2.5 border-t border-slate-900/6 dark:border-white/8 flex items-center justify-between text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
                 <span className="inline-flex items-center gap-1.5">
                   <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                  <span>{tool.badge}</span>
+                  <span>{isBn ? tool.badgeBn : tool.badgeEn}</span>
                 </span>
                 <span className="text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
-                  খুলুন →
+                  {isBn ? 'খুলুন →' : 'Open →'}
                 </span>
               </div>
             </button>
@@ -318,9 +395,22 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
   );
 };
 
-export const ALL_TOOL_QUICK_LIST: { id: ToolId; label: string; group: 'image' | 'pdf' }[] = [
-  ...IMAGE_TOOLS.map((t) => ({ id: t.id, label: t.title, group: 'image' as const })),
-  ...PDF_TOOLS.map((t) => ({ id: t.id, label: t.title, group: 'pdf' as const })),
-];
+export function getToolQuickList(
+  lang: ToolsLang = 'en'
+): { id: ToolId; label: string; group: 'image' | 'pdf' }[] {
+  const isBn = lang === 'bn';
+  return [
+    ...IMAGE_TOOLS.map((t) => ({
+      id: t.id,
+      label: isBn ? t.titleBn : t.titleEn,
+      group: 'image' as const,
+    })),
+    ...PDF_TOOLS.map((t) => ({
+      id: t.id,
+      label: isBn ? t.titleBn : t.titleEn,
+      group: 'pdf' as const,
+    })),
+  ];
+}
 
 export { FileText };
