@@ -18,6 +18,7 @@ import {
   PdfToImageTool,
   PdfWatermarkNumberTool,
 } from './PdfToolsViews';
+import { WatermarkRemoveTool } from './WatermarkRemoveTool';
 
 interface ToolsWorkspaceProps {
   lang?: 'bn' | 'en';
@@ -36,6 +37,8 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = () => {
     switch (activeTool) {
       case 'govt-photo-sign':
         return <GovtPhotoSignTool onBack={() => navigateTool('dashboard')} />;
+      case 'watermark-remove':
+        return <WatermarkRemoveTool onBack={() => navigateTool('dashboard')} />;
       case 'image-resize':
         return (
           <ImageResizeTool

@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ArrowDownUp,
   Combine,
+  Eraser,
   FileImage,
   FileOutput,
   FileSpreadsheet,
@@ -37,6 +38,15 @@ const IMAGE_TOOLS: ToolCardMeta[] = [
     badge: 'বাল্ক চালু · ZIP চালু',
     iconBg: 'from-indigo-500 to-blue-600',
     icon: <UserSquare2 className="w-5 h-5 text-white" />,
+  },
+  {
+    id: 'watermark-remove',
+    title: 'ওয়াটারমার্ক রিমুভ (ডকুমেন্ট পরিষ্কার)',
+    description:
+      'ডকুমেন্ট বা ছবির পেছনের লোগো ও ওয়াটারমার্ক মুছে সাদা করুন — লেখা স্পষ্ট ও হাই-কোয়ালিটি থাকবে, সরাসরি প্রিন্ট বা ডাউনলোড।',
+    badge: 'বাল্ক · হাই-কোয়ালিটি · প্রিন্ট',
+    iconBg: 'from-cyan-500 to-teal-600',
+    icon: <Eraser className="w-5 h-5 text-white" />,
   },
   {
     id: 'image-resize',
@@ -185,8 +195,8 @@ export const ToolsDashboard: React.FC<ToolsDashboardProps> = ({ onSelectTool }) 
               ছবির টুলস
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 mt-0.5">
-              সরকারি আবেদনের ছবি-স্বাক্ষর, রিসাইজ, KB কমানো, ফরম্যাট কনভার্ট ও ছবি থেকে PDF — সব
-              অফলাইনে।
+              সরকারি আবেদনের ছবি-স্বাক্ষর, ওয়াটারমার্ক রিমুভ, রিসাইজ, KB কমানো, ফরম্যাট কনভার্ট ও
+              ছবি থেকে PDF — সব অফলাইনে।
             </p>
           </div>
           <button

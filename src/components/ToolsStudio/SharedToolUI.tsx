@@ -22,6 +22,7 @@ import {
 export type ToolId =
   | 'dashboard'
   | 'govt-photo-sign'
+  | 'watermark-remove'
   | 'image-resize'
   | 'image-compress'
   | 'image-convert'
