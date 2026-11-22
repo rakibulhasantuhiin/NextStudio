@@ -1076,6 +1076,10 @@ export default function App() {
           ctx.drawImage(img, 0, 0, targetW, targetH);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
           URL.revokeObjectURL(objectUrl);
+          if (!dataUrl || dataUrl === 'data:,' || dataUrl.length < 100) {
+            fallbackRead();
+            return;
+          }
           resolve(dataUrl);
         } catch {
           URL.revokeObjectURL(objectUrl);
@@ -1105,15 +1109,26 @@ export default function App() {
     setIsAiGenerating(true);
 
     try {
-      const imagesToSend = coupleUploadMode
-        ? await Promise.all([
-            normalizeImageToDataUrlForAi(files[0]),
-            normalizeImageToDataUrlForAi(files[1]),
-          ])
-        : [await normalizeImageToDataUrlForAi(files[0])];
+      const imagesToSend = (
+        coupleUploadMode
+          ? await Promise.all([
+              normalizeImageToDataUrlForAi(files[0]),
+              normalizeImageToDataUrlForAi(files[1]),
+            ])
+          : [await normalizeImageToDataUrlForAi(files[0])]
+      ).filter((dataUrl) => typeof dataUrl === 'string' && dataUrl.length > 64);
+
+      if (imagesToSend.length < (coupleUploadMode ? 2 : 1)) {
+        throw new Error(
+          lang === 'bn'
+            ? 'ছবিটি পড়া যায়নি। অনুগ্রহ করে সঠিক JPG বা PNG ছবি সিলেক্ট করুন।'
+            : 'Could not read the selected image file. Please choose a valid JPG or PNG image.'
+        );
+      }
 
       const resp = await fetch('/api/generate-passport', {
         method: 'POST',
+        cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
         },

@@ -46,26 +46,36 @@ interface PreparedImage {
 }
 
 function parseDataUrlImage(input: string, index: number): PreparedImage | null {
-  if (typeof input !== 'string' || !input.trim()) return null;
-  const match = input.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
+  if (typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (!trimmed || trimmed === 'data:,') return null;
+
   let rawMime = 'image/jpeg';
-  let base64Body = input.trim();
-  if (match) {
-    rawMime = match[1].toLowerCase();
-    base64Body = match[2];
+  let base64Body = trimmed;
+
+  if (trimmed.startsWith('data:')) {
+    const commaIdx = trimmed.indexOf(',');
+    if (commaIdx === -1) return null;
+    const meta = trimmed.slice(5, commaIdx);
+    const semiIdx = meta.indexOf(';');
+    rawMime = (semiIdx >= 0 ? meta.slice(0, semiIdx) : meta).toLowerCase().trim() || 'image/jpeg';
+    base64Body = trimmed.slice(commaIdx + 1).trim();
   }
+
+  if (!base64Body) return null;
+
   let mime = 'image/jpeg';
   let ext = 'jpg';
-  if (rawMime === 'image/png') {
+  if (rawMime.includes('image/png')) {
     mime = 'image/png';
     ext = 'png';
-  } else if (rawMime === 'image/webp') {
+  } else if (rawMime.includes('image/webp')) {
     mime = 'image/webp';
     ext = 'webp';
   }
   try {
     const buf = Buffer.from(base64Body, 'base64');
-    if (buf.length === 0) return null;
+    if (buf.length < 16) return null;
     return {
       bytes: Uint8Array.from(buf),
       mime,

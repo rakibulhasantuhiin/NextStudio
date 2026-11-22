@@ -9,6 +9,7 @@ interface VercelRequest {
   body?: unknown;
   headers?: Record<string, string | string[] | undefined>;
   on?: (event: string, listener: (chunk?: Uint8Array | string) => void) => void;
+  [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>;
 }
 
 interface VercelResponse {
@@ -24,31 +25,43 @@ interface ParsedImagePayload {
   filename: string;
 }
 
+function getHeader(req: VercelRequest, name: string): string {
+  const headers = req.headers || {};
+  const val = headers[name.toLowerCase()] ?? headers[name];
+  if (Array.isArray(val)) return val[0] || '';
+  return typeof val === 'string' ? val : '';
+}
+
+function normalizeMimeAndExt(rawMimeInput: string): { mime: string; ext: string } {
+  const rawMime = rawMimeInput.toLowerCase().trim();
+  if (rawMime.includes('image/png')) return { mime: 'image/png', ext: 'png' };
+  if (rawMime.includes('image/webp')) return { mime: 'image/webp', ext: 'webp' };
+  return { mime: 'image/jpeg', ext: 'jpg' };
+}
+
 function parseDataUrlImage(input: string, index: number): ParsedImagePayload | null {
-  if (typeof input !== 'string' || !input.trim()) return null;
+  if (typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (!trimmed || trimmed === 'data:,') return null;
 
-  const match = input.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
   let rawMime = 'image/jpeg';
-  let base64Body = input.trim();
+  let base64Body = trimmed;
 
-  if (match) {
-    rawMime = match[1].toLowerCase();
-    base64Body = match[2];
+  if (trimmed.startsWith('data:')) {
+    const commaIdx = trimmed.indexOf(',');
+    if (commaIdx === -1) return null;
+    const meta = trimmed.slice(5, commaIdx);
+    const semiIdx = meta.indexOf(';');
+    rawMime = (semiIdx >= 0 ? meta.slice(0, semiIdx) : meta).trim() || 'image/jpeg';
+    base64Body = trimmed.slice(commaIdx + 1).trim();
   }
 
-  let mime = 'image/jpeg';
-  let ext = 'jpg';
-  if (rawMime === 'image/png') {
-    mime = 'image/png';
-    ext = 'png';
-  } else if (rawMime === 'image/webp') {
-    mime = 'image/webp';
-    ext = 'webp';
-  }
+  if (!base64Body) return null;
 
+  const { mime, ext } = normalizeMimeAndExt(rawMime);
   try {
     const buf = Buffer.from(base64Body, 'base64');
-    if (buf.length === 0) return null;
+    if (buf.length < 16) return null;
     return {
       bytes: Uint8Array.from(buf),
       mime,
@@ -59,45 +72,133 @@ function parseDataUrlImage(input: string, index: number): ParsedImagePayload | n
   }
 }
 
-async function readJsonBody(req: VercelRequest): Promise<Record<string, unknown>> {
-  if (req.body && typeof req.body === 'object') {
-    return req.body as Record<string, unknown>;
+async function readRawBodyBuffer(req: VercelRequest): Promise<Buffer> {
+  if (Buffer.isBuffer(req.body)) {
+    return req.body;
   }
-  if (typeof req.body === 'string' && req.body.trim()) {
-    try {
-      return JSON.parse(req.body) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+  if (req.body instanceof Uint8Array) {
+    return Buffer.from(req.body);
   }
-  if (!req.on) return {};
+  if (typeof req.body === 'string') {
+    return Buffer.from(req.body, 'utf8');
+  }
 
   const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    req.on?.('data', (chunk) => {
+  if (typeof req[Symbol.asyncIterator] === 'function') {
+    for await (const chunk of req as AsyncIterable<Uint8Array | string>) {
       if (chunk) {
         chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk));
       }
-    });
-    req.on?.('end', () => resolve());
-    req.on?.('error', () => reject(new Error('Failed to read request body.')));
-  });
-
-  const raw = Buffer.concat(chunks).toString('utf8').trim();
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return {};
+    }
+    return Buffer.concat(chunks);
   }
+
+  if (req.on) {
+    await new Promise<void>((resolve, reject) => {
+      req.on?.('data', (chunk) => {
+        if (chunk) {
+          chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk));
+        }
+      });
+      req.on?.('end', () => resolve());
+      req.on?.('error', () => reject(new Error('Failed to read request body.')));
+    });
+  }
+
+  return Buffer.concat(chunks);
+}
+
+async function parseIncomingRequest(req: VercelRequest): Promise<{
+  mode: 'single' | 'couple';
+  images: ParsedImagePayload[];
+}> {
+  const contentType = getHeader(req, 'content-type');
+  const lowerCt = contentType.toLowerCase();
+
+  // Case 1: multipart/form-data (supports cached/legacy FormData clients cleanly via native Web Fetch Response.formData)
+  if (lowerCt.includes('multipart/form-data')) {
+    const rawBuf = await readRawBodyBuffer(req);
+    if (rawBuf.length > 0) {
+      const formRes = new Response(Uint8Array.from(rawBuf), {
+        headers: { 'content-type': contentType },
+      });
+      const form = await formRes.formData();
+      const modeVal = form.get('mode');
+      const mode: 'single' | 'couple' = modeVal === 'couple' ? 'couple' : 'single';
+
+      const fileEntries: Blob[] = [];
+      for (const [key, value] of form.entries()) {
+        if (
+          (key === 'images' || key === 'images[]' || key === 'image' || key === 'image[]') &&
+          typeof value !== 'string' &&
+          typeof value.arrayBuffer === 'function'
+        ) {
+          fileEntries.push(value);
+        }
+      }
+
+      const images: ParsedImagePayload[] = [];
+      for (let i = 0; i < Math.min(2, fileEntries.length); i++) {
+        const blob = fileEntries[i];
+        const ab = await blob.arrayBuffer();
+        if (ab.byteLength < 16) continue;
+        const { mime, ext } = normalizeMimeAndExt(blob.type || 'image/jpeg');
+        images.push({
+          bytes: new Uint8Array(ab),
+          mime,
+          filename: `photo-${i + 1}.${ext}`,
+        });
+      }
+
+      return { mode, images };
+    }
+  }
+
+  // Case 2: application/json (supports pre-parsed object, Buffer, Uint8Array, string, or readable stream)
+  let parsedObj: Record<string, unknown> = {};
+
+  if (
+    req.body &&
+    typeof req.body === 'object' &&
+    !Buffer.isBuffer(req.body) &&
+    !(req.body instanceof Uint8Array) &&
+    Object.keys(req.body as Record<string, unknown>).length > 0
+  ) {
+    parsedObj = req.body as Record<string, unknown>;
+  } else {
+    const rawBuf = await readRawBodyBuffer(req);
+    const rawText = rawBuf.toString('utf8').trim();
+    if (rawText) {
+      try {
+        const json = JSON.parse(rawText);
+        if (json && typeof json === 'object') {
+          parsedObj = json as Record<string, unknown>;
+        }
+      } catch {
+        parsedObj = {};
+      }
+    }
+  }
+
+  const mode: 'single' | 'couple' = parsedObj.mode === 'couple' ? 'couple' : 'single';
+  const rawList = Array.isArray(parsedObj.images)
+    ? parsedObj.images
+    : typeof parsedObj.image === 'string'
+    ? [parsedObj.image]
+    : [];
+
+  const images = rawList
+    .slice(0, 2)
+    .map((item, idx) => (typeof item === 'string' ? parseDataUrlImage(item, idx) : null))
+    .filter((item): item is ParsedImagePayload => item !== null);
+
+  return { mode, images };
 }
 
 export const config = {
   maxDuration: 60,
   api: {
-    bodyParser: {
-      sizeLimit: '10mb',
-    },
+    bodyParser: false,
   },
 };
 
@@ -124,13 +225,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       return;
     }
 
-    const body = await readJsonBody(req);
-    const mode = body.mode === 'couple' ? 'couple' : 'single';
-    const rawImages = Array.isArray(body.images) ? body.images : [];
-    const parsedImages = rawImages
-      .slice(0, 2)
-      .map((item, idx) => (typeof item === 'string' ? parseDataUrlImage(item, idx) : null))
-      .filter((item): item is ParsedImagePayload => item !== null);
+    const { mode, images: parsedImages } = await parseIncomingRequest(req);
 
     if (mode === 'couple' && parsedImages.length < 2) {
       res.status(400).json({
