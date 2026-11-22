@@ -39,7 +39,49 @@ function normalizeMimeAndFilename(
   return { mime: 'image/jpeg', filename: `photo-${index + 1}.jpg` };
 }
 
+interface PreparedImage {
+  bytes: Uint8Array<ArrayBuffer>;
+  mime: string;
+  filename: string;
+}
+
+function parseDataUrlImage(input: string, index: number): PreparedImage | null {
+  if (typeof input !== 'string' || !input.trim()) return null;
+  const match = input.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
+  let rawMime = 'image/jpeg';
+  let base64Body = input.trim();
+  if (match) {
+    rawMime = match[1].toLowerCase();
+    base64Body = match[2];
+  }
+  let mime = 'image/jpeg';
+  let ext = 'jpg';
+  if (rawMime === 'image/png') {
+    mime = 'image/png';
+    ext = 'png';
+  } else if (rawMime === 'image/webp') {
+    mime = 'image/webp';
+    ext = 'webp';
+  }
+  try {
+    const buf = Buffer.from(base64Body, 'base64');
+    if (buf.length === 0) return null;
+    return {
+      bytes: Uint8Array.from(buf),
+      mime,
+      filename: `photo-${index + 1}.${ext}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseUploadMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const contentType = (req.headers['content-type'] || '').toLowerCase();
+  if (!contentType.includes('multipart/form-data')) {
+    next();
+    return;
+  }
   upload.array('images', 2)(req, res, (err: unknown) => {
     if (!err) {
       next();
@@ -89,16 +131,33 @@ async function startServer() {
           return;
         }
 
-        const files = (req.files as Express.Multer.File[] | undefined) || [];
         const mode = req.body?.mode === 'couple' ? 'couple' : 'single';
+        const multipartFiles = (req.files as Express.Multer.File[] | undefined) || [];
+        let preparedImages: PreparedImage[] = [];
 
-        if (mode === 'couple' && files.length < 2) {
+        if (multipartFiles.length > 0) {
+          preparedImages = multipartFiles.slice(0, 2).map((file, i) => {
+            const { mime, filename } = normalizeMimeAndFilename(file, i);
+            return {
+              bytes: Uint8Array.from(file.buffer),
+              mime,
+              filename,
+            };
+          });
+        } else if (Array.isArray(req.body?.images)) {
+          preparedImages = (req.body.images as unknown[])
+            .slice(0, 2)
+            .map((item, idx) => (typeof item === 'string' ? parseDataUrlImage(item, idx) : null))
+            .filter((item): item is PreparedImage => item !== null);
+        }
+
+        if (mode === 'couple' && preparedImages.length < 2) {
           res.status(400).json({
             error: 'Couple Mode requires 2 photos (Boy on Left + Girl on Right).',
           });
           return;
         }
-        if (files.length < 1) {
+        if (preparedImages.length < 1) {
           res.status(400).json({ error: 'Please upload an image file.' });
           return;
         }
@@ -115,14 +174,14 @@ async function startServer() {
         if (mode === 'couple') {
           // OpenAI gpt-image-1 multi-image edit syntax requires image[]
           for (let i = 0; i < 2; i++) {
-            const { mime, filename } = normalizeMimeAndFilename(files[i], i);
-            const blob = new Blob([new Uint8Array(files[i].buffer)], { type: mime });
-            openAiForm.append('image[]', blob, filename);
+            const img = preparedImages[i];
+            const blob = new Blob([img.bytes], { type: img.mime });
+            openAiForm.append('image[]', blob, img.filename);
           }
         } else {
-          const { mime, filename } = normalizeMimeAndFilename(files[0], 0);
-          const blob = new Blob([new Uint8Array(files[0].buffer)], { type: mime });
-          openAiForm.append('image', blob, filename);
+          const img = preparedImages[0];
+          const blob = new Blob([img.bytes], { type: img.mime });
+          openAiForm.append('image', blob, img.filename);
         }
 
         const openAiResp = await fetch('https://api.openai.com/v1/images/edits', {

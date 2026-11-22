@@ -1038,14 +1038,21 @@ export default function App() {
     setSelectedItemId(null);
   };
 
-  // Normalize any uploaded image file to upright JPEG (max 2048px) so OpenAI gpt-image-1 accepts all camera formats and avoids proxy size limits
-  const normalizeImageForAiUpload = (file: File, index: number): Promise<File> =>
-    new Promise((resolve) => {
+  // Normalize any uploaded image file to upright JPEG data URL (max 1536px) so both AI Studio and Vercel serverless limits & OpenAI gpt-image-1 work seamlessly
+  const normalizeImageToDataUrlForAi = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const fallbackRead = () => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve((e.target?.result as string) || '');
+        reader.onerror = () => reject(new Error('Failed to read image file.'));
+        reader.readAsDataURL(file);
+      };
+
       const objectUrl = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
         try {
-          const maxSide = 2048;
+          const maxSide = 1536;
           let targetW = img.naturalWidth || 1024;
           let targetH = img.naturalHeight || 1024;
           if (Math.max(targetW, targetH) > maxSide) {
@@ -1059,7 +1066,7 @@ export default function App() {
           const ctx = canvas.getContext('2d');
           if (!ctx) {
             URL.revokeObjectURL(objectUrl);
-            resolve(file);
+            fallbackRead();
             return;
           }
           ctx.fillStyle = '#ffffff';
@@ -1067,26 +1074,17 @@ export default function App() {
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, targetW, targetH);
-          canvas.toBlob(
-            (blob) => {
-              URL.revokeObjectURL(objectUrl);
-              if (!blob) {
-                resolve(file);
-                return;
-              }
-              resolve(new File([blob], `photo-${index + 1}.jpg`, { type: 'image/jpeg' }));
-            },
-            'image/jpeg',
-            0.93
-          );
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          URL.revokeObjectURL(objectUrl);
+          resolve(dataUrl);
         } catch {
           URL.revokeObjectURL(objectUrl);
-          resolve(file);
+          fallbackRead();
         }
       };
       img.onerror = () => {
         URL.revokeObjectURL(objectUrl);
-        resolve(file);
+        fallbackRead();
       };
       img.src = objectUrl;
     });
@@ -1107,23 +1105,22 @@ export default function App() {
     setIsAiGenerating(true);
 
     try {
-      const formData = new FormData();
-      formData.append('mode', coupleUploadMode ? 'couple' : 'single');
-      if (coupleUploadMode) {
-        const [boyFile, girlFile] = await Promise.all([
-          normalizeImageForAiUpload(files[0], 0),
-          normalizeImageForAiUpload(files[1], 1),
-        ]);
-        formData.append('images', boyFile);
-        formData.append('images', girlFile);
-      } else {
-        const singleFile = await normalizeImageForAiUpload(files[0], 0);
-        formData.append('images', singleFile);
-      }
+      const imagesToSend = coupleUploadMode
+        ? await Promise.all([
+            normalizeImageToDataUrlForAi(files[0]),
+            normalizeImageToDataUrlForAi(files[1]),
+          ])
+        : [await normalizeImageToDataUrlForAi(files[0])];
 
       const resp = await fetch('/api/generate-passport', {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mode: coupleUploadMode ? 'couple' : 'single',
+          images: imagesToSend,
+        }),
       });
 
       const payload = (await resp.json().catch(() => null)) as {
@@ -1169,6 +1166,7 @@ export default function App() {
         forcePreset: targetPreset,
         replaceSheetWithLatest: true,
       });
+      setMobileTab('preview');
     } catch (err) {
       const msg =
         err instanceof Error
