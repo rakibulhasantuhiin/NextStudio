@@ -1,14 +1,16 @@
 import React, { useRef, useState } from 'react';
 import {
+  AlertCircle,
   ArrowDown,
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   ArrowUp,
-  Camera,
   Check,
   Copy,
   Edit3,
   Grid,
+  ImagePlus,
   Loader2,
   Minus,
   Move,
@@ -17,8 +19,9 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  User,
   Users,
-  Wand2,
+  X,
 } from 'lucide-react';
 import {
   CuttingGuideStyle,
@@ -45,21 +48,15 @@ interface Props {
   activePhotoIndex: number;
   setActivePhotoIndex: (idx: number) => void;
   onUploadPhotos: (files: FileList | null) => void;
+  onAiUploadPhotos: (files: File[]) => void;
   onRemovePhoto: (index: number) => void;
   onDuplicatePhoto: (index: number) => void;
   onOpenEditor: (index: number) => void;
-  onOpenAutoStudio?: (index: number) => void;
-  onOpenWebcam?: () => void;
-  onOpenCoupleStudio?: () => void;
-  onAutoFitPhoto?: (index: number) => void;
-  autoRemoveBg?: boolean;
-  setAutoRemoveBg?: (val: boolean) => void;
-  uploadBgMode?: 'studio-blue' | 'white' | 'sky-blue' | 'off-white';
-  setUploadBgMode?: (mode: 'studio-blue' | 'white' | 'sky-blue' | 'off-white') => void;
-  onQuickApplyBg?: (index: number, mode: 'studio-blue' | 'white' | 'original') => void;
-  autoStraighten?: boolean;
-  setAutoStraighten?: (val: boolean) => void;
-  onApplyBgToAll?: (mode: 'studio-blue' | 'white' | 'sky-blue' | 'off-white') => void;
+  coupleMode: boolean;
+  setCoupleMode: (val: boolean) => void;
+  isAiGenerating?: boolean;
+  aiError?: string | null;
+  onClearAiError?: () => void;
   isUploading?: boolean;
   preset: PhotoPresetType;
   setPreset: (preset: PhotoPresetType) => void;
@@ -113,12 +110,15 @@ export const PassportControls: React.FC<Props> = ({
   activePhotoIndex,
   setActivePhotoIndex,
   onUploadPhotos,
+  onAiUploadPhotos,
   onRemovePhoto,
   onDuplicatePhoto,
   onOpenEditor,
-  onOpenAutoStudio,
-  onOpenWebcam,
-  onOpenCoupleStudio,
+  coupleMode,
+  setCoupleMode,
+  isAiGenerating = false,
+  aiError = null,
+  onClearAiError,
   isUploading = false,
   preset,
   setPreset,
@@ -160,10 +160,59 @@ export const PassportControls: React.FC<Props> = ({
   onDeleteItem,
 }) => {
   const [activeTab, setActiveTab] = useState<PassportTab>('photos');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [pendingBoyFile, setPendingBoyFile] = useState<File | null>(null);
+  const [pendingGirlFile, setPendingGirlFile] = useState<File | null>(null);
 
-  const handleDrop = (e: React.DragEvent) => {
+  const aiFileInputRef = useRef<HTMLInputElement>(null);
+  const directFileInputRef = useRef<HTMLInputElement>(null);
+  const boySlotInputRef = useRef<HTMLInputElement>(null);
+  const girlSlotInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAiFileSelection = (files: FileList | null) => {
+    if (!files || files.length === 0 || isAiGenerating) return;
+    onClearAiError?.();
+    const arr = Array.from(files);
+
+    if (!coupleMode) {
+      onAiUploadPhotos([arr[0]]);
+      return;
+    }
+
+    // Couple Mode: 2 files selected together -> process immediately!
+    if (arr.length >= 2) {
+      setPendingBoyFile(null);
+      setPendingGirlFile(null);
+      onAiUploadPhotos([arr[0], arr[1]]);
+      return;
+    }
+
+    // Couple Mode: 1 file selected -> stage as Boy (Left) first, then Girl (Right) and auto-run!
+    const picked = arr[0];
+    if (!pendingBoyFile) {
+      if (pendingGirlFile) {
+        const girl = pendingGirlFile;
+        setPendingBoyFile(null);
+        setPendingGirlFile(null);
+        onAiUploadPhotos([picked, girl]);
+      } else {
+        setPendingBoyFile(picked);
+      }
+    } else {
+      const boy = pendingBoyFile;
+      setPendingBoyFile(null);
+      setPendingGirlFile(null);
+      onAiUploadPhotos([boy, picked]);
+    }
+  };
+
+  const handleAiDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleAiFileSelection(e.dataTransfer.files);
+    }
+  };
+
+  const handleDirectDrop = (e: React.DragEvent) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       onUploadPhotos(e.dataTransfer.files);
@@ -320,98 +369,316 @@ export const PassportControls: React.FC<Props> = ({
                 : `${photos.length} ${lang === 'bn' ? 'টি ছবি' : photos.length === 1 ? 'Photo' : 'Photos'}`
             }
           >
-            <div className="grid grid-cols-2 gap-2">
-              <div
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className="glass-dropzone rounded-2xl p-3.5 text-center cursor-pointer flex flex-col items-center justify-center min-h-[84px]"
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={(e) => {
-                    onUploadPhotos(e.target.files);
-                    e.target.value = '';
+            {/* Single Mode (default) vs Couple Mode Toggle */}
+            <div className="p-2 rounded-2xl glass-track space-y-2">
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  disabled={isAiGenerating}
+                  onClick={() => {
+                    setCoupleMode(false);
+                    setPendingBoyFile(null);
+                    setPendingGirlFile(null);
                   }}
-                  className="hidden"
-                />
-                {isUploading ? (
-                  <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4 text-blue-600 dark:text-blue-400 mb-1.5" />
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">
-                      {lang === 'bn' ? 'ছবি বাছাই করুন' : 'Browse Files'}
-                    </span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {lang === 'bn' ? 'ড্রপ বা ক্লিক করুন' : 'Drop or click'}
-                    </span>
-                  </>
-                )}
-              </div>
-
-              <div
-                onClick={() => {
-                  if (onOpenWebcam) {
-                    onOpenWebcam();
-                  } else {
-                    cameraInputRef.current?.click();
-                  }
-                }}
-                className="glass-tile rounded-xl p-3.5 text-center cursor-pointer flex flex-col items-center justify-center min-h-[84px] hover:border-blue-400/60"
-              >
-                <input
-                  ref={cameraInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="user"
-                  onChange={(e) => {
-                    onUploadPhotos(e.target.files);
-                    e.target.value = '';
+                  className={`py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    !coupleMode
+                      ? 'glass-btn-primary text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-white/10'
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{lang === 'bn' ? 'সিঙ্গেল মোড' : 'Single Mode'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isAiGenerating}
+                  onClick={() => {
+                    setCoupleMode(true);
+                    setPendingBoyFile(null);
+                    setPendingGirlFile(null);
                   }}
-                  className="hidden"
-                />
-                <Camera className="w-4 h-4 text-blue-600 dark:text-blue-400 mb-1.5" />
-                <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">
-                  {lang === 'bn' ? 'ক্যামেরা স্ন্যাপ' : 'Camera Snap'}
-                </span>
-                <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {lang === 'bn' ? 'লাইভ ওয়েবক্যাম' : 'Live webcam'}
-                </span>
+                  className={`py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    coupleMode
+                      ? 'glass-btn-primary text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-white/10'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">
+                    {lang === 'bn' ? 'কাপল মোড' : 'Couple Mode'}
+                  </span>
+                </button>
               </div>
+              {coupleMode && (
+                <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-300 text-center px-1">
+                  {lang === 'bn'
+                    ? 'কাপল পাসপোর্ট ছবি (ছেলে বাম পাশে + মেয়ে ডান পাশে) — ২টি ছবি সিলেক্ট করুন'
+                    : 'Couple Passport Photo (Boy Left + Girl Right) — Select 2 photos'}
+                </p>
+              )}
             </div>
 
-            {onOpenCoupleStudio && (
-              <button
-                type="button"
-                onClick={onOpenCoupleStudio}
-                className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-blue-600/12 via-indigo-600/12 to-pink-500/12 hover:from-blue-600/20 hover:to-pink-500/20 border border-blue-500/30 dark:border-blue-400/25 text-left flex items-center justify-between gap-2.5 transition cursor-pointer"
+            {/* Hidden device file inputs (file upload only — no webcam/camera) */}
+            <input
+              ref={aiFileInputRef}
+              type="file"
+              multiple={coupleMode}
+              accept="image/*"
+              onChange={(e) => {
+                handleAiFileSelection(e.target.files);
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
+            <input
+              ref={directFileInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              onChange={(e) => {
+                onUploadPhotos(e.target.files);
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
+            <input
+              ref={boySlotInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  if (pendingGirlFile) {
+                    const g = pendingGirlFile;
+                    setPendingBoyFile(null);
+                    setPendingGirlFile(null);
+                    onAiUploadPhotos([f, g]);
+                  } else {
+                    setPendingBoyFile(f);
+                  }
+                }
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
+            <input
+              ref={girlSlotInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) {
+                  if (pendingBoyFile) {
+                    const b = pendingBoyFile;
+                    setPendingBoyFile(null);
+                    setPendingGirlFile(null);
+                    onAiUploadPhotos([b, f]);
+                  } else {
+                    setPendingGirlFile(f);
+                  }
+                }
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
+
+            {/* Two Clean Device Upload Cards: Option 1 (AI Auto Passport) & Option 2 (Direct Ready Upload) */}
+            <div className="space-y-2">
+              {/* OPTION 1: AI Auto Passport (OpenAI gpt-image-1) */}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleAiDrop}
+                onClick={() => {
+                  if (!isAiGenerating) aiFileInputRef.current?.click();
+                }}
+                className={`rounded-2xl p-3.5 border transition-all flex items-center gap-3 ${
+                  isAiGenerating
+                    ? 'bg-blue-600/12 border-blue-500/40 cursor-wait'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 border-blue-500/40 text-white shadow-md shadow-blue-600/20 cursor-pointer active:scale-[0.99]'
+                }`}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                    <Users className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
-                      {lang === 'bn'
-                        ? 'কাপল পাসপোর্ট ছবি (ছেলে বামে + মেয়ে ডানে)'
-                        : 'Couple Passport Photo (Boy Left + Girl Right)'}
-                    </span>
-                    <span className="text-[10px] text-slate-600 dark:text-slate-400 block truncate">
-                      {lang === 'bn'
-                        ? 'একসাথে ২টি ছবি বা ম্যানুয়াল • ৯০° প্রিন্ট অ্যাঙ্গেল'
-                        : 'Upload 2 together or place manually • 90° print angle'}
-                    </span>
-                  </div>
+                <div
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    isAiGenerating
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white/20 text-white backdrop-blur-xs'
+                  }`}
+                >
+                  {isAiGenerating ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-5 h-5" />
+                  )}
                 </div>
-                <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white text-[10px] font-bold shrink-0">
-                  90°
-                </span>
-              </button>
-            )}
+
+                <div className="min-w-0 flex-1 text-left">
+                  {isAiGenerating ? (
+                    <>
+                      <span className="text-xs font-bold text-blue-700 dark:text-blue-300 block">
+                        AI ছবি তৈরি করছে...
+                      </span>
+                      <span className="text-[11px] text-slate-600 dark:text-slate-300 block mt-0.5">
+                        {lang === 'bn'
+                          ? coupleMode
+                            ? 'ছেলে ও মেয়ের কাপল স্টুডিও পাসপোর্ট ছবি তৈরি হচ্ছে'
+                            : 'নীল ব্যাকগ্রাউন্ড ও স্টুডিও লাইটিং প্রসেস হচ্ছে'
+                          : coupleMode
+                          ? 'Generating AI Couple Passport photo...'
+                          : 'Generating AI Studio Passport photo...'}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xs font-bold text-white block leading-snug">
+                        {lang === 'bn'
+                          ? 'AI দিয়ে আপলোড (অটো স্টুডিও পাসপোর্ট)'
+                          : 'Upload with AI (Auto Studio Passport)'}
+                      </span>
+                      <span className="text-[10px] text-blue-100 block mt-0.5 leading-snug">
+                        {coupleMode
+                          ? lang === 'bn'
+                            ? 'একসাথে ২টি ছবি দিন (ছেলে বামে + মেয়ে ডানে) • অটো নীল BG'
+                            : 'Select 2 photos (Boy Left + Girl Right) • Auto Sky-Blue BG'
+                          : lang === 'bn'
+                          ? 'যেকোনো ছবি দিন • অটো নীল BG, সোজা ও স্টুডিও লাইটিং'
+                          : 'Auto sky-blue BG, studio light & straight passport portrait'}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Couple Mode 2-file helper strip when 1st photo is staged */}
+              {coupleMode && !isAiGenerating && (pendingBoyFile || pendingGirlFile) && (
+                <div className="p-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-300/60 dark:border-blue-800 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-blue-800 dark:text-blue-200">
+                      {lang === 'bn'
+                        ? 'দ্বিতীয় ছবিটি সিলেক্ট করুন (অটো AI চালু হবে):'
+                        : 'Select the 2nd photo to start AI generation:'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingBoyFile(null);
+                        setPendingGirlFile(null);
+                      }}
+                      className="p-1 text-slate-400 hover:text-red-500 cursor-pointer"
+                      title={lang === 'bn' ? 'বাতিল' : 'Clear'}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => boySlotInputRef.current?.click()}
+                      className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold border flex items-center justify-center gap-1 cursor-pointer ${
+                        pendingBoyFile
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-white dark:bg-slate-900 border-blue-400/50 text-blue-700 dark:text-blue-300'
+                      }`}
+                    >
+                      {pendingBoyFile ? (
+                        <>
+                          <Check className="w-3 h-3 shrink-0" />
+                          <span className="truncate">
+                            {lang === 'bn' ? 'ছেলে (বামে)' : 'Boy (Left)'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3 h-3 shrink-0" />
+                          <span>{lang === 'bn' ? 'ছেলে বাছুন' : 'Pick Boy'}</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => girlSlotInputRef.current?.click()}
+                      className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold border flex items-center justify-center gap-1 cursor-pointer ${
+                        pendingGirlFile
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-white dark:bg-slate-900 border-pink-400/50 text-pink-700 dark:text-pink-300'
+                      }`}
+                    >
+                      {pendingGirlFile ? (
+                        <>
+                          <Check className="w-3 h-3 shrink-0" />
+                          <span className="truncate">
+                            {lang === 'bn' ? 'মেয়ে (ডানে)' : 'Girl (Right)'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3 h-3 shrink-0" />
+                          <span>{lang === 'bn' ? 'মেয়ে বাছুন' : 'Pick Girl'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  {(pendingBoyFile || pendingGirlFile) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const b = pendingBoyFile;
+                        setPendingBoyFile(pendingGirlFile);
+                        setPendingGirlFile(b);
+                      }}
+                      className="w-full py-1 rounded-lg text-[10px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-white/10 flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <ArrowLeftRight className="w-3 h-3" />
+                      <span>{lang === 'bn' ? 'বাম ↔ ডান অদল-বদল' : 'Swap Boy ↔ Girl'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Inline AI Error Banner */}
+              {aiError && (
+                <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-[11px] flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span className="flex-1 leading-snug">{aiError}</span>
+                  {onClearAiError && (
+                    <button
+                      type="button"
+                      onClick={onClearAiError}
+                      className="p-0.5 hover:bg-red-500/15 rounded cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* OPTION 2: Direct File Upload (Without AI) */}
+              <div
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDirectDrop}
+                onClick={() => directFileInputRef.current?.click()}
+                className="glass-dropzone rounded-2xl p-3 text-left cursor-pointer flex items-center gap-3 hover:border-blue-400/60 transition-all"
+              >
+                <div className="w-10 h-10 rounded-xl bg-slate-200/70 dark:bg-white/10 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0">
+                  {isUploading ? (
+                    <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                  ) : (
+                    <ImagePlus className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block leading-snug">
+                    {lang === 'bn'
+                      ? 'ডাইরেক্ট আপলোড (রেডি ছবি)'
+                      : 'Direct Upload (Ready Photo)'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5 leading-snug">
+                    {lang === 'bn'
+                      ? 'AI ছাড়াই আগে থেকে এডিট করা ছবি সরাসরি প্রিন্ট পেজে নিন'
+                      : 'Load already-edited photo directly to print sheet without AI'}
+                  </span>
+                </div>
+              </div>
+            </div>
 
             {activePhoto && (
               <div className="p-3 rounded-xl glass-track space-y-2.5">
@@ -451,40 +718,20 @@ export const PassportControls: React.FC<Props> = ({
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                       {lang === 'bn'
-                        ? 'নীল/সাদা BG, অটো সোজা ও উজ্জ্বল চেহারা ঠিক করুন'
-                        : 'Blue/White BG, auto-straighten & studio lighting'}
+                        ? 'প্রয়োজনে সামান্য ক্রপ বা আলো এডজাস্ট করুন'
+                        : 'Fine-tune crop, brightness, or contrast if needed'}
                     </p>
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  {onOpenAutoStudio && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenAutoStudio(activePhotoIndex)}
-                      className="w-full py-2 px-3 rounded-xl glass-btn-primary text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <Wand2 className="w-3.5 h-3.5" />
-                      <span>
-                        {lang === 'bn'
-                          ? 'স্মার্ট পাসপোর্ট স্টুডিও (নীল / সাদা BG)'
-                          : 'Smart Passport Studio (Blue / White BG)'}
-                      </span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onOpenEditor(activePhotoIndex)}
-                    className={`w-full py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer ${
-                      onOpenAutoStudio
-                        ? 'glass-tile text-slate-800 dark:text-slate-100'
-                        : 'glass-btn-primary text-white py-2'
-                    }`}
-                  >
-                    <Edit3 className="w-3.5 h-3.5" />
-                    <span>{lang === 'bn' ? 'ক্রপ ও এডজাস্টমেন্ট এডিটর' : 'Open Adjustments & Crop'}</span>
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenEditor(activePhotoIndex)}
+                  className="w-full py-2 px-3 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{lang === 'bn' ? 'ক্রপ ও এডজাস্টমেন্ট এডিটর' : 'Open Adjustments & Crop'}</span>
+                </button>
               </div>
             )}
 
@@ -533,19 +780,6 @@ export const PassportControls: React.FC<Props> = ({
                               {lang === 'en' ? `Photo #${idx + 1}` : `ছবি #${idx + 1}`}
                             </span>
                             <div className="flex items-center gap-1 mt-1">
-                              {onOpenAutoStudio && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onOpenAutoStudio(idx);
-                                  }}
-                                  className="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 cursor-pointer"
-                                  title={lang === 'en' ? 'Smart Auto Studio' : 'স্মার্ট পাসপোর্ট স্টুডিও'}
-                                >
-                                  <Wand2 className="w-3 h-3" />
-                                </button>
-                              )}
                               <button
                                 type="button"
                                 onClick={(e) => {
