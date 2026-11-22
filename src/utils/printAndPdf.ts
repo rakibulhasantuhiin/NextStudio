@@ -89,11 +89,23 @@ export async function generateHighResSheetCanvas(
       const pWidth = width * scale;
       const pHeight = height * scale;
 
-      // Draw photo
+      // Draw photo using aspect-preserving object-fit: cover (matches preview & print 1:1)
       try {
         const img = await loadImage(photo.processedSrc || photo.originalSrc);
         ctx.save();
-        ctx.drawImage(img, px, py, pWidth, pHeight);
+        ctx.beginPath();
+        ctx.rect(px, py, pWidth, pHeight);
+        ctx.clip();
+        const imgAspect = img.width / Math.max(1, img.height);
+        const boxAspect = pWidth / Math.max(1, pHeight);
+        let drawW = pWidth;
+        let drawH = pHeight;
+        if (imgAspect > boxAspect) {
+          drawW = pHeight * imgAspect;
+        } else {
+          drawH = pWidth / imgAspect;
+        }
+        ctx.drawImage(img, px + (pWidth - drawW) / 2, py + (pHeight - drawH) / 2, drawW, drawH);
         ctx.restore();
       } catch (err) {
         console.error('Failed to draw photo on canvas:', err);

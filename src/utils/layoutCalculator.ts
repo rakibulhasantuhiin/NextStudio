@@ -77,16 +77,19 @@ export function generateDefaultPlacedItems(options: {
 
   const defaultPhotoId = photos[activePhotoIndex]?.id || photos[0]?.id;
 
-  // 1. Special Preset: COMBO (Passport 35x45 + Stamp 20x25 on same sheet)
+  // 1. Special Preset: COMBO (Active Passport/Couple + Stamp 20x25 on same sheet)
   if (layoutMode === 'combo-passport-stamp') {
     const items: PlacedSheetItem[] = [];
-    const passportW = 35;
-    const passportH = 45;
+    const useCoupleTop = photoPreset === 'couple' || photoPreset === 'bd-classic';
+    const passportW = useCoupleTop ? PHOTO_PRESETS[photoPreset].width : 35;
+    const passportH = useCoupleTop ? PHOTO_PRESETS[photoPreset].height : 45;
+    const topPreset: PhotoPresetType = useCoupleTop ? photoPreset : 'bd-passport';
     const stampW = 20;
     const stampH = 25;
 
-    // Row 1: 5 Passport photos
-    const passCols = 5;
+    // Row 1: 5 Passport photos (or 4 Couple / Classic photos)
+    const maxTopFit = Math.max(1, Math.floor((paperWidth - 6) / passportW));
+    const passCols = Math.min(useCoupleTop ? 4 : 5, maxTopFit);
     const passColGap = calculateMaxSpreadColGap({
       paperWidth,
       photoWidth: passportW,
@@ -105,7 +108,7 @@ export function generateDefaultPlacedItems(options: {
         y: margins.top,
         width: passportW,
         height: passportH,
-        preset: 'bd-passport',
+        preset: topPreset,
       });
     }
 
@@ -186,32 +189,40 @@ export function generateDefaultPlacedItems(options: {
   const effPhotoW = photoPreset === 'custom' ? customPhotoWidth : PHOTO_PRESETS[photoPreset].width;
   const effPhotoH = photoPreset === 'custom' ? customPhotoHeight : PHOTO_PRESETS[photoPreset].height;
 
-  let countToRender = 5;
+  const minSafeMargin = 3.5;
+  const maxPhysicalWidth = Math.max(effPhotoW, paperWidth - 2 * minSafeMargin);
+  const maxFittingCols = Math.max(1, Math.floor(maxPhysicalWidth / Math.max(1, effPhotoW)));
+  const presetDefaultCols =
+    photoPreset === 'custom'
+      ? Math.min(maxFittingCols, 5)
+      : Math.min(PHOTO_PRESETS[photoPreset]?.defaultCols || 5, maxFittingCols);
+
+  let countToRender = presetDefaultCols;
   let maxColsOverride: number | null = null;
 
   switch (layoutMode) {
     case 'top-5':
-      countToRender = 5;
-      maxColsOverride = 5;
+      countToRender = presetDefaultCols;
+      maxColsOverride = presetDefaultCols;
       break;
     case 'top-4-couple':
-      countToRender = 4;
-      maxColsOverride = 4;
+      countToRender = Math.min(4, maxFittingCols);
+      maxColsOverride = Math.min(4, maxFittingCols);
       break;
     case 'top-6':
-      countToRender = 6;
-      maxColsOverride = 6;
+      countToRender = Math.min(6, maxFittingCols);
+      maxColsOverride = Math.min(6, maxFittingCols);
       break;
     case 'manual':
       countToRender = Math.max(1, manualCount);
       break;
     case 'freeform':
-      countToRender = Math.min(5, photos.length);
+      countToRender = Math.min(presetDefaultCols, photos.length);
       break;
     case 'full-grid':
     default: {
-      const printableW = paperWidth - margins.left - margins.right;
-      const printableH = paperHeight - margins.top - margins.bottom;
+      const printableW = Math.max(effPhotoW, paperWidth - margins.left - margins.right);
+      const printableH = Math.max(effPhotoH, paperHeight - margins.top - margins.bottom);
       const cols = Math.max(1, Math.floor((printableW + margins.colGap) / (effPhotoW + margins.colGap)));
       const rows = Math.max(1, Math.floor((printableH + margins.rowGap) / (effPhotoH + margins.rowGap)));
       countToRender = cols * rows;
@@ -219,17 +230,16 @@ export function generateDefaultPlacedItems(options: {
     }
   }
 
-  // Calculate items per row
+  // Calculate items per row (never exceeding what physically fits on the paper width)
   let colsPerRow = maxColsOverride;
   if (!colsPerRow) {
     colsPerRow = Math.max(
       1,
-      Math.floor((paperWidth - 2 * 3.5 + margins.colGap) / (effPhotoW + margins.colGap))
+      Math.floor((maxPhysicalWidth + margins.colGap) / (effPhotoW + margins.colGap))
     );
   }
+  colsPerRow = Math.max(1, Math.min(colsPerRow, maxFittingCols));
 
-  const minSafeMargin = 3.5;
-  const maxPhysicalWidth = paperWidth - 2 * minSafeMargin;
   const maxPossibleColGap = colsPerRow > 1
     ? Math.max(0, (maxPhysicalWidth - colsPerRow * effPhotoW) / (colsPerRow - 1))
     : 0;
@@ -403,6 +413,7 @@ export function calculatePhotoPositions(options: {
   paper: PaperDimensions;
   orientation: PaperOrientation;
   margins: MarginSettings;
+  photoPreset?: PhotoPresetType;
   photoWidth: number; // mm
   photoHeight: number; // mm
   layoutMode: LayoutMode;
@@ -415,6 +426,7 @@ export function calculatePhotoPositions(options: {
     paper,
     orientation,
     margins,
+    photoPreset = 'bd-passport',
     photoWidth,
     photoHeight,
     layoutMode,
@@ -453,7 +465,7 @@ export function calculatePhotoPositions(options: {
     paper,
     orientation,
     margins,
-    photoPreset: 'bd-passport',
+    photoPreset,
     customPhotoWidth: photoWidth,
     customPhotoHeight: photoHeight,
     layoutMode,

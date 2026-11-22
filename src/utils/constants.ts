@@ -83,10 +83,10 @@ export const PHOTO_PRESETS: Record<PhotoPresetType, PhotoPresetConfig> = {
   },
   couple: {
     id: 'couple',
-    nameBn: 'কাপল ছবি / যুগল (৫০ × ৪০ মিমি - সর্বোচ্চ ৪টি)',
-    nameEn: 'Couple Photo (50 × 40 mm - Max 4)',
-    width: 50,
-    height: 40,
+    nameBn: 'কাপল পাসপোর্ট (৯০° অ্যাঙ্গেল - ৪০ × ৫০ মিমি)',
+    nameEn: 'Couple Passport (90° Angle - 40 × 50 mm)',
+    width: 40,
+    height: 50,
     defaultCols: 4,
   },
   'us-passport': {
@@ -95,7 +95,7 @@ export const PHOTO_PRESETS: Record<PhotoPresetType, PhotoPresetConfig> = {
     nameEn: 'US Visa / 2x2 inch (51 × 51 mm)',
     width: 50.8,
     height: 50.8,
-    defaultCols: 4,
+    defaultCols: 3,
   },
   custom: {
     id: 'custom',

@@ -17,6 +17,8 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Users,
+  Wand2,
 } from 'lucide-react';
 import {
   CuttingGuideStyle,
@@ -46,6 +48,9 @@ interface Props {
   onRemovePhoto: (index: number) => void;
   onDuplicatePhoto: (index: number) => void;
   onOpenEditor: (index: number) => void;
+  onOpenAutoStudio?: (index: number) => void;
+  onOpenWebcam?: () => void;
+  onOpenCoupleStudio?: () => void;
   onAutoFitPhoto?: (index: number) => void;
   autoRemoveBg?: boolean;
   setAutoRemoveBg?: (val: boolean) => void;
@@ -111,6 +116,9 @@ export const PassportControls: React.FC<Props> = ({
   onRemovePhoto,
   onDuplicatePhoto,
   onOpenEditor,
+  onOpenAutoStudio,
+  onOpenWebcam,
+  onOpenCoupleStudio,
   isUploading = false,
   preset,
   setPreset,
@@ -178,7 +186,18 @@ export const PassportControls: React.FC<Props> = ({
   const effectivePhotoHeight =
     preset === 'custom' ? customHeight : PHOTO_PRESETS[preset]?.height || 45;
   const currentCols =
-    layoutMode === 'top-5' ? 5 : layoutMode === 'top-4-couple' ? 4 : layoutMode === 'top-6' ? 6 : 5;
+    layoutMode === 'top-5'
+      ? preset === 'custom'
+        ? Math.max(1, Math.min(5, Math.floor((paperWidthMm - 7) / Math.max(1, effectivePhotoWidth))))
+        : Math.min(
+            PHOTO_PRESETS[preset]?.defaultCols || 5,
+            Math.max(1, Math.floor((paperWidthMm - 7) / Math.max(1, effectivePhotoWidth)))
+          )
+      : layoutMode === 'top-4-couple'
+      ? 4
+      : layoutMode === 'top-6'
+      ? 6
+      : 5;
 
   const maxSpreadGap = calculateMaxSpreadColGap({
     paperWidth: paperWidthMm,
@@ -223,10 +242,10 @@ export const PassportControls: React.FC<Props> = ({
   }[] = [
     {
       id: 'top-5',
-      titleEn: 'Top 5 Passport',
-      titleBn: 'উপরে ৫ পাসপোর্ট',
-      subEn: 'Standard A4 top row',
-      subBn: 'A4 পেপারে ১ সারি (৩৫×৪৫)',
+      titleEn: 'Top Strip Row',
+      titleBn: 'উপরে ১ সারি',
+      subEn: `${currentCols} copies (${effectivePhotoWidth}×${effectivePhotoHeight}mm)`,
+      subBn: `১ সারিতে ${currentCols}টি (${effectivePhotoWidth}×${effectivePhotoHeight})`,
     },
     {
       id: 'combo-passport-stamp',
@@ -335,8 +354,14 @@ export const PassportControls: React.FC<Props> = ({
               </div>
 
               <div
-                onClick={() => cameraInputRef.current?.click()}
-                className="glass-tile rounded-xl p-3.5 text-center cursor-pointer flex flex-col items-center justify-center min-h-[84px]"
+                onClick={() => {
+                  if (onOpenWebcam) {
+                    onOpenWebcam();
+                  } else {
+                    cameraInputRef.current?.click();
+                  }
+                }}
+                className="glass-tile rounded-xl p-3.5 text-center cursor-pointer flex flex-col items-center justify-center min-h-[84px] hover:border-blue-400/60"
               >
                 <input
                   ref={cameraInputRef}
@@ -349,15 +374,44 @@ export const PassportControls: React.FC<Props> = ({
                   }}
                   className="hidden"
                 />
-                <Camera className="w-4 h-4 text-slate-700 dark:text-slate-200 mb-1.5" />
+                <Camera className="w-4 h-4 text-blue-600 dark:text-blue-400 mb-1.5" />
                 <span className="text-xs font-semibold text-slate-800 dark:text-slate-100">
                   {lang === 'bn' ? 'ক্যামেরা স্ন্যাপ' : 'Camera Snap'}
                 </span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  {lang === 'bn' ? 'সরাসরি ছবি তুলুন' : 'Capture live'}
+                  {lang === 'bn' ? 'লাইভ ওয়েবক্যাম' : 'Live webcam'}
                 </span>
               </div>
             </div>
+
+            {onOpenCoupleStudio && (
+              <button
+                type="button"
+                onClick={onOpenCoupleStudio}
+                className="w-full py-2.5 px-3 rounded-2xl bg-gradient-to-r from-blue-600/12 via-indigo-600/12 to-pink-500/12 hover:from-blue-600/20 hover:to-pink-500/20 border border-blue-500/30 dark:border-blue-400/25 text-left flex items-center justify-between gap-2.5 transition cursor-pointer"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white block truncate">
+                      {lang === 'bn'
+                        ? 'কাপল পাসপোর্ট ছবি (ছেলে বামে + মেয়ে ডানে)'
+                        : 'Couple Passport Photo (Boy Left + Girl Right)'}
+                    </span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-400 block truncate">
+                      {lang === 'bn'
+                        ? 'একসাথে ২টি ছবি বা ম্যানুয়াল • ৯০° প্রিন্ট অ্যাঙ্গেল'
+                        : 'Upload 2 together or place manually • 90° print angle'}
+                    </span>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-lg bg-blue-600 text-white text-[10px] font-bold shrink-0">
+                  90°
+                </span>
+              </button>
+            )}
 
             {activePhoto && (
               <div className="p-3 rounded-xl glass-track space-y-2.5">
@@ -397,20 +451,40 @@ export const PassportControls: React.FC<Props> = ({
                     </div>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                       {lang === 'bn'
-                        ? 'আলো, কনট্রাস্ট ও ক্রপ ঠিক করতে এডিটর খুলুন'
-                        : 'Fine-tune brightness, contrast, or crop frame'}
+                        ? 'নীল/সাদা BG, অটো সোজা ও উজ্জ্বল চেহারা ঠিক করুন'
+                        : 'Blue/White BG, auto-straighten & studio lighting'}
                     </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => onOpenEditor(activePhotoIndex)}
-                  className="w-full py-2 px-3 rounded-xl glass-btn-primary text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>{lang === 'bn' ? 'ক্রপ ও এডজাস্টমেন্ট এডিটর' : 'Open Adjustments & Crop'}</span>
-                </button>
+                <div className="space-y-1.5">
+                  {onOpenAutoStudio && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAutoStudio(activePhotoIndex)}
+                      className="w-full py-2 px-3 rounded-xl glass-btn-primary text-white text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Wand2 className="w-3.5 h-3.5" />
+                      <span>
+                        {lang === 'bn'
+                          ? 'স্মার্ট পাসপোর্ট স্টুডিও (নীল / সাদা BG)'
+                          : 'Smart Passport Studio (Blue / White BG)'}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenEditor(activePhotoIndex)}
+                    className={`w-full py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer ${
+                      onOpenAutoStudio
+                        ? 'glass-tile text-slate-800 dark:text-slate-100'
+                        : 'glass-btn-primary text-white py-2'
+                    }`}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>{lang === 'bn' ? 'ক্রপ ও এডজাস্টমেন্ট এডিটর' : 'Open Adjustments & Crop'}</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -459,6 +533,19 @@ export const PassportControls: React.FC<Props> = ({
                               {lang === 'en' ? `Photo #${idx + 1}` : `ছবি #${idx + 1}`}
                             </span>
                             <div className="flex items-center gap-1 mt-1">
+                              {onOpenAutoStudio && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenAutoStudio(idx);
+                                  }}
+                                  className="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-700 cursor-pointer"
+                                  title={lang === 'en' ? 'Smart Auto Studio' : 'স্মার্ট পাসপোর্ট স্টুডিও'}
+                                >
+                                  <Wand2 className="w-3 h-3" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={(e) => {
@@ -703,7 +790,7 @@ export const PassportControls: React.FC<Props> = ({
           {selectedItem && (
             <InspectorSection
               title={lang === 'bn' ? 'নির্বাচিত ছবি কন্ট্রোল' : 'Selected Sheet Item'}
-              meta={isSelectedItemStamp ? '20 × 25 mm' : '35 × 45 mm'}
+              meta={`${selectedItem.width} × ${selectedItem.height} mm`}
             >
               <div className="p-3 rounded-xl bg-slate-900 text-white space-y-2.5">
                 <div className="flex items-center gap-1.5 flex-wrap">

@@ -16,8 +16,18 @@ import { NidControls } from './components/NidStudio/NidControls';
 import { NidEditorModal } from './components/NidStudio/NidEditorModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PaperPreview } from './components/PaperPreview';
+import {
+  CouplePassportModal,
+  CouplePassportResult,
+} from './components/PassportStudio/CouplePassportModal';
+import {
+  PassportAutoStudioInputItem,
+  PassportAutoStudioModal,
+  PassportAutoStudioOutputItem,
+} from './components/PassportStudio/PassportAutoStudioModal';
 import { PassportControls } from './components/PassportStudio/PassportControls';
 import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
+import { WebcamCaptureModal } from './components/PassportStudio/WebcamCaptureModal';
 import { PrintSheetHidden } from './components/PrintSheetHidden';
 import { ReadyDocControls } from './components/ReadyDocsStudio/ReadyDocControls';
 import { ReadyDocSheetRenderer } from './components/ReadyDocsStudio/ReadyDocSheetRenderer';
@@ -223,6 +233,13 @@ export default function App() {
   const [photos, setPhotos] = useState<StudioPhotoItem[]>([]);
   const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
+  const [isWebcamOpen, setIsWebcamOpen] = useState<boolean>(false);
+  const [autoStudioItems, setAutoStudioItems] = useState<PassportAutoStudioInputItem[]>([]);
+  const [isCoupleModalOpen, setIsCoupleModalOpen] = useState<boolean>(false);
+  const [coupleInitialPair, setCoupleInitialPair] = useState<{
+    left: string | null;
+    right: string | null;
+  }>({ left: null, right: null });
 
   // Placed items on the paper sheet (enables drag-and-drop, nudging, mixed passport & stamp sizes)
   const [placedItems, setPlacedItems] = useState<PlacedSheetItem[]>([]);
@@ -813,6 +830,7 @@ export default function App() {
       paper: currentPaper,
       orientation,
       margins,
+      photoPreset,
       photoWidth: effectivePhotoWidth,
       photoHeight: effectivePhotoHeight,
       layoutMode,
@@ -842,6 +860,9 @@ export default function App() {
       const hasPrimaryMod = (e.ctrlKey || e.metaKey) && !e.altKey;
       const modalOpen =
         editingPhotoIndex !== null ||
+        isWebcamOpen ||
+        autoStudioItems.length > 0 ||
+        isCoupleModalOpen ||
         nidEditingSide !== null ||
         laminationEditingSide !== null ||
         editingDocumentPageIndex !== null;
@@ -895,6 +916,9 @@ export default function App() {
         if (
           isShortcutsOpen ||
           editingPhotoIndex !== null ||
+          isWebcamOpen ||
+          autoStudioItems.length > 0 ||
+          isCoupleModalOpen ||
           nidEditingSide !== null ||
           laminationEditingSide !== null ||
           editingDocumentPageIndex !== null
@@ -902,6 +926,9 @@ export default function App() {
           e.preventDefault();
           setIsShortcutsOpen(false);
           setEditingPhotoIndex(null);
+          setIsWebcamOpen(false);
+          setAutoStudioItems([]);
+          setIsCoupleModalOpen(false);
           setNidEditingSide(null);
           setLaminationEditingSide(null);
           setEditingDocumentPageIndex(null);
@@ -925,18 +952,21 @@ export default function App() {
     nid,
     isShortcutsOpen,
     editingPhotoIndex,
+    isWebcamOpen,
+    autoStudioItems.length,
+    isCoupleModalOpen,
     nidEditingSide,
     laminationEditingSide,
     editingDocumentPageIndex,
   ]);
 
-  // 8. Photo Upload Handler: Supports Multiple Pictures at once (Clean, Original Quality, No unwanted AI/Bg edits)
+  // 8. Photo Upload Handler: Opens 100% Offline Smart Auto Passport Studio (Blue BG default, White manual)
   const handleUploadPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
     setIsUploading(true);
     const filesArray = Array.from(files);
-    const newlyProcessedPhotos: StudioPhotoItem[] = [];
+    const queuedItems: PassportAutoStudioInputItem[] = [];
 
     try {
       for (const file of filesArray) {
@@ -947,57 +977,201 @@ export default function App() {
           reader.readAsDataURL(file);
         });
 
-        newlyProcessedPhotos.push({
-          id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          originalSrc: dataUrl,
-          processedSrc: dataUrl,
-          adjustments: { ...DEFAULT_ADJUSTMENTS, backgroundMode: 'original' },
+        queuedItems.push({
+          id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          src: dataUrl,
+          initialBgMode: 'studio-blue',
         });
       }
 
-      setPhotos((prev) => {
-        const combined = [...prev, ...newlyProcessedPhotos];
-
-        // If sheet is empty or was unplaced, generate layout with all uploaded photos
-        if (prev.length === 0 || placedItems.length === 0) {
-          const newPlaced = generateDefaultPlacedItems({
-            paper: currentPaper,
-            orientation,
-            margins,
-            photoPreset,
-            customPhotoWidth: effectivePhotoWidth,
-            customPhotoHeight: effectivePhotoHeight,
-            layoutMode,
-            manualCount,
-            photos: combined,
-            activePhotoIndex: 0,
+      if (queuedItems.length > 0) {
+        // If Couple preset is selected and user uploads 2 photos together -> auto-open Couple Passport Studio!
+        if (photoPreset === 'couple' && queuedItems.length === 2) {
+          setCoupleInitialPair({
+            left: queuedItems[0].src,
+            right: queuedItems[1].src,
           });
-          setPlacedItems(newPlaced);
+          setIsCoupleModalOpen(true);
         } else {
-          // Append new uploaded photos as items to the sheet
-          let updatedPlaced = [...placedItems];
-          for (const newPhoto of newlyProcessedPhotos) {
-            updatedPlaced = addPhotoToSheet({
-              existingItems: updatedPlaced,
-              photoId: newPhoto.id,
-              preset: photoPreset,
-              paper: currentPaper,
-              orientation,
-              margins,
-              customWidth: effectivePhotoWidth,
-              customHeight: effectivePhotoHeight,
-            });
-          }
-          setPlacedItems(updatedPlaced);
+          setAutoStudioItems(queuedItems);
         }
-
-        return combined;
-      });
-
-      setActivePhotoIndex((prev) => prev);
+      }
     } finally {
       setIsUploading(false);
     }
+  };
+
+  // Open Couple Passport Studio manually (pre-fills Boy Left & Girl Right if 2 photos exist, or clean slots)
+  const handleOpenCoupleStudio = () => {
+    const soloPhotos = photos.filter((p) => p.type !== 'couple');
+    setCoupleInitialPair({
+      left: soloPhotos[0]?.originalSrc || null,
+      right: soloPhotos[1]?.originalSrc || null,
+    });
+    setIsCoupleModalOpen(true);
+  };
+
+  // Confirm Couple Passport Studio -> adds 90°-angled Couple HD Photo and loads straight onto Print Sheet
+  const handleConfirmCouplePhoto = (res: CouplePassportResult) => {
+    const mappedBg: PhotoAdjustments['backgroundMode'] =
+      res.bgMode === 'classic-blue' ? 'studio-blue' : res.bgMode;
+
+    const coupleItem: StudioPhotoItem = {
+      id: `couple-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      originalSrc: res.originalSrc,
+      processedSrc: res.processedSrc,
+      type: 'couple',
+      label: lang === 'bn' ? 'কাপল পাসপোর্ট' : 'Couple Passport',
+      adjustments: {
+        ...DEFAULT_ADJUSTMENTS,
+        backgroundMode: mappedBg,
+        customBgColor: res.customBgColor,
+      },
+    };
+
+    const nextPhotos = [...photos, coupleItem];
+    const newIndex = nextPhotos.length - 1;
+    const nextPreset = res.recommendedPreset;
+    const nextLayout: LayoutMode =
+      layoutMode === 'full-grid-stamp' || layoutMode === 'combo-passport-stamp'
+        ? 'top-5'
+        : layoutMode;
+
+    setPhotos(nextPhotos);
+    setActivePhotoIndex(newIndex);
+    setPhotoPreset(nextPreset);
+    if (nextPreset === 'custom') {
+      setCustomPhotoWidth(res.physicalWidthMm);
+      setCustomPhotoHeight(res.physicalHeightMm);
+    }
+    if (nextLayout !== layoutMode) {
+      setLayoutMode(nextLayout);
+    }
+
+    const newPlaced = generateDefaultPlacedItems({
+      paper: currentPaper,
+      orientation,
+      margins,
+      photoPreset: nextPreset,
+      customPhotoWidth: res.physicalWidthMm,
+      customPhotoHeight: res.physicalHeightMm,
+      layoutMode: nextLayout,
+      manualCount,
+      photos: [coupleItem],
+      activePhotoIndex: 0,
+    });
+    setPlacedItems(newPlaced);
+    setSelectedItemId(null);
+    setIsCoupleModalOpen(false);
+  };
+
+  // Webcam Live Snap -> opens Smart Auto Passport Studio immediately
+  const handleWebcamCapture = (dataUrl: string) => {
+    setIsWebcamOpen(false);
+    setAutoStudioItems([
+      {
+        id: `webcam-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        src: dataUrl,
+        initialBgMode: 'studio-blue',
+      },
+    ]);
+  };
+
+  // Confirm Smart Auto Passport Studio -> loads processed HD photo(s) directly onto print page
+  const handleConfirmAutoStudio = (results: PassportAutoStudioOutputItem[]) => {
+    if (!results || results.length === 0) {
+      setAutoStudioItems([]);
+      return;
+    }
+
+    const mapBgMode = (
+      modeVal: PassportAutoStudioOutputItem['bgMode']
+    ): PhotoAdjustments['backgroundMode'] => {
+      if (modeVal === 'classic-blue') return 'studio-blue';
+      return modeVal;
+    };
+
+    const editedItems = results.filter((r) => typeof r.editIndex === 'number');
+    const newItems = results.filter((r) => typeof r.editIndex !== 'number');
+
+    const newlyCreatedPhotos: StudioPhotoItem[] = newItems.map((item) => ({
+      id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      originalSrc: item.originalSrc,
+      processedSrc: item.processedSrc,
+      adjustments: {
+        ...DEFAULT_ADJUSTMENTS,
+        backgroundMode: mapBgMode(item.bgMode),
+        customBgColor: item.customBgColor,
+        rotation: item.rotation,
+        brightness: item.brightness,
+        contrast: item.contrast,
+        warmth: item.warmth,
+        sharpness: item.sharpness,
+      },
+    }));
+
+    const existingBefore = photos;
+    let nextPhotos = existingBefore.map((p, idx) => {
+      const editMatch = editedItems.find((e) => e.editIndex === idx);
+      if (!editMatch) return p;
+      return {
+        ...p,
+        processedSrc: editMatch.processedSrc,
+        adjustments: {
+          ...p.adjustments,
+          backgroundMode: mapBgMode(editMatch.bgMode),
+          customBgColor: editMatch.customBgColor,
+          rotation: editMatch.rotation,
+          brightness: editMatch.brightness,
+          contrast: editMatch.contrast,
+          warmth: editMatch.warmth,
+          sharpness: editMatch.sharpness,
+        },
+      };
+    });
+
+    if (newlyCreatedPhotos.length > 0) {
+      nextPhotos = [...nextPhotos, ...newlyCreatedPhotos];
+    }
+
+    setPhotos(nextPhotos);
+
+    if (newlyCreatedPhotos.length > 0) {
+      const newActiveIdx = existingBefore.length;
+      if (existingBefore.length === 0 || placedItems.length === 0) {
+        const newPlaced = generateDefaultPlacedItems({
+          paper: currentPaper,
+          orientation,
+          margins,
+          photoPreset,
+          customPhotoWidth: effectivePhotoWidth,
+          customPhotoHeight: effectivePhotoHeight,
+          layoutMode,
+          manualCount,
+          photos: nextPhotos,
+          activePhotoIndex: 0,
+        });
+        setPlacedItems(newPlaced);
+      } else {
+        let updatedPlaced = [...placedItems];
+        for (const newPhoto of newlyCreatedPhotos) {
+          updatedPlaced = addPhotoToSheet({
+            existingItems: updatedPlaced,
+            photoId: newPhoto.id,
+            preset: photoPreset,
+            paper: currentPaper,
+            orientation,
+            margins,
+            customWidth: effectivePhotoWidth,
+            customHeight: effectivePhotoHeight,
+          });
+        }
+        setPlacedItems(updatedPlaced);
+      }
+      setActivePhotoIndex(newActiveIdx);
+    }
+
+    setAutoStudioItems([]);
   };
 
   // Remove photo from studio & sheet
@@ -1020,6 +1194,124 @@ export default function App() {
       id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     };
     setPhotos((prev) => [...prev, duplicated]);
+  };
+
+  // Helper to rebuild passport sheet whenever preset, custom size, margins, or paper changes
+  const rebuildPassportSheet = (overrides?: {
+    preset?: PhotoPresetType;
+    customW?: number;
+    customH?: number;
+    paper?: { name: string; width: number; height: number };
+    orient?: PaperOrientation;
+    nextMargins?: MarginSettings;
+    nextLayout?: LayoutMode;
+  }) => {
+    if (photos.length === 0) return;
+    const usePreset = overrides?.preset ?? photoPreset;
+    const useCustomW = overrides?.customW ?? customPhotoWidth;
+    const useCustomH = overrides?.customH ?? customPhotoHeight;
+    const usePaper = overrides?.paper ?? currentPaper;
+    const useOrient = overrides?.orient ?? orientation;
+    const useMargins = overrides?.nextMargins ?? margins;
+    const useLayout = overrides?.nextLayout ?? layoutMode;
+    const effW = usePreset === 'custom' ? useCustomW : PHOTO_PRESETS[usePreset].width;
+    const effH = usePreset === 'custom' ? useCustomH : PHOTO_PRESETS[usePreset].height;
+
+    const newPlaced = generateDefaultPlacedItems({
+      paper: usePaper,
+      orientation: useOrient,
+      margins: useMargins,
+      photoPreset: usePreset,
+      customPhotoWidth: effW,
+      customPhotoHeight: effH,
+      layoutMode: useLayout,
+      manualCount,
+      photos,
+      activePhotoIndex,
+    });
+    setPlacedItems(newPlaced);
+  };
+
+  // Photo Size Preset switcher -> immediately applies exact mm preset onto the print sheet!
+  const handlePhotoPresetChange = (newPreset: PhotoPresetType) => {
+    setPhotoPreset(newPreset);
+    // If user was on stamp-only or combo layout and clicks a specific photo size preset, switch to standard row layout so the chosen size displays immediately
+    let nextLayout = layoutMode;
+    if (layoutMode === 'full-grid-stamp' && newPreset !== 'bd-stamp') {
+      nextLayout = 'top-5';
+      setLayoutMode('top-5');
+    } else if (layoutMode === 'combo-passport-stamp' && newPreset !== 'bd-passport' && newPreset !== 'couple') {
+      nextLayout = 'top-5';
+      setLayoutMode('top-5');
+    }
+    rebuildPassportSheet({ preset: newPreset, nextLayout });
+  };
+
+  const handleCustomPhotoWidthChange = (w: number) => {
+    const safeW = Math.max(10, Math.min(250, w));
+    setCustomPhotoWidth(safeW);
+    if (photoPreset === 'custom') {
+      rebuildPassportSheet({ preset: 'custom', customW: safeW });
+    }
+  };
+
+  const handleCustomPhotoHeightChange = (h: number) => {
+    const safeH = Math.max(10, Math.min(250, h));
+    setCustomPhotoHeight(safeH);
+    if (photoPreset === 'custom') {
+      rebuildPassportSheet({ preset: 'custom', customH: safeH });
+    }
+  };
+
+  const handlePassportMarginsChange = (
+    updater: MarginSettings | ((prev: MarginSettings) => MarginSettings)
+  ) => {
+    const nextMargins = typeof updater === 'function' ? updater(margins) : updater;
+    setMargins(nextMargins);
+    if (photos.length > 0) {
+      const hasCustomDragged = placedItems.some((i) => i.customPositioned);
+      if (hasCustomDragged && placedItems.length > 0) {
+        setPlacedItems(autoAlignPlacedItems(placedItems, currentPaper, orientation, nextMargins));
+      } else {
+        rebuildPassportSheet({ nextMargins });
+      }
+    }
+  };
+
+  const handlePassportPaperSizeChange = (size: PaperSizeType) => {
+    setPaperSize(size);
+    const nextPaper =
+      size === 'custom'
+        ? {
+            name: `${lang === 'en' ? 'Custom' : 'কাস্টম'} (${customPaperWidth} × ${customPaperHeight} mm)`,
+            width: customPaperWidth,
+            height: customPaperHeight,
+          }
+        : PAPER_SIZES[size];
+    rebuildPassportSheet({ paper: nextPaper });
+  };
+
+  const handlePassportOrientationChange = (nextOrient: PaperOrientation) => {
+    setOrientation(nextOrient);
+    rebuildPassportSheet({ orient: nextOrient });
+  };
+
+  const handlePassportCustomPaperWidthChange = (w: number) => {
+    setCustomPaperWidth(w);
+    if (paperSize === 'custom') {
+      rebuildPassportSheet({
+        paper: { name: `Custom (${w} × ${customPaperHeight} mm)`, width: w, height: customPaperHeight },
+      });
+    }
+  };
+
+  const handlePassportCustomPaperHeightChange = (h: number) => {
+    setCustomPaperHeight(h);
+    if (paperSize === 'custom') {
+      rebuildPassportSheet({
+        paper: { name: `Custom (${customPaperWidth} × ${h} mm)`, width: customPaperWidth, height: h },
+      });
+    }
   };
 
   // Layout mode switcher - updates layout and rebuilds placedItems accordingly
@@ -2240,27 +2532,44 @@ export default function App() {
               onRemovePhoto={handleRemovePhoto}
               onDuplicatePhoto={handleDuplicatePhoto}
               onOpenEditor={(idx) => setEditingPhotoIndex(idx)}
+              onOpenAutoStudio={(idx) => {
+                const target = photos[idx];
+                if (!target) return;
+                setAutoStudioItems([
+                  {
+                    id: target.id,
+                    src: target.originalSrc,
+                    editIndex: idx,
+                    initialBgMode:
+                      target.adjustments.backgroundMode === 'original'
+                        ? 'studio-blue'
+                        : target.adjustments.backgroundMode,
+                  },
+                ]);
+              }}
+              onOpenWebcam={() => setIsWebcamOpen(true)}
+              onOpenCoupleStudio={handleOpenCoupleStudio}
               isUploading={isUploading}
               preset={photoPreset}
-              setPreset={setPhotoPreset}
+              setPreset={handlePhotoPresetChange}
               customWidth={customPhotoWidth}
-              setCustomWidth={setCustomPhotoWidth}
+              setCustomWidth={handleCustomPhotoWidthChange}
               customHeight={customPhotoHeight}
-              setCustomHeight={setCustomPhotoHeight}
+              setCustomHeight={handleCustomPhotoHeightChange}
               paperSize={paperSize}
-              setPaperSize={setPaperSize}
+              setPaperSize={handlePassportPaperSizeChange}
               customPaperWidth={customPaperWidth}
-              setCustomPaperWidth={setCustomPaperWidth}
+              setCustomPaperWidth={handlePassportCustomPaperWidthChange}
               customPaperHeight={customPaperHeight}
-              setCustomPaperHeight={setCustomPaperHeight}
+              setCustomPaperHeight={handlePassportCustomPaperHeightChange}
               orientation={orientation}
-              setOrientation={setOrientation}
+              setOrientation={handlePassportOrientationChange}
               layoutMode={layoutMode}
               setLayoutMode={handleLayoutModeChange}
               manualCount={manualCount}
               setManualCount={handleManualCountChange}
               margins={margins}
-              setMargins={setMargins}
+              setMargins={handlePassportMarginsChange}
               cuttingGuide={cuttingGuide}
               setCuttingGuide={setCuttingGuide}
               bleedArea={bleedArea}
@@ -2509,7 +2818,10 @@ export default function App() {
         type="file"
         multiple
         accept="image/*"
-        onChange={(e) => handleUploadPhotos(e.target.files)}
+        onChange={(e) => {
+          handleUploadPhotos(e.target.files);
+          e.target.value = '';
+        }}
         className="hidden"
       />
       <input
@@ -2719,6 +3031,54 @@ export default function App() {
           onClose={() => setEditingPhotoIndex(null)}
           onSave={handleSavePhotoAdjustments}
           lang={lang}
+        />
+      )}
+
+      {/* 5B. Live Webcam Capture Studio Modal */}
+      {isWebcamOpen && (
+        <WebcamCaptureModal
+          isOpen={true}
+          lang={lang}
+          onClose={() => setIsWebcamOpen(false)}
+          onCapture={handleWebcamCapture}
+          onFallbackUpload={(files) => {
+            setIsWebcamOpen(false);
+            void handleUploadPhotos(files);
+          }}
+        />
+      )}
+
+      {/* 5C. 100% Offline Smart Auto Passport Studio Modal (Blue BG default / White manual) */}
+      {autoStudioItems.length > 0 && (
+        <PassportAutoStudioModal
+          isOpen={true}
+          lang={lang}
+          items={autoStudioItems}
+          targetAspectRatio={effectivePhotoWidth / Math.max(1, effectivePhotoHeight)}
+          onClose={() => setAutoStudioItems([])}
+          onConfirm={handleConfirmAutoStudio}
+          onOpenWebcam={() => {
+            setAutoStudioItems([]);
+            setIsWebcamOpen(true);
+          }}
+          onConvertToCouple={(leftSrc, rightSrc) => {
+            setAutoStudioItems([]);
+            setCoupleInitialPair({ left: leftSrc, right: rightSrc });
+            setIsCoupleModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* 5D. 100% Offline Couple Passport Studio Modal (Boy Left + Girl Right • 90° Print Angle) */}
+      {isCoupleModalOpen && (
+        <CouplePassportModal
+          isOpen={true}
+          lang={lang}
+          initialLeftSrc={coupleInitialPair.left}
+          initialRightSrc={coupleInitialPair.right}
+          existingPhotos={photos}
+          onClose={() => setIsCoupleModalOpen(false)}
+          onConfirm={handleConfirmCouplePhoto}
         />
       )}
 
