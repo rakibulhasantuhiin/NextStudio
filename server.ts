@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import fs from 'fs';
 import multer from 'multer';
 import path from 'path';
@@ -21,7 +22,10 @@ const upload = multer({
   },
 });
 
-function normalizeMimeAndFilename(file: Express.Multer.File, index: number): {
+function normalizeMimeAndFilename(
+  file: Express.Multer.File,
+  index: number
+): {
   mime: string;
   filename: string;
 } {
@@ -35,6 +39,27 @@ function normalizeMimeAndFilename(file: Express.Multer.File, index: number): {
   return { mime: 'image/jpeg', filename: `photo-${index + 1}.jpg` };
 }
 
+function parseUploadMiddleware(req: Request, res: Response, next: NextFunction): void {
+  upload.array('images', 2)(req, res, (err: unknown) => {
+    if (!err) {
+      next();
+      return;
+    }
+    if (err instanceof multer.MulterError) {
+      const msg =
+        err.code === 'LIMIT_FILE_SIZE'
+          ? 'Uploaded image is too large (max 25MB per photo).'
+          : err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE'
+          ? 'Please upload 1 photo for Single Mode or 2 photos for Couple Mode.'
+          : err.message;
+      res.status(400).json({ error: msg });
+      return;
+    }
+    const message = err instanceof Error ? err.message : 'Failed to process uploaded image.';
+    res.status(400).json({ error: message });
+  });
+}
+
 async function startServer() {
   const app = express();
 
@@ -42,16 +67,20 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (_req: Request, res: Response) => {
-    res.json({ ok: true, openaiConfigured: Boolean(process.env.OPENAI_API_KEY) });
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    res.json({
+      ok: true,
+      openaiConfigured: Boolean(apiKey && apiKey !== 'MY_OPENAI_API_KEY'),
+    });
   });
 
   // OpenAI gpt-image-1 Image Edit API route for Single & Couple AI Passport Photos
   app.post(
     '/api/generate-passport',
-    upload.array('images', 2),
+    parseUploadMiddleware,
     async (req: Request, res: Response) => {
       try {
-        const apiKey = process.env.OPENAI_API_KEY;
+        const apiKey = process.env.OPENAI_API_KEY?.trim();
         if (!apiKey || apiKey === 'MY_OPENAI_API_KEY') {
           res.status(500).json({
             error:
@@ -127,6 +156,12 @@ async function startServer() {
           dataUrl = `data:image/png;base64,${first.b64_json}`;
         } else if (first.url) {
           const imgResp = await fetch(first.url);
+          if (!imgResp.ok) {
+            res.status(502).json({
+              error: `Failed to download generated image (HTTP ${imgResp.status}).`,
+            });
+            return;
+          }
           const arrBuf = await imgResp.arrayBuffer();
           const contentType = imgResp.headers.get('content-type') || 'image/png';
           dataUrl = `data:${contentType};base64,${Buffer.from(arrBuf).toString('base64')}`;
@@ -146,11 +181,19 @@ async function startServer() {
     }
   );
 
+  // Return clean JSON 404 for unknown API routes
+  app.use('/api', (_req: Request, res: Response) => {
+    res.status(404).json({ error: 'API route not found.' });
+  });
+
   // Dev vs Production static / Vite middleware setup
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === 'true' ? false : undefined,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -166,6 +209,20 @@ async function startServer() {
       }
     });
   }
+
+  // Global JSON error fallback for API errors
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    const message = err instanceof Error ? err.message : 'Internal server error';
+    if (req.path.startsWith('/api')) {
+      res.status(500).json({ error: message });
+      return;
+    }
+    res.status(500).send(message);
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server listening on http://0.0.0.0:${PORT}`);

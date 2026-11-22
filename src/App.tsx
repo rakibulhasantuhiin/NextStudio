@@ -1038,6 +1038,59 @@ export default function App() {
     setSelectedItemId(null);
   };
 
+  // Normalize any uploaded image file to upright JPEG (max 2048px) so OpenAI gpt-image-1 accepts all camera formats and avoids proxy size limits
+  const normalizeImageForAiUpload = (file: File, index: number): Promise<File> =>
+    new Promise((resolve) => {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxSide = 2048;
+          let targetW = img.naturalWidth || 1024;
+          let targetH = img.naturalHeight || 1024;
+          if (Math.max(targetW, targetH) > maxSide) {
+            const ratio = maxSide / Math.max(targetW, targetH);
+            targetW = Math.max(1, Math.round(targetW * ratio));
+            targetH = Math.max(1, Math.round(targetH * ratio));
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            URL.revokeObjectURL(objectUrl);
+            resolve(file);
+            return;
+          }
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, targetW, targetH);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          canvas.toBlob(
+            (blob) => {
+              URL.revokeObjectURL(objectUrl);
+              if (!blob) {
+                resolve(file);
+                return;
+              }
+              resolve(new File([blob], `photo-${index + 1}.jpg`, { type: 'image/jpeg' }));
+            },
+            'image/jpeg',
+            0.93
+          );
+        } catch {
+          URL.revokeObjectURL(objectUrl);
+          resolve(file);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+      img.src = objectUrl;
+    });
+
   // Option 1: AI Auto Passport (OpenAI gpt-image-1 via /api/generate-passport)
   const handleAiUploadPhotos = async (files: File[]) => {
     if (!files || files.length === 0) return;
@@ -1057,10 +1110,15 @@ export default function App() {
       const formData = new FormData();
       formData.append('mode', coupleUploadMode ? 'couple' : 'single');
       if (coupleUploadMode) {
-        formData.append('images', files[0]);
-        formData.append('images', files[1]);
+        const [boyFile, girlFile] = await Promise.all([
+          normalizeImageForAiUpload(files[0], 0),
+          normalizeImageForAiUpload(files[1], 1),
+        ]);
+        formData.append('images', boyFile);
+        formData.append('images', girlFile);
       } else {
-        formData.append('images', files[0]);
+        const singleFile = await normalizeImageForAiUpload(files[0], 0);
+        formData.append('images', singleFile);
       }
 
       const resp = await fetch('/api/generate-passport', {
@@ -1077,8 +1135,8 @@ export default function App() {
         throw new Error(
           payload?.error ||
             (lang === 'bn'
-              ? 'AI ছবি তৈরি করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।'
-              : 'Failed to generate AI passport photo. Please try again.')
+              ? `AI ছবি তৈরি করতে সমস্যা হয়েছে (HTTP ${resp.status})। আবার চেষ্টা করুন।`
+              : `Failed to generate AI passport photo (HTTP ${resp.status}). Please try again.`)
         );
       }
 
