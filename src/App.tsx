@@ -42,6 +42,7 @@ import {
   PhotoPresetType,
   PlacedSheetItem,
   ReadyDocState,
+  StudioBackdropPreset,
   StudioMode,
   StudioPhotoItem,
   StudioState,
@@ -73,6 +74,11 @@ import {
 } from './utils/layoutCalculator';
 import { exportCvElementToImage, exportCvElementToPdf } from './utils/cvExport';
 import { createEmptyCvData } from './utils/cvTemplates';
+import {
+  compositeCutoutWithBackdrop,
+  generateFreeAiCouplePassport,
+  generateFreeAiSinglePassport,
+} from './utils/freeAiPassportStudio';
 import { exportToImage, exportToPdf, triggerDirectPrint } from './utils/printAndPdf';
 import { exportReadyDocToImage, exportReadyDocToPdf } from './utils/readyDocExport';
 import {
@@ -225,6 +231,8 @@ export default function App() {
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
   const [coupleUploadMode, setCoupleUploadMode] = useState<boolean>(false);
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
+  const [aiProgress, setAiProgress] = useState<number>(0);
+  const [aiStatusText, setAiStatusText] = useState<string>('');
   const [aiError, setAiError] = useState<string | null>(null);
 
   // Placed items on the paper sheet (enables drag-and-drop, nudging, mixed passport & stamp sizes)
@@ -1038,62 +1046,7 @@ export default function App() {
     setSelectedItemId(null);
   };
 
-  // Normalize any uploaded image file to upright JPEG data URL (max 1536px) so both AI Studio and Vercel serverless limits & OpenAI gpt-image-1 work seamlessly
-  const normalizeImageToDataUrlForAi = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const fallbackRead = () => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve((e.target?.result as string) || '');
-        reader.onerror = () => reject(new Error('Failed to read image file.'));
-        reader.readAsDataURL(file);
-      };
-
-      const objectUrl = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const maxSide = 1536;
-          let targetW = img.naturalWidth || 1024;
-          let targetH = img.naturalHeight || 1024;
-          if (Math.max(targetW, targetH) > maxSide) {
-            const ratio = maxSide / Math.max(targetW, targetH);
-            targetW = Math.max(1, Math.round(targetW * ratio));
-            targetH = Math.max(1, Math.round(targetH * ratio));
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = targetW;
-          canvas.height = targetH;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            URL.revokeObjectURL(objectUrl);
-            fallbackRead();
-            return;
-          }
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, targetW, targetH);
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, 0, 0, targetW, targetH);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-          URL.revokeObjectURL(objectUrl);
-          if (!dataUrl || dataUrl === 'data:,' || dataUrl.length < 100) {
-            fallbackRead();
-            return;
-          }
-          resolve(dataUrl);
-        } catch {
-          URL.revokeObjectURL(objectUrl);
-          fallbackRead();
-        }
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        fallbackRead();
-      };
-      img.src = objectUrl;
-    });
-
-  // Option 1: AI Auto Passport (OpenAI gpt-image-1 via /api/generate-passport)
+  // Option 1: 100% Free On-Device Neural AI Auto Studio Passport (Zero API key, Zero cost, Unlimited)
   const handleAiUploadPhotos = async (files: File[]) => {
     if (!files || files.length === 0) return;
     if (coupleUploadMode && files.length < 2) {
@@ -1107,70 +1060,43 @@ export default function App() {
 
     setAiError(null);
     setIsAiGenerating(true);
+    setAiProgress(5);
+    setAiStatusText(
+      lang === 'bn' ? 'ফ্রি AI চালু হচ্ছে...' : 'Starting free on-device AI...'
+    );
 
     try {
-      const imagesToSend = (
-        coupleUploadMode
-          ? await Promise.all([
-              normalizeImageToDataUrlForAi(files[0]),
-              normalizeImageToDataUrlForAi(files[1]),
-            ])
-          : [await normalizeImageToDataUrlForAi(files[0])]
-      ).filter((dataUrl) => typeof dataUrl === 'string' && dataUrl.length > 64);
+      const defaultBg: StudioBackdropPreset = 'classic-blue';
+      const result = coupleUploadMode
+        ? await generateFreeAiCouplePassport(files[0], files[1], defaultBg, (update) => {
+            setAiProgress(update.percent);
+            setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+          })
+        : await generateFreeAiSinglePassport(files[0], defaultBg, (update) => {
+            setAiProgress(update.percent);
+            setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+          });
 
-      if (imagesToSend.length < (coupleUploadMode ? 2 : 1)) {
-        throw new Error(
-          lang === 'bn'
-            ? 'ছবিটি পড়া যায়নি। অনুগ্রহ করে সঠিক JPG বা PNG ছবি সিলেক্ট করুন।'
-            : 'Could not read the selected image file. Please choose a valid JPG or PNG image.'
-        );
-      }
-
-      const resp = await fetch('/api/generate-passport', {
-        method: 'POST',
-        cache: 'no-store',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mode: coupleUploadMode ? 'couple' : 'single',
-          images: imagesToSend,
-        }),
-      });
-
-      const payload = (await resp.json().catch(() => null)) as {
-        dataUrl?: string;
-        error?: string;
-      } | null;
-
-      if (!resp.ok || !payload?.dataUrl) {
-        throw new Error(
-          payload?.error ||
-            (lang === 'bn'
-              ? `AI ছবি তৈরি করতে সমস্যা হয়েছে (HTTP ${resp.status})। আবার চেষ্টা করুন।`
-              : `Failed to generate AI passport photo (HTTP ${resp.status}). Please try again.`)
-        );
-      }
-
-      const generatedUrl = payload.dataUrl;
       const targetPreset: PhotoPresetType = coupleUploadMode ? 'couple' : photoPreset;
       const printReadyUrl =
         targetPreset === 'couple'
-          ? await rotateDataUrl90IfLandscape(generatedUrl)
-          : generatedUrl;
+          ? await rotateDataUrl90IfLandscape(result.studioDataUrl)
+          : result.studioDataUrl;
 
       const aiPhotoItem: StudioPhotoItem = {
         id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        originalSrc: generatedUrl,
+        originalSrc: result.studioDataUrl,
         processedSrc: printReadyUrl,
+        cutoutSrc: result.cutoutDataUrl,
+        aiBgPreset: result.bgPreset,
         type: coupleUploadMode ? 'couple' : 'individual',
         label: coupleUploadMode
           ? lang === 'bn'
-            ? 'AI কাপল পাসপোর্ট'
-            : 'AI Couple Passport'
+            ? 'ফ্রি AI কাপল পাসপোর্ট'
+            : 'Free AI Couple Passport'
           : lang === 'bn'
-          ? 'AI পাসপোর্ট'
-          : 'AI Passport',
+          ? 'ফ্রি AI পাসপোর্ট'
+          : 'Free AI Passport',
         adjustments: {
           ...DEFAULT_ADJUSTMENTS,
           backgroundMode: 'sky-blue',
@@ -1187,11 +1113,48 @@ export default function App() {
         err instanceof Error
           ? err.message
           : lang === 'bn'
-          ? 'AI ছবি তৈরি করতে ব্যর্থ হয়েছে।'
-          : 'AI generation failed.';
+          ? 'ছবি প্রসেস করতে সমস্যা হয়েছে। অনুগ্রহ করে সঠিক JPG বা PNG ছবি দিন।'
+          : 'Could not process the photo. Please choose a valid JPG or PNG image.';
       setAiError(msg);
     } finally {
       setIsAiGenerating(false);
+      setAiProgress(0);
+      setAiStatusText('');
+    }
+  };
+
+  // Instant zero-reprocess Studio Backdrop switch (Classic BD Sky-Blue / Soft Sky-Blue / Pure White)
+  const handleChangeAiBackdrop = async (
+    photoIndex: number,
+    bgPreset: StudioBackdropPreset
+  ) => {
+    const target = photos[photoIndex];
+    if (!target || !target.cutoutSrc) return;
+    try {
+      const compositedUpright = await compositeCutoutWithBackdrop(target.cutoutSrc, bgPreset);
+      const shouldRotateCouple = target.type === 'couple' || photoPreset === 'couple';
+      const printReadyUrl = shouldRotateCouple
+        ? await rotateDataUrl90IfLandscape(compositedUpright)
+        : compositedUpright;
+
+      setPhotos((prev) =>
+        prev.map((p, idx) =>
+          idx === photoIndex
+            ? {
+                ...p,
+                originalSrc: compositedUpright,
+                processedSrc: printReadyUrl,
+                aiBgPreset: bgPreset,
+                adjustments: {
+                  ...p.adjustments,
+                  backgroundMode: bgPreset === 'white' ? 'white' : 'sky-blue',
+                },
+              }
+            : p
+        )
+      );
+    } catch (err) {
+      console.error('Backdrop switch failed:', err);
     }
   };
 
@@ -2595,8 +2558,11 @@ export default function App() {
               coupleMode={coupleUploadMode}
               setCoupleMode={handleSetCoupleUploadMode}
               isAiGenerating={isAiGenerating}
+              aiProgress={aiProgress}
+              aiStatusText={aiStatusText}
               aiError={aiError}
               onClearAiError={() => setAiError(null)}
+              onChangeAiBackdrop={(idx, bg) => void handleChangeAiBackdrop(idx, bg)}
               isUploading={isUploading}
               preset={photoPreset}
               setPreset={handlePhotoPresetChange}
@@ -3082,25 +3048,36 @@ export default function App() {
         />
       )}
 
-      {/* 5B. Clean AI Passport Generation Loading Overlay */}
+      {/* 5B. Clean Free On-Device AI Passport Generation Loading Overlay */}
       {isAiGenerating && (
         <div className="fixed inset-0 z-50 no-print flex items-center justify-center bg-slate-950/55 backdrop-blur-sm p-4">
-          <div className="glass-modal rounded-3xl px-7 py-6 shadow-2xl border border-white/25 dark:border-white/10 flex flex-col items-center gap-3 max-w-xs w-full text-center">
+          <div className="glass-modal rounded-3xl px-7 py-6 shadow-2xl border border-white/25 dark:border-white/10 flex flex-col items-center gap-3.5 max-w-xs w-full text-center">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/30">
               <Loader2 className="w-6 h-6 animate-spin" />
             </div>
-            <div>
+            <div className="w-full space-y-2">
               <p className="text-base font-bold text-slate-900 dark:text-white">
                 AI ছবি তৈরি করছে...
               </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                {coupleUploadMode
-                  ? lang === 'bn'
-                    ? 'ছেলে ও মেয়ের কাপল স্টুডিও পাসপোর্ট ছবি তৈরি হচ্ছে'
-                    : 'Creating AI Couple Studio Passport (Boy Left + Girl Right)...'
-                  : lang === 'bn'
-                  ? 'স্টুডিও নীল ব্যাকগ্রাউন্ড ও উজ্জ্বল আলো তৈরি হচ্ছে'
-                  : 'Creating AI Studio Passport with sky-blue background...'}
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                {aiStatusText ||
+                  (coupleUploadMode
+                    ? lang === 'bn'
+                      ? 'ছেলে ও মেয়ের কাপল স্টুডিও পাসপোর্ট ছবি তৈরি হচ্ছে'
+                      : 'Creating Couple Studio Passport (Boy Left + Girl Right)...'
+                    : lang === 'bn'
+                    ? 'স্টুডিও নীল ব্যাকগ্রাউন্ড ও উজ্জ্বল আলো তৈরি হচ্ছে'
+                    : 'Creating Studio Passport with sky-blue background...')}
+              </p>
+              <div className="w-full h-2 rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden mt-1">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300"
+                  style={{ width: `${Math.max(8, Math.min(100, aiProgress))}%` }}
+                />
+              </div>
+              <p className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">
+                {Math.max(5, Math.min(100, aiProgress))}% •{' '}
+                {lang === 'bn' ? '১০০% ফ্রি অন-ডিভাইস AI' : '100% Free On-Device AI'}
               </p>
             </div>
           </div>

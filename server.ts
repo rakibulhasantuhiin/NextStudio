@@ -257,11 +257,61 @@ async function startServer() {
 
   // Dev vs Production static / Vite middleware setup
   if (!IS_PROD) {
+    // Serve a clean no-WebSocket /@vite/client module in dev mode (HMR is disabled in preview)
+    app.get('/@vite/client', (_req: Request, res: Response) => {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.send(`
+const sheetsMap = new Map();
+export function updateStyle(id, content) {
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute('type', 'text/css');
+    style.setAttribute('data-vite-dev-id', id);
+    style.textContent = content;
+    document.head.appendChild(style);
+    sheetsMap.set(id, style);
+  } else {
+    style.textContent = content;
+  }
+}
+export function removeStyle(id) {
+  const style = sheetsMap.get(id);
+  if (style) {
+    document.head.removeChild(style);
+    sheetsMap.delete(id);
+  }
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    decline() {},
+    invalidate() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url, queryToInject) {
+  if (!url || !queryToInject) return url;
+  const [base, hash] = url.split('#');
+  const sep = base.includes('?') ? '&' : '?';
+  return base + sep + queryToInject + (hash ? '#' + hash : '');
+}
+export class ErrorOverlay extends HTMLElement {}
+`);
+    });
+
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: process.env.DISABLE_HMR === 'true' ? false : undefined,
+        hmr: false,
+        ws: false,
       },
       appType: 'spa',
     });

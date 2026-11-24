@@ -31,6 +31,7 @@ import {
   PaperSizeType,
   PhotoPresetType,
   PlacedSheetItem,
+  StudioBackdropPreset,
   StudioPhotoItem,
 } from '../../types';
 import { PAPER_SIZES, PHOTO_PRESETS } from '../../utils/constants';
@@ -55,8 +56,11 @@ interface Props {
   coupleMode: boolean;
   setCoupleMode: (val: boolean) => void;
   isAiGenerating?: boolean;
+  aiProgress?: number;
+  aiStatusText?: string;
   aiError?: string | null;
   onClearAiError?: () => void;
+  onChangeAiBackdrop?: (index: number, bgPreset: StudioBackdropPreset) => void;
   isUploading?: boolean;
   preset: PhotoPresetType;
   setPreset: (preset: PhotoPresetType) => void;
@@ -117,8 +121,11 @@ export const PassportControls: React.FC<Props> = ({
   coupleMode,
   setCoupleMode,
   isAiGenerating = false,
+  aiProgress = 0,
+  aiStatusText = '',
   aiError = null,
   onClearAiError,
+  onChangeAiBackdrop,
   isUploading = false,
   preset,
   setPreset,
@@ -513,35 +520,47 @@ export const PassportControls: React.FC<Props> = ({
 
                 <div className="min-w-0 flex-1 text-left">
                   {isAiGenerating ? (
-                    <>
-                      <span className="text-xs font-bold text-blue-700 dark:text-blue-300 block">
-                        AI ছবি তৈরি করছে...
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-blue-700 dark:text-blue-300">
+                          AI ছবি তৈরি করছে...
+                        </span>
+                        <span className="text-[11px] font-bold text-blue-600 dark:text-blue-300 tabular-nums">
+                          {Math.max(5, Math.min(100, aiProgress))}%
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-600 dark:text-slate-300 block truncate">
+                        {aiStatusText ||
+                          (lang === 'bn'
+                            ? coupleMode
+                              ? 'ছেলে ও মেয়ের কাপল স্টুডিও পাসপোর্ট ছবি তৈরি হচ্ছে'
+                              : 'নীল ব্যাকগ্রাউন্ড ও স্টুডিও লাইটিং প্রসেস হচ্ছে'
+                            : coupleMode
+                            ? 'Generating Free AI Couple Passport...'
+                            : 'Generating Free AI Studio Passport...')}
                       </span>
-                      <span className="text-[11px] text-slate-600 dark:text-slate-300 block mt-0.5">
-                        {lang === 'bn'
-                          ? coupleMode
-                            ? 'ছেলে ও মেয়ের কাপল স্টুডিও পাসপোর্ট ছবি তৈরি হচ্ছে'
-                            : 'নীল ব্যাকগ্রাউন্ড ও স্টুডিও লাইটিং প্রসেস হচ্ছে'
-                          : coupleMode
-                          ? 'Generating AI Couple Passport photo...'
-                          : 'Generating AI Studio Passport photo...'}
-                      </span>
-                    </>
+                      <div className="w-full h-1.5 rounded-full bg-blue-200/70 dark:bg-blue-950 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-blue-600 transition-all duration-300"
+                          style={{ width: `${Math.max(8, Math.min(100, aiProgress))}%` }}
+                        />
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <span className="text-xs font-bold text-white block leading-snug">
                         {lang === 'bn'
-                          ? 'AI দিয়ে আপলোড (অটো স্টুডিও পাসপোর্ট)'
-                          : 'Upload with AI (Auto Studio Passport)'}
+                          ? 'ফ্রি AI দিয়ে আপলোড (অটো স্টুডিও পাসপোর্ট)'
+                          : 'Upload with Free AI (Auto Studio Passport)'}
                       </span>
                       <span className="text-[10px] text-blue-100 block mt-0.5 leading-snug">
                         {coupleMode
                           ? lang === 'bn'
-                            ? 'একসাথে ২টি ছবি দিন (ছেলে বামে + মেয়ে ডানে) • অটো নীল BG'
-                            : 'Select 2 photos (Boy Left + Girl Right) • Auto Sky-Blue BG'
+                            ? '১০০% ফ্রি • ২টি ছবি দিন (ছেলে বামে + মেয়ে ডানে) • অটো নীল BG'
+                            : '100% Free • Select 2 photos (Boy Left + Girl Right) • Sky-Blue BG'
                           : lang === 'bn'
-                          ? 'যেকোনো ছবি দিন • অটো নীল BG, সোজা ও স্টুডিও লাইটিং'
-                          : 'Auto sky-blue BG, studio light & straight passport portrait'}
+                          ? '১০০% ফ্রি • অটো নীল BG, উজ্জ্বল আলো ও পাসপোর্ট ফ্রেমিং'
+                          : '100% Free • Auto BD Sky-Blue BG, bright studio light & framing'}
                       </span>
                     </>
                   )}
@@ -723,6 +742,57 @@ export const PassportControls: React.FC<Props> = ({
                     </p>
                   </div>
                 </div>
+
+                {activePhoto.cutoutSrc && onChangeAiBackdrop && (
+                  <div className="space-y-1.5 pt-0.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 block">
+                      {lang === 'bn' ? 'তাৎক্ষণিক ব্যাকগ্রাউন্ড বদলান' : 'Instant Studio Background'}
+                    </span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {(
+                        [
+                          {
+                            id: 'classic-blue' as StudioBackdropPreset,
+                            labelEn: 'BD Blue',
+                            labelBn: 'নীল BG',
+                            swatch: 'bg-[#1B8CF2]',
+                          },
+                          {
+                            id: 'soft-blue' as StudioBackdropPreset,
+                            labelEn: 'Soft Blue',
+                            labelBn: 'হালকা নীল',
+                            swatch: 'bg-[#58B4FF]',
+                          },
+                          {
+                            id: 'white' as StudioBackdropPreset,
+                            labelEn: 'White',
+                            labelBn: 'সাদা BG',
+                            swatch: 'bg-white border border-slate-300',
+                          },
+                        ] as const
+                      ).map((opt) => {
+                        const isActive = (activePhoto.aiBgPreset || 'classic-blue') === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => onChangeAiBackdrop(activePhotoIndex, opt.id)}
+                            className={`py-1.5 px-2 rounded-lg text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                              isActive
+                                ? 'bg-blue-600/12 border-blue-500 text-blue-700 dark:text-blue-300 shadow-xs'
+                                : 'glass-tile border-transparent text-slate-700 dark:text-slate-200'
+                            }`}
+                          >
+                            <span className={`w-3 h-3 rounded-full shrink-0 ${opt.swatch}`} />
+                            <span className="truncate">
+                              {lang === 'bn' ? opt.labelBn : opt.labelEn}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="button"

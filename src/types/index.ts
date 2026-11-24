@@ -91,10 +91,14 @@ export interface PhotoAdjustments {
   crop: CropRect | null;
 }
 
+export type StudioBackdropPreset = 'classic-blue' | 'soft-blue' | 'white';
+
 export interface StudioPhotoItem {
   id: string;
   originalSrc: string; // original high-res base64 / blob
   processedSrc: string; // processed image base64
+  cutoutSrc?: string; // cached transparent aligned portrait for instant BG color switching
+  aiBgPreset?: StudioBackdropPreset;
   adjustments: PhotoAdjustments;
   label?: string;
   type?: 'individual' | 'couple';
