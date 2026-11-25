@@ -51,6 +51,7 @@ interface Props {
   photos: StudioPhotoItem[];
   activePhotoIndex: number;
   setActivePhotoIndex: (idx: number) => void;
+  onDirectUploadFiles: (files: File[]) => void;
   onSmartUploadFiles: (files: File[]) => void;
   onRemovePhoto: (index: number) => void;
   onDuplicatePhoto: (index: number) => void;
@@ -133,6 +134,7 @@ export const PassportControls: React.FC<Props> = ({
   photos,
   activePhotoIndex,
   setActivePhotoIndex,
+  onDirectUploadFiles,
   onSmartUploadFiles,
   onRemovePhoto,
   onDuplicatePhoto,
@@ -201,9 +203,18 @@ export const PassportControls: React.FC<Props> = ({
   const [pendingBoyFile, setPendingBoyFile] = useState<File | null>(null);
   const [pendingGirlFile, setPendingGirlFile] = useState<File | null>(null);
 
+  const directFileInputRef = useRef<HTMLInputElement>(null);
   const mainFileInputRef = useRef<HTMLInputElement>(null);
   const boySlotInputRef = useRef<HTMLInputElement>(null);
   const girlSlotInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDirectDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && !isAiGenerating && !isUploading) {
+      onClearAiError?.();
+      onDirectUploadFiles(Array.from(e.dataTransfer.files));
+    }
+  };
 
   const handleFilesSelected = (files: FileList | null) => {
     if (!files || files.length === 0 || isAiGenerating) return;
@@ -527,6 +538,20 @@ export const PassportControls: React.FC<Props> = ({
         <div className="space-y-3.5">
           {/* Hidden device inputs */}
           <input
+            ref={directFileInputRef}
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) => {
+              if (e.target.files && e.target.files.length > 0 && !isAiGenerating && !isUploading) {
+                onClearAiError?.();
+                onDirectUploadFiles(Array.from(e.target.files));
+              }
+              e.target.value = '';
+            }}
+            className="hidden"
+          />
+          <input
             ref={mainFileInputRef}
             type="file"
             multiple
@@ -578,6 +603,55 @@ export const PassportControls: React.FC<Props> = ({
             className="hidden"
           />
 
+          {/* STEP 1 CARD: DIRECT PHOTO UPLOAD (NO EDIT, STRAIGHT TO PRINT SHEET) */}
+          <div className="rounded-2xl border border-slate-200/90 dark:border-white/15 bg-white/85 dark:bg-slate-900/70 p-3.5 shadow-xs space-y-2.5">
+            <div className="flex items-start justify-between gap-2.5">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <span className="w-6 h-6 rounded-full bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                  {lang === 'bn' ? '১' : '1'}
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
+                    {lang === 'bn' ? 'ডিরেক্ট ছবি আপলোড' : 'Direct Photo Upload'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug">
+                    {lang === 'bn'
+                      ? 'কোনো এডিট ছাড়াই সরাসরি প্রিন্ট শীটে চলে যাবে'
+                      : 'Place ready photos straight onto Print Sheet without editing'}
+                  </p>
+                </div>
+              </div>
+              <Printer className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            </div>
+
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDirectDrop}
+              onClick={() => {
+                if (!isAiGenerating && !isUploading) directFileInputRef.current?.click();
+              }}
+              className={`rounded-xl border-2 border-dashed px-3.5 py-3 text-center transition cursor-pointer ${
+                isAiGenerating || isUploading
+                  ? 'border-emerald-400/50 bg-emerald-50/30 dark:bg-emerald-950/20 cursor-wait'
+                  : 'border-emerald-300/80 dark:border-emerald-800/70 bg-emerald-50/35 dark:bg-emerald-950/20 hover:border-emerald-500 hover:bg-emerald-50/70 dark:hover:bg-emerald-950/35'
+              }`}
+            >
+              <div className="flex items-center justify-center gap-2.5">
+                <Upload className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div className="text-left min-w-0">
+                  <span className="text-xs font-bold text-slate-900 dark:text-white block leading-tight">
+                    {lang === 'bn' ? 'সরাসরি প্রিন্টের ছবি বাছুন' : 'Upload Ready Photo(s)'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block truncate">
+                    {lang === 'bn'
+                      ? 'ক্লিক বা ড্রপ করুন · সরাসরি প্রিভিউ প্রিন্টে যাবে'
+                      : 'Click or drop · Opens Print Sheet directly'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* STEP 2 CARD: AUTO STUDIO PASSPORT UPLOAD + THUMBNAILS + WEBCAM + AUTO BG/ENHANCE */}
           <div className="rounded-2xl border border-slate-200/90 dark:border-white/15 bg-white/85 dark:bg-slate-900/70 p-3.5 shadow-xs space-y-3">
             {/* Step Heading */}
@@ -598,8 +672,8 @@ export const PassportControls: React.FC<Props> = ({
                         ? 'কাপল পাসপোর্টের জন্য ২টি ছবি দিন (ছেলে বামে + মেয়ে ডানে)'
                         : 'Select 2 photos for Couple Passport (Boy Left + Girl Right)'
                       : lang === 'bn'
-                      ? 'ছবি দিন — নিখুঁত ব্যাকগ্রাউন্ড রিমুভ, ক্রপ, সোজা ও প্রিন্টের জন্য প্রস্তুত হবে'
-                      : 'Upload portrait(s) — auto background removal, interactive crop & print ready'}
+                      ? 'আগে ছবি ক্রপ ও সোজা করুন — ঠিক আছে দিলে অটো ব্যাকগ্রাউন্ড রিমুভ হবে'
+                      : 'Straighten & crop first — Apply runs auto background removal'}
                   </p>
                 </div>
               </div>

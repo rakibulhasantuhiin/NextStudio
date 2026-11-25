@@ -243,6 +243,13 @@ export default function App() {
   const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
   const [croppingPhotoIndex, setCroppingPhotoIndex] = useState<number | null>(null);
+  const [pendingAutoStudioCrop, setPendingAutoStudioCrop] = useState<{
+    rawDataUrl: string;
+    fileName: string;
+    fileSizeBytes: number;
+    dimensionsLabel: string;
+    remainingFiles: File[];
+  } | null>(null);
   const [passportStageView, setPassportStageView] = useState<'inspector' | 'sheet'>('inspector');
   const [coupleUploadMode, setCoupleUploadMode] = useState<boolean>(false);
   const [autoBgRemove, setAutoBgRemove] = useState<boolean>(true);
@@ -877,6 +884,7 @@ export default function App() {
       const modalOpen =
         editingPhotoIndex !== null ||
         croppingPhotoIndex !== null ||
+        pendingAutoStudioCrop !== null ||
         isWebcamOpen ||
         nidEditingSide !== null ||
         laminationEditingSide !== null ||
@@ -964,6 +972,7 @@ export default function App() {
     isShortcutsOpen,
     editingPhotoIndex,
     croppingPhotoIndex,
+    pendingAutoStudioCrop,
     isWebcamOpen,
     nidEditingSide,
     laminationEditingSide,
@@ -1160,7 +1169,94 @@ export default function App() {
       reader.readAsDataURL(file);
     });
 
-  // Smart Unified Upload Pipeline (handles Single & Couple + Auto BG Remove + Studio Enhancement)
+  const buildDefaultPhotoAlloc = (targetPreset: PhotoPresetType): PhotoCopyAllocation =>
+    targetPreset === 'bd-stamp'
+      ? { sizeMode: 'stamp', passportCount: 0, stampCount: 8 }
+      : { sizeMode: 'passport', passportCount: 4, stampCount: 0 };
+
+  // Direct Upload -> No editing, no crop modal, no BG removal; place directly on Print Sheet
+  const handleDirectUploadFiles = async (files: File[]) => {
+    if (!files || files.length === 0) return;
+
+    setAiError(null);
+    setIsUploading(true);
+
+    try {
+      const newlyCreated: StudioPhotoItem[] = [];
+      for (const file of files) {
+        const rawDataUrl = await fileToDataUrl(file);
+        const dims = await getImageDimensions(rawDataUrl);
+        const id = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        newlyCreated.push({
+          id,
+          rawOriginalSrc: rawDataUrl,
+          originalSrc: rawDataUrl,
+          enhancedSrc: rawDataUrl,
+          unenhancedSrc: rawDataUrl,
+          processedSrc: rawDataUrl,
+          useEnhanced: false,
+          needsReprocess: false,
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          dimensionsLabel: `${dims.width}×${dims.height}`,
+          type: 'individual',
+          adjustments: { ...DEFAULT_ADJUSTMENTS, backgroundMode: 'original' },
+        });
+      }
+
+      if (newlyCreated.length > 0) {
+        const targetPreset: PhotoPresetType = photoPreset;
+        const nextPhotos = [...photos, ...newlyCreated];
+        const nextAllocs = { ...photoAllocations };
+        for (const item of newlyCreated) {
+          nextAllocs[item.id] = buildDefaultPhotoAlloc(targetPreset);
+        }
+        setPhotos(nextPhotos);
+        setPhotoAllocations(nextAllocs);
+        setActivePhotoIndex(photos.length);
+        setPassportStageView('sheet');
+        setMobileTab('preview');
+        syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
+      }
+    } catch (err) {
+      setAiError(
+        err instanceof Error
+          ? err.message
+          : lang === 'bn'
+          ? 'ছবি লোড করতে সমস্যা হয়েছে। অনুগ্রহ করে সঠিক JPG বা PNG ছবি দিন।'
+          : 'Could not load the photo. Please choose a valid JPG or PNG image.'
+      );
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Stage a single portrait to open Straighten & Crop Photo FIRST before any background removal
+  const stageFileForAutoStudioCrop = async (file: File, remainingFiles: File[] = []) => {
+    try {
+      setAiError(null);
+      const rawDataUrl = await fileToDataUrl(file);
+      const dims = await getImageDimensions(rawDataUrl);
+      setPendingAutoStudioCrop({
+        rawDataUrl,
+        fileName: file.name || 'portrait.jpg',
+        fileSizeBytes: file.size,
+        dimensionsLabel: `${dims.width}×${dims.height}`,
+        remainingFiles,
+      });
+    } catch (err) {
+      setAiError(
+        err instanceof Error
+          ? err.message
+          : lang === 'bn'
+          ? 'ছবি খোলা যায়নি। অনুগ্রহ করে সঠিক JPG বা PNG ছবি দিন।'
+          : 'Could not open image. Please choose a valid JPG or PNG image.'
+      );
+    }
+  };
+
+  // Smart Unified Upload Pipeline (Couple direct processing + Single crop-first Auto Studio flow)
   const handleSmartUploadFiles = async (files: File[]) => {
     if (!files || files.length === 0) return;
 
@@ -1174,202 +1270,81 @@ export default function App() {
     }
 
     setAiError(null);
-    setPassportStageView('inspector');
-    setMobileTab('preview');
 
-    const defaultAlloc = (targetPreset: PhotoPresetType): PhotoCopyAllocation =>
-      targetPreset === 'bd-stamp'
-        ? { sizeMode: 'stamp', passportCount: 0, stampCount: 8 }
-        : { sizeMode: 'passport', passportCount: 4, stampCount: 0 };
-
-    // Couple Mode flow
-    if (coupleUploadMode) {
-      setIsAiGenerating(true);
-      setAiProgress(5);
-      setAiStatusText(lang === 'bn' ? 'কাপল ছবি প্রস্তুত হচ্ছে...' : 'Preparing Couple portrait...');
-      try {
-        const result = await generateFreeAiCouplePassport(
-          files[0],
-          files[1],
-          selectedBgPreset,
-          (update) => {
-            setAiProgress(update.percent);
-            setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
-          },
-          {
-            customBgColor,
-            enableStudioEnhance: autoStudioEnhance,
-            enhanceIntensity,
-          }
-        );
-
-        const targetPreset: PhotoPresetType = 'couple';
-        const printReadyUrl = await rotateDataUrl90IfLandscape(result.studioDataUrl);
-        const dims = await getImageDimensions(result.studioDataUrl);
-        const id = `ai-couple-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-        const coupleItem: StudioPhotoItem = {
-          id,
-          rawOriginalSrc: result.studioDataUrl,
-          originalSrc: result.studioDataUrl,
-          enhancedSrc: result.studioDataUrl,
-          unenhancedSrc: result.studioDataUrl,
-          processedSrc: printReadyUrl,
-          cutoutSrc: result.cutoutDataUrl,
-          useEnhanced: autoStudioEnhance,
-          aiBgPreset: selectedBgPreset,
-          customBgColor,
-          enhanceIntensity,
-          fileName: `${files[0].name} + ${files[1].name}`,
-          fileSizeBytes: files[0].size + files[1].size,
-          dimensionsLabel: `${dims.width}×${dims.height}`,
-          type: 'couple',
-          label: lang === 'bn' ? 'কাপল পাসপোর্ট' : 'Couple Passport',
-          adjustments: {
-            ...DEFAULT_ADJUSTMENTS,
-            backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
-          },
-        };
-
-        setPhotoPreset(targetPreset);
-        const nextPhotos = [...photos, coupleItem];
-        const nextAllocs = { ...photoAllocations, [id]: defaultAlloc(targetPreset) };
-        setPhotos(nextPhotos);
-        setPhotoAllocations(nextAllocs);
-        setActivePhotoIndex(nextPhotos.length - 1);
-        syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
-      } catch (err) {
-        setAiError(
-          err instanceof Error
-            ? err.message
-            : lang === 'bn'
-            ? 'কাপল ছবি প্রসেস করতে সমস্যা হয়েছে।'
-            : 'Could not process couple photos.'
-        );
-      } finally {
-        setIsAiGenerating(false);
-        setAiProgress(0);
-        setAiStatusText('');
-      }
+    // Single Mode: open Straighten & Crop Photo FIRST before running background removal
+    if (!coupleUploadMode) {
+      await stageFileForAutoStudioCrop(files[0], files.slice(1));
       return;
     }
 
-    // Single Mode flow (supports multiple files)
-    const targetPreset: PhotoPresetType = photoPreset;
-    const newlyCreated: StudioPhotoItem[] = [];
+    setPassportStageView('inspector');
+    setMobileTab('preview');
 
-    if (autoBgRemove) {
-      setIsAiGenerating(true);
-      setAiProgress(6);
-      setAiStatusText(
-        lang === 'bn'
-          ? 'অটো স্টুডিও ইঞ্জিন চালু হচ্ছে... (প্রথমবার একটু সময় নেয়)'
-          : 'Starting Auto Studio portrait engine...'
-      );
-    } else {
-      setIsUploading(true);
-    }
-
+    // Couple Mode flow
+    setIsAiGenerating(true);
+    setAiProgress(5);
+    setAiStatusText(lang === 'bn' ? 'কাপল ছবি প্রস্তুত হচ্ছে...' : 'Preparing Couple portrait...');
     try {
-      for (const file of files) {
-        const rawDataUrl = await fileToDataUrl(file);
-        const dims = await getImageDimensions(rawDataUrl);
-        const dimensionsLabel = `${dims.width}×${dims.height}`;
-        const id = `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-        if (autoBgRemove) {
-          const result = await generateFreeAiSinglePassport(
-            file,
-            selectedBgPreset,
-            (update) => {
-              setAiProgress(update.percent);
-              setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
-            },
-            {
-              customBgColor,
-              enableStudioEnhance: autoStudioEnhance,
-              enhanceIntensity,
-            }
-          );
-
-          const unenhanced = result.unenhancedDataUrl || rawDataUrl;
-          const activeSrc = autoStudioEnhance ? result.studioDataUrl : unenhanced;
-
-          newlyCreated.push({
-            id,
-            rawOriginalSrc: rawDataUrl,
-            originalSrc: rawDataUrl,
-            enhancedSrc: result.studioDataUrl,
-            unenhancedSrc: unenhanced,
-            processedSrc: activeSrc,
-            cutoutSrc: result.cutoutDataUrl,
-            useEnhanced: autoStudioEnhance,
-            aiBgPreset: selectedBgPreset,
-            customBgColor,
-            enhanceIntensity,
-            needsReprocess: false,
-            fileName: file.name,
-            fileSizeBytes: file.size,
-            dimensionsLabel,
-            type: 'individual',
-            adjustments: {
-              ...DEFAULT_ADJUSTMENTS,
-              backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
-            },
-          });
-        } else {
-          const enhancedSrc = autoStudioEnhance
-            ? await processStudioPhoto(rawDataUrl, {
-                ...DEFAULT_ADJUSTMENTS,
-                brightness: 6,
-                contrast: 8,
-                sharpness: 25,
-                skinLight: 12,
-              })
-            : rawDataUrl;
-          const activeSrc = autoStudioEnhance ? enhancedSrc : rawDataUrl;
-
-          newlyCreated.push({
-            id,
-            rawOriginalSrc: rawDataUrl,
-            originalSrc: rawDataUrl,
-            enhancedSrc,
-            unenhancedSrc: rawDataUrl,
-            processedSrc: activeSrc,
-            useEnhanced: autoStudioEnhance,
-            enhanceIntensity,
-            needsReprocess: false,
-            fileName: file.name,
-            fileSizeBytes: file.size,
-            dimensionsLabel,
-            type: 'individual',
-            adjustments: { ...DEFAULT_ADJUSTMENTS, backgroundMode: 'original' },
-          });
+      const result = await generateFreeAiCouplePassport(
+        files[0],
+        files[1],
+        selectedBgPreset,
+        (update) => {
+          setAiProgress(update.percent);
+          setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+        },
+        {
+          customBgColor,
+          enableStudioEnhance: autoStudioEnhance,
+          enhanceIntensity,
         }
-      }
+      );
 
-      if (newlyCreated.length > 0) {
-        const nextPhotos = [...photos, ...newlyCreated];
-        const nextAllocs = { ...photoAllocations };
-        for (const item of newlyCreated) {
-          nextAllocs[item.id] = defaultAlloc(targetPreset);
-        }
-        setPhotos(nextPhotos);
-        setPhotoAllocations(nextAllocs);
-        setActivePhotoIndex(photos.length);
-        syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
-      }
+      const targetPreset: PhotoPresetType = 'couple';
+      const printReadyUrl = await rotateDataUrl90IfLandscape(result.studioDataUrl);
+      const dims = await getImageDimensions(result.studioDataUrl);
+      const id = `ai-couple-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      const coupleItem: StudioPhotoItem = {
+        id,
+        rawOriginalSrc: result.studioDataUrl,
+        originalSrc: result.studioDataUrl,
+        enhancedSrc: result.studioDataUrl,
+        unenhancedSrc: result.studioDataUrl,
+        processedSrc: printReadyUrl,
+        cutoutSrc: result.cutoutDataUrl,
+        useEnhanced: autoStudioEnhance,
+        aiBgPreset: selectedBgPreset,
+        customBgColor,
+        enhanceIntensity,
+        fileName: `${files[0].name} + ${files[1].name}`,
+        fileSizeBytes: files[0].size + files[1].size,
+        dimensionsLabel: `${dims.width}×${dims.height}`,
+        type: 'couple',
+        label: lang === 'bn' ? 'কাপল পাসপোর্ট' : 'Couple Passport',
+        adjustments: {
+          ...DEFAULT_ADJUSTMENTS,
+          backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
+        },
+      };
+
+      setPhotoPreset(targetPreset);
+      const nextPhotos = [...photos, coupleItem];
+      const nextAllocs = { ...photoAllocations, [id]: buildDefaultPhotoAlloc(targetPreset) };
+      setPhotos(nextPhotos);
+      setPhotoAllocations(nextAllocs);
+      setActivePhotoIndex(nextPhotos.length - 1);
+      syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
     } catch (err) {
       setAiError(
         err instanceof Error
           ? err.message
           : lang === 'bn'
-          ? 'ছবি প্রসেস করতে সমস্যা হয়েছে। অনুগ্রহ করে সঠিক JPG বা PNG ছবি দিন।'
-          : 'Could not process the photo. Please choose a valid JPG or PNG image.'
+          ? 'কাপল ছবি প্রসেস করতে সমস্যা হয়েছে।'
+          : 'Could not process couple photos.'
       );
     } finally {
       setIsAiGenerating(false);
-      setIsUploading(false);
       setAiProgress(0);
       setAiStatusText('');
     }
@@ -1553,11 +1528,11 @@ export default function App() {
     }
   };
 
-  // Webcam Snapshot -> Preview First (User clicks "ক্রপ ও সোজা করুন" to open Crop Editor)
+  // Webcam Snapshot -> Opens Straighten & Crop first in single mode before running BG removal
   const handleWebcamCapture = async (file: File) => {
     setIsWebcamOpen(false);
     if (!coupleUploadMode) {
-      await handleSmartUploadFiles([file]);
+      await stageFileForAutoStudioCrop(file, []);
       return;
     }
 
@@ -1585,10 +1560,7 @@ export default function App() {
     const nextPhotos = [...photos, stagedPhoto];
     const nextAllocs = {
       ...photoAllocations,
-      [id]:
-        photoPreset === 'bd-stamp'
-          ? { sizeMode: 'stamp' as const, passportCount: 0, stampCount: 8 }
-          : { sizeMode: 'passport' as const, passportCount: 4, stampCount: 0 },
+      [id]: buildDefaultPhotoAlloc(photoPreset),
     };
 
     setPhotos(nextPhotos);
@@ -1599,12 +1571,156 @@ export default function App() {
     syncPlacedItemsFromAllocations(nextPhotos, nextAllocs);
   };
 
-  // Confirm Crop & Straighten -> Apply cropped frame and run auto BG remove if enabled
+  // Confirm Crop & Straighten -> Processes pending Auto Studio upload OR updates an existing photo
   const handleConfirmCropAndStraighten = async (
     croppedDataUrl: string,
     crop: CropRect | null,
     angle: number
   ) => {
+    // Path A: Initial crop-first upload/webcam snapshot in Auto Studio Passport
+    if (pendingAutoStudioCrop) {
+      const pending = pendingAutoStudioCrop;
+      setPendingAutoStudioCrop(null);
+      setAiError(null);
+      setPassportStageView('inspector');
+      setMobileTab('preview');
+
+      const targetPreset: PhotoPresetType = photoPreset;
+      const croppedDims = await getImageDimensions(croppedDataUrl);
+      const id = `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      let createdItem: StudioPhotoItem | null = null;
+
+      if (autoBgRemove) {
+        setIsAiGenerating(true);
+        setAiProgress(8);
+        setAiStatusText(
+          lang === 'bn'
+            ? 'মুখ ও শরীর আলাদা করে ব্যাকগ্রাউন্ড বদলানো হচ্ছে...'
+            : 'Cutting out face & body cleanly...'
+        );
+      } else {
+        setIsUploading(true);
+      }
+
+      try {
+        if (autoBgRemove) {
+          const croppedFile = await dataUrlToFile(
+            croppedDataUrl,
+            pending.fileName || 'portrait.jpg'
+          );
+          const result = await generateFreeAiSinglePassport(
+            croppedFile,
+            selectedBgPreset,
+            (update) => {
+              setAiProgress(update.percent);
+              setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+            },
+            {
+              customBgColor,
+              enableStudioEnhance: autoStudioEnhance,
+              enhanceIntensity,
+              preserveExactCrop: true,
+            }
+          );
+
+          const unenhanced = result.unenhancedDataUrl || croppedDataUrl;
+          const activeSrc = autoStudioEnhance ? result.studioDataUrl : unenhanced;
+
+          createdItem = {
+            id,
+            rawOriginalSrc: pending.rawDataUrl,
+            originalSrc: croppedDataUrl,
+            enhancedSrc: result.studioDataUrl,
+            unenhancedSrc: unenhanced,
+            processedSrc: activeSrc,
+            cutoutSrc: result.cutoutDataUrl,
+            useEnhanced: autoStudioEnhance,
+            aiBgPreset: selectedBgPreset,
+            customBgColor,
+            enhanceIntensity,
+            needsReprocess: false,
+            fileName: pending.fileName,
+            fileSizeBytes: pending.fileSizeBytes,
+            dimensionsLabel: `${croppedDims.width}×${croppedDims.height}`,
+            type: 'individual',
+            adjustments: {
+              ...DEFAULT_ADJUSTMENTS,
+              crop,
+              rotation: angle,
+              backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
+            },
+          };
+        } else {
+          const enhancedSrc = autoStudioEnhance
+            ? await processStudioPhoto(croppedDataUrl, {
+                ...DEFAULT_ADJUSTMENTS,
+                brightness: 6,
+                contrast: 8,
+                sharpness: 25,
+                skinLight: 12,
+              })
+            : croppedDataUrl;
+          const activeSrc = autoStudioEnhance ? enhancedSrc : croppedDataUrl;
+
+          createdItem = {
+            id,
+            rawOriginalSrc: pending.rawDataUrl,
+            originalSrc: croppedDataUrl,
+            enhancedSrc,
+            unenhancedSrc: croppedDataUrl,
+            processedSrc: activeSrc,
+            useEnhanced: autoStudioEnhance,
+            enhanceIntensity,
+            needsReprocess: false,
+            fileName: pending.fileName,
+            fileSizeBytes: pending.fileSizeBytes,
+            dimensionsLabel: `${croppedDims.width}×${croppedDims.height}`,
+            type: 'individual',
+            adjustments: {
+              ...DEFAULT_ADJUSTMENTS,
+              crop,
+              rotation: angle,
+              backgroundMode: 'original',
+            },
+          };
+        }
+
+        if (createdItem) {
+          const nextPhotos = [...photos, createdItem];
+          const nextAllocs = {
+            ...photoAllocations,
+            [createdItem.id]: buildDefaultPhotoAlloc(targetPreset),
+          };
+          setPhotos(nextPhotos);
+          setPhotoAllocations(nextAllocs);
+          setActivePhotoIndex(nextPhotos.length - 1);
+          syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
+        }
+      } catch (err) {
+        setAiError(
+          err instanceof Error
+            ? err.message
+            : lang === 'bn'
+            ? 'ছবি প্রসেস করতে সমস্যা হয়েছে। অনুগ্রহ করে সঠিক JPG বা PNG ছবি দিন।'
+            : 'Could not process the photo. Please choose a valid JPG or PNG image.'
+        );
+      } finally {
+        setIsAiGenerating(false);
+        setIsUploading(false);
+        setAiProgress(0);
+        setAiStatusText('');
+      }
+
+      if (pending.remainingFiles.length > 0) {
+        await stageFileForAutoStudioCrop(
+          pending.remainingFiles[0],
+          pending.remainingFiles.slice(1)
+        );
+      }
+      return;
+    }
+
+    // Path B: Re-cropping/straightening an existing photo in the studio list
     if (croppingPhotoIndex === null || !photos[croppingPhotoIndex]) return;
     const targetIdx = croppingPhotoIndex;
     const target = photos[targetIdx];
@@ -1716,7 +1832,7 @@ export default function App() {
   // Direct Upload Fallback (for PaperPreview empty sheet click-to-upload)
   const handleUploadPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    await handleSmartUploadFiles(Array.from(files));
+    await handleDirectUploadFiles(Array.from(files));
   };
 
   // Remove photo from studio & sheet
@@ -3138,6 +3254,7 @@ export default function App() {
               photos={photos}
               activePhotoIndex={activePhotoIndex}
               setActivePhotoIndex={setActivePhotoIndex}
+              onDirectUploadFiles={(files) => void handleDirectUploadFiles(files)}
               onSmartUploadFiles={(files) => void handleSmartUploadFiles(files)}
               onRemovePhoto={handleRemovePhoto}
               onDuplicatePhoto={handleDuplicatePhoto}
@@ -3783,11 +3900,16 @@ export default function App() {
       )}
 
       {/* 5B. Interactive Crop & Straighten Modal (Dark Drafting Canvas) */}
-      {croppingPhotoIndex !== null && photos[croppingPhotoIndex] && (
+      {(pendingAutoStudioCrop !== null ||
+        (croppingPhotoIndex !== null && Boolean(photos[croppingPhotoIndex]))) && (
         <CropStraightenModal
           isOpen={true}
           imageSrc={
-            photos[croppingPhotoIndex].rawOriginalSrc || photos[croppingPhotoIndex].originalSrc
+            pendingAutoStudioCrop
+              ? pendingAutoStudioCrop.rawDataUrl
+              : photos[croppingPhotoIndex!]?.rawOriginalSrc ||
+                photos[croppingPhotoIndex!]?.originalSrc ||
+                ''
           }
           initialAspect={
             photoPreset === 'bd-stamp'
@@ -3796,7 +3918,10 @@ export default function App() {
               ? 'couple'
               : 'passport'
           }
-          onClose={() => setCroppingPhotoIndex(null)}
+          onClose={() => {
+            setPendingAutoStudioCrop(null);
+            setCroppingPhotoIndex(null);
+          }}
           onConfirm={(croppedUrl, cropRect, angle) =>
             void handleConfirmCropAndStraighten(croppedUrl, cropRect, angle)
           }
