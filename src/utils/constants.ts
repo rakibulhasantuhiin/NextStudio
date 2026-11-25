@@ -112,6 +112,8 @@ export const DEFAULT_ADJUSTMENTS: PhotoAdjustments = {
   contrast: 0,
   saturation: 0,
   sharpness: 0,
+  smoothness: 0,
+  skinLight: 0,
   exposure: 0,
   warmth: 0,
   rotation: 0,

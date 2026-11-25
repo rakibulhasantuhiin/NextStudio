@@ -79,6 +79,8 @@ export interface PhotoAdjustments {
   contrast: number; // -100 to 100, 0 is normal
   saturation: number; // -100 to 100, 0 is normal
   sharpness: number; // 0 to 100, 0 is none
+  smoothness?: number; // 0 to 100, skin grain/blemish smoothing
+  skinLight?: number; // -50 to 50, adaptive facial shadow lift
   exposure: number; // -100 to 100, 0 is normal
   warmth: number; // -100 to 100, 0 is normal
   rotation: number; // degrees: 0, 90, 180, 270 or fine angle
@@ -91,17 +93,35 @@ export interface PhotoAdjustments {
   crop: CropRect | null;
 }
 
-export type StudioBackdropPreset = 'classic-blue' | 'soft-blue' | 'white';
+export type StudioBackdropPreset = 'classic-blue' | 'soft-blue' | 'white' | 'custom';
+
+export type StudioEnhanceIntensity = 'light' | 'normal' | 'strong';
 
 export interface StudioPhotoItem {
   id: string;
-  originalSrc: string; // original high-res base64 / blob
-  processedSrc: string; // processed image base64
+  originalSrc: string; // working/cropped source
+  rawOriginalSrc?: string; // untouched pre-AI/pre-crop image for Before/After comparison & re-cropping
+  processedSrc: string; // active image rendered onto the print sheet
+  enhancedSrc?: string; // cached AI/studio-enhanced output
+  unenhancedSrc?: string; // cached non-enhanced output for instant Before/After job toggle
   cutoutSrc?: string; // cached transparent aligned portrait for instant BG color switching
+  useEnhanced?: boolean; // true = এনহ্যান্স করা, false = এনহ্যান্স ছাড়া
   aiBgPreset?: StudioBackdropPreset;
+  customBgColor?: string;
+  enhanceIntensity?: StudioEnhanceIntensity;
+  needsReprocess?: boolean; // true when BG/enhance settings changed since last processing
+  fileName?: string;
+  fileSizeBytes?: number;
+  dimensionsLabel?: string;
   adjustments: PhotoAdjustments;
   label?: string;
   type?: 'individual' | 'couple';
+}
+
+export interface PhotoCopyAllocation {
+  sizeMode: 'passport' | 'stamp' | 'both';
+  passportCount: number;
+  stampCount: number;
 }
 
 export interface PlacedSheetItem {

@@ -1,16 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Check,
-  Crop as CropIcon,
   FlipHorizontal,
   FlipVertical,
   RefreshCw,
   RotateCw,
+  Scissors,
   Sliders,
+  Sparkles,
+  Sun,
   X,
 } from 'lucide-react';
-import { PhotoAdjustments, StudioPhotoItem } from '../../types';
+import { PhotoAdjustments, StudioBackdropPreset, StudioPhotoItem } from '../../types';
 import { DEFAULT_ADJUSTMENTS } from '../../utils/constants';
+import { generateFreeAiSinglePassport } from '../../utils/freeAiPassportStudio';
 import { processStudioPhoto } from '../../utils/imageProcessing';
 import { translations } from '../../utils/translations';
 
@@ -18,7 +21,14 @@ interface Props {
   photo: StudioPhotoItem | null;
   isOpen: boolean;
   onClose: () => void;
-  onSave: (updatedAdjustments: PhotoAdjustments) => void;
+  onSave: (
+    updatedAdjustments: PhotoAdjustments,
+    newProcessedSrc?: string,
+    newCutoutSrc?: string
+  ) => void;
+  onOpenCropModal?: () => void;
+  defaultBgPreset?: StudioBackdropPreset;
+  defaultCustomBgColor?: string;
   lang: 'bn' | 'en';
 }
 
@@ -27,48 +37,103 @@ export const PhotoEditorModal: React.FC<Props> = ({
   isOpen,
   onClose,
   onSave,
+  onOpenCropModal,
+  defaultBgPreset = 'classic-blue',
+  defaultCustomBgColor = '#1B8CF2',
   lang,
 }) => {
-  if (!isOpen || !photo) return null;
-
-  const t = translations[lang];
-  const [adjustments, setAdjustments] = useState<PhotoAdjustments>({
-    ...photo.adjustments,
-    backgroundMode: 'original', // Ensure background remains original
-  });
-  const [previewSrc, setPreviewSrc] = useState<string>(photo.processedSrc || photo.originalSrc);
-  const [activeTab, setActiveTab] = useState<'adjust' | 'crop'>('adjust');
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [adjustments, setAdjustments] = useState<PhotoAdjustments>(() => ({
+    ...DEFAULT_ADJUSTMENTS,
+    ...(photo?.adjustments || {}),
+    smoothness: photo?.adjustments?.smoothness ?? 0,
+    skinLight: photo?.adjustments?.skinLight ?? 0,
+    backgroundMode: photo?.adjustments?.backgroundMode || 'original',
+  }));
+  const [baseSrc, setBaseSrc] = useState<string>(
+    photo?.enhancedSrc || photo?.processedSrc || photo?.originalSrc || ''
+  );
+  const [previewSrc, setPreviewSrc] = useState<string>(
+    photo?.enhancedSrc || photo?.processedSrc || photo?.originalSrc || ''
+  );
+  const [cutoutOverride, setCutoutOverride] = useState<string | undefined>(photo?.cutoutSrc);
+  const [isBgRemoving, setIsBgRemoving] = useState<boolean>(false);
   const debounceTimer = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!photo || !isOpen) return;
+    const initialBase = photo.enhancedSrc || photo.processedSrc || photo.originalSrc;
+    setBaseSrc(initialBase);
+    setPreviewSrc(initialBase);
+    setCutoutOverride(photo.cutoutSrc);
     setAdjustments({
+      ...DEFAULT_ADJUSTMENTS,
       ...photo.adjustments,
-      backgroundMode: 'original',
+      smoothness: photo.adjustments.smoothness ?? 0,
+      skinLight: photo.adjustments.skinLight ?? 0,
+      backgroundMode: photo.adjustments.backgroundMode || 'original',
     });
-  }, [photo]);
+  }, [photo, isOpen]);
 
-  // Live preview update (instant zero-latency)
+  // Instant zero-latency preview update (zero loading overlay!)
   useEffect(() => {
-    if (!photo) return;
+    if (!isOpen || !baseSrc) return;
     if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
 
     debounceTimer.current = window.setTimeout(async () => {
       try {
-        const result = await processStudioPhoto(photo.originalSrc, {
+        const result = await processStudioPhoto(baseSrc, {
           ...adjustments,
+          crop: null, // crop already baked or handled in CropStraightenModal
           backgroundMode: 'original',
         });
         setPreviewSrc(result);
       } catch (err) {
         console.error('Failed to preview adjustments:', err);
       }
-    }, 40);
+    }, 28);
 
     return () => {
       if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
     };
-  }, [adjustments, photo]);
+  }, [adjustments, baseSrc, isOpen]);
+
+  if (!isOpen || !photo) return null;
+
+  const t = translations[lang];
+
+  const handleRemoveBgOffline = async () => {
+    if (isBgRemoving) return;
+    setIsBgRemoving(true);
+    try {
+      const sourceForCutout = photo.originalSrc || photo.rawOriginalSrc || '';
+      const res = await fetch(sourceForCutout);
+      const blob = await res.blob();
+      const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+      const result = await generateFreeAiSinglePassport(
+        file,
+        photo.aiBgPreset || defaultBgPreset,
+        undefined,
+        {
+          customBgColor: photo.customBgColor || defaultCustomBgColor,
+          enableStudioEnhance: true,
+          enhanceIntensity: photo.enhanceIntensity || 'normal',
+          preserveExactCrop: Boolean(photo.adjustments.crop),
+        }
+      );
+      setBaseSrc(result.studioDataUrl);
+      setPreviewSrc(result.studioDataUrl);
+      setCutoutOverride(result.cutoutDataUrl);
+      setAdjustments((prev) => ({
+        ...prev,
+        backgroundMode:
+          (photo.aiBgPreset || defaultBgPreset) === 'white' ? 'white' : 'sky-blue',
+      }));
+    } catch (err) {
+      console.error('Offline background removal failed:', err);
+    } finally {
+      setIsBgRemoving(false);
+    }
+  };
 
   const updateAdj = <K extends keyof PhotoAdjustments>(key: K, value: PhotoAdjustments[K]) => {
     setAdjustments((prev) => ({ ...prev, [key]: value }));
@@ -77,362 +142,308 @@ export const PhotoEditorModal: React.FC<Props> = ({
   const handleReset = () => {
     setAdjustments({
       ...DEFAULT_ADJUSTMENTS,
-      backgroundMode: 'original',
+      smoothness: 0,
+      skinLight: 0,
+      backgroundMode: adjustments.backgroundMode,
     });
   };
 
+  const smoothnessVal = adjustments.smoothness ?? 0;
+  const skinLightVal = adjustments.skinLight ?? 0;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-md p-1.5 sm:p-4 md:p-6 overflow-y-auto">
-      <div className="w-full max-w-4xl glass-modal rounded-2xl flex flex-col max-h-[96vh] sm:max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-2 sm:p-4">
+      <div className="w-full max-w-md glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden shadow-2xl border border-slate-200/80 dark:border-white/15">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 sm:px-5 py-2.5 sm:py-3.5 border-b border-slate-200/60 dark:border-white/10 shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200/70 dark:border-white/10 shrink-0 bg-white/80 dark:bg-slate-900/80">
           <div className="flex items-center gap-2">
-            <Sliders className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400 shrink-0" />
-            <div>
-              <h3 className="font-bold text-xs sm:text-base text-slate-900 dark:text-white leading-snug">
-                {lang === 'bn' ? 'ছবি এডজাস্টমেন্ট ও ক্রপ এডিটর' : 'Photo Adjustments & Crop Editor'}
-              </h3>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 hidden xs:block">
-                {lang === 'bn' ? 'উজ্জ্বলতা, কনট্রাস্ট ও নির্দিষ্ট সাইজে ক্রপ করুন' : 'Adjust brightness, contrast, color & crop precisely'}
-              </p>
-            </div>
+            <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+              {lang === 'bn' ? 'ম্যানুয়াল টুলস' : 'Manual Studio Tools'}
+            </h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 sm:p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10 transition cursor-pointer"
+            className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-white/10 transition cursor-pointer"
             aria-label="Close"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Body: Left Preview, Right Controls */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-12 overflow-y-auto">
-          {/* Preview Panel */}
-          <div className="md:col-span-7 bg-slate-950 p-3 sm:p-4 md:p-6 flex flex-col items-center justify-center min-h-[220px] sm:min-h-[320px] md:min-h-[400px] relative select-none">
-            <div className="relative max-w-full max-h-[260px] sm:max-h-[340px] flex items-center justify-center rounded-lg overflow-hidden border border-slate-800 shadow-2xl bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:12px_12px]">
+        {/* Sticky Live Portrait Preview */}
+        <div className="px-4 py-3 bg-slate-100/90 dark:bg-slate-950/80 border-b border-slate-200/70 dark:border-white/10 flex flex-col items-center shrink-0">
+          <div className="w-full rounded-xl bg-slate-200/65 dark:bg-slate-900 py-2.5 px-3 flex flex-col items-center gap-2">
+            <div className="relative rounded-md overflow-hidden border-2 border-slate-900 dark:border-slate-500 bg-white shadow-sm">
               <img
                 src={previewSrc}
-                alt="Preview"
-                className="max-h-[240px] sm:max-h-[320px] max-w-full object-contain"
+                alt="Live manual preview"
+                className="h-[145px] sm:h-[165px] w-auto object-contain"
               />
             </div>
 
-            {/* Quick Rotate & Flip toolbar */}
-            <div className="mt-4 flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1.5 text-white flex-wrap justify-center shadow-lg">
+            {/* Quick action row inside Manual Tools */}
+            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                disabled={isBgRemoving}
+                onClick={() => void handleRemoveBgOffline()}
+                className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isBgRemoving ? (
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                <span>
+                  {lang === 'bn' ? 'অফলাইন BG রিমুভ' : 'Remove BG'}
+                </span>
+              </button>
+
+              {onOpenCropModal && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenCropModal();
+                  }}
+                  className="px-2.5 py-1 rounded-lg glass-tile text-slate-800 dark:text-slate-100 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <Scissors className="w-3 h-3 text-rose-500" />
+                  <span>{lang === 'bn' ? 'ক্রপ ও সোজা' : 'Crop & Tilt'}</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => updateAdj('rotation', (adjustments.rotation + 90) % 360)}
-                className="p-1.5 px-2 hover:bg-slate-800 rounded-lg text-xs flex items-center gap-1.5 transition text-slate-300 hover:text-white cursor-pointer"
-                title={lang === 'bn' ? '৯০° ঘোরান' : 'Rotate 90° Clockwise'}
+                className="px-2 py-1 rounded-lg glass-tile text-slate-700 dark:text-slate-200 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                title={lang === 'bn' ? '৯০° ঘোরান' : 'Rotate 90°'}
               >
-                <RotateCw className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? '৯০° ঘোরান' : 'Rotate 90°'}</span>
+                <RotateCw className="w-3 h-3" />
+                <span>90°</span>
               </button>
-              <div className="w-px h-4 bg-slate-800" />
+
               <button
                 type="button"
                 onClick={() => updateAdj('flipH', !adjustments.flipH)}
-                className={`p-1.5 px-2 hover:bg-slate-800 rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                  adjustments.flipH ? 'bg-blue-600/40 text-blue-400 font-semibold' : 'text-slate-300 hover:text-white'
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
+                  adjustments.flipH
+                    ? 'bg-blue-600 text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
                 }`}
-                title={lang === 'bn' ? 'আড়াআড়ি উল্টান' : 'Flip Horizontally'}
+                title={lang === 'bn' ? 'আড়াআড়ি উল্টান' : 'Flip Horizontal'}
               >
-                <FlipHorizontal className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? 'আড়াআড়ি' : 'Flip H'}</span>
+                <FlipHorizontal className="w-3 h-3" />
               </button>
+
               <button
                 type="button"
                 onClick={() => updateAdj('flipV', !adjustments.flipV)}
-                className={`p-1.5 px-2 hover:bg-slate-800 rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer ${
-                  adjustments.flipV ? 'bg-blue-600/40 text-blue-400 font-semibold' : 'text-slate-300 hover:text-white'
+                className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 cursor-pointer ${
+                  adjustments.flipV
+                    ? 'bg-blue-600 text-white'
+                    : 'glass-tile text-slate-700 dark:text-slate-200'
                 }`}
-                title={lang === 'bn' ? 'উল্টো করুন' : 'Flip Vertically'}
+                title={lang === 'bn' ? 'উলম্ব উল্টান' : 'Flip Vertical'}
               >
-                <FlipVertical className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? 'উল্টো' : 'Flip V'}</span>
+                <FlipVertical className="w-3 h-3" />
               </button>
             </div>
           </div>
+        </div>
 
-          {/* Controls Panel */}
-          <div className="md:col-span-5 p-4 sm:p-5 flex flex-col bg-white/35 dark:bg-slate-950/35 border-t md:border-t-0 md:border-l border-slate-200/60 dark:border-white/10">
-            {/* Tabs: ONLY 2 Tabs (Adjustments & Crop) */}
-            <div className="flex rounded-xl glass-track p-1 mb-4 text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setActiveTab('adjust')}
-                className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                  activeTab === 'adjust'
-                    ? 'glass-tab-active font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <Sliders className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? 'উজ্জ্বলতা ও এডজাস্টমেন্ট' : 'Adjustments'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('crop')}
-                className={`flex-1 py-1.5 rounded-lg flex items-center justify-center gap-1.5 transition cursor-pointer ${
-                  activeTab === 'crop'
-                    ? 'glass-tab-active font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <CropIcon className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? 'ক্রপ ও অনুপাত' : 'Crop & Rotate'}</span>
-              </button>
+        {/* Scrollable Manual Sliders (Matches reference layout & zero-latency feedback) */}
+        <div className="flex-1 overflow-y-auto px-4 py-3.5 space-y-4 bg-white/95 dark:bg-slate-900/95">
+          {/* 1. Brightness (উজ্জ্বলতা) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span>{lang === 'bn' ? 'উজ্জ্বলতা' : t.brightness}</span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {adjustments.brightness}
+              </span>
             </div>
-
-            {/* TAB 1: Photo Adjustments (Brightness, Contrast, Saturation, Sharpness, Warmth) */}
-            {activeTab === 'adjust' && (
-              <div className="space-y-4">
-                {/* Brightness */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">
-                    <span>{t.brightness}</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{adjustments.brightness}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="-60"
-                    max="60"
-                    value={adjustments.brightness}
-                    onChange={(e) => updateAdj('brightness', Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>-60 ({lang === 'bn' ? 'অন্ধকার' : 'Dark'})</span>
-                    <span>0</span>
-                    <span>+60 ({lang === 'bn' ? 'উজ্জ্বল' : 'Bright'})</span>
-                  </div>
-                </div>
-
-                {/* Contrast */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">
-                    <span>{t.contrast}</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{adjustments.contrast}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="-50"
-                    max="50"
-                    value={adjustments.contrast}
-                    onChange={(e) => updateAdj('contrast', Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>-50</span>
-                    <span>0</span>
-                    <span>+50</span>
-                  </div>
-                </div>
-
-                {/* Saturation */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">
-                    <span>{t.saturation}</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{adjustments.saturation}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="-60"
-                    max="60"
-                    value={adjustments.saturation}
-                    onChange={(e) => updateAdj('saturation', Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>-60 (B&W)</span>
-                    <span>0</span>
-                    <span>+60 (Vibrant)</span>
-                  </div>
-                </div>
-
-                {/* Sharpness */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">
-                    <span>{t.sharpness}</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{adjustments.sharpness}%</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={adjustments.sharpness}
-                    onChange={(e) => updateAdj('sharpness', Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>0% (Soft)</span>
-                    <span>50%</span>
-                    <span>100% (Sharp)</span>
-                  </div>
-                </div>
-
-                {/* Warmth */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">
-                    <span>{t.warmth}</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{adjustments.warmth}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="-40"
-                    max="40"
-                    value={adjustments.warmth}
-                    onChange={(e) => updateAdj('warmth', Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>-40 ({lang === 'bn' ? 'শীতল' : 'Cool'})</span>
-                    <span>0</span>
-                    <span>+40 ({lang === 'bn' ? 'উষ্ণ' : 'Warm'})</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: Crop & Rotation */}
-            {activeTab === 'crop' && (
-              <div className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-slate-800 dark:text-slate-200 block mb-2">
-                    {lang === 'bn' ? 'অনুপাত ও ক্রপ প্রিসেট:' : 'Crop Ratio Preset:'}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => updateAdj('crop', null)}
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                        !adjustments.crop
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold shadow-xs'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="block font-semibold">
-                        {lang === 'bn' ? 'ফ্রি ক্রপ (মূল আকার)' : 'Full / Original'}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
-                        {lang === 'bn' ? 'সম্পূর্ণ ছবি বজায় থাকবে' : 'No cropping applied'}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAdj('crop', { x: 10, y: 5, width: 80, height: 95 })
-                      }
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                        adjustments.crop && adjustments.crop.width === 80 && adjustments.crop.height === 95
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold shadow-xs'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="block font-semibold">
-                        {lang === 'bn' ? 'পাসপোর্ট (৩৫×৪৫ মিমি)' : 'Passport (35×45 mm)'}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
-                        ৭:৯ স্ট্যান্ডার্ড অনুপাত
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAdj('crop', { x: 15, y: 10, width: 70, height: 87.5 })
-                      }
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                        adjustments.crop && adjustments.crop.width === 70 && adjustments.crop.height === 87.5
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold shadow-xs'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="block font-semibold">
-                        {lang === 'bn' ? 'স্ট্যাম্প (২০×২৫ মিমি)' : 'Stamp (20×25 mm)'}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
-                        ৪:৫ ছোট স্ট্যাম্প অনুপাত
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateAdj('crop', { x: 10, y: 10, width: 80, height: 80 })
-                      }
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                        adjustments.crop && adjustments.crop.width === 80 && adjustments.crop.height === 80
-                          ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold shadow-xs'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300'
-                      }`}
-                    >
-                      <span className="block font-semibold">
-                        {lang === 'bn' ? 'বর্গাকার (১:১ Square)' : 'Square (1:1)'}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
-                        ভিসা ও প্রোফাইল মাপ
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Fine Angle Slider */}
-                <div>
-                  <div className="flex justify-between text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">
-                    <span>{lang === 'bn' ? 'ঘোরানোর কোণ (Fine Angle):' : 'Fine Angle Rotation:'}</span>
-                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{adjustments.rotation}°</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="360"
-                    step="1"
-                    value={adjustments.rotation}
-                    onChange={(e) => updateAdj('rotation', Number(e.target.value))}
-                    className="w-full accent-blue-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>0°</span>
-                    <span>90°</span>
-                    <span>180°</span>
-                    <span>270°</span>
-                    <span>360°</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Bottom Actions */}
-            <div className="mt-auto pt-4 border-t border-slate-200/60 dark:border-white/10 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={handleReset}
-                className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-white/60 dark:hover:bg-white/10 rounded-xl transition cursor-pointer"
-              >
-                {t.reset}
-              </button>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-white/10 rounded-xl transition cursor-pointer"
-                >
-                  {t.cancel}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSave(adjustments)}
-                  className="px-4 py-2 text-xs sm:text-sm font-semibold glass-btn-primary text-white rounded-xl flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Check className="w-4 h-4" />
-                  <span>{t.applyChanges}</span>
-                </button>
-              </div>
+            <input
+              type="range"
+              min="-60"
+              max="60"
+              value={adjustments.brightness}
+              onChange={(e) => updateAdj('brightness', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'চাপা' : 'Dark'}</span>
+              <span>{lang === 'bn' ? 'উজ্জ্বল' : 'Bright'}</span>
             </div>
+          </div>
+
+          {/* 2. Contrast (কনট্রাস্ট) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span>{lang === 'bn' ? 'কনট্রাস্ট' : t.contrast}</span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {adjustments.contrast}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-50"
+              max="50"
+              value={adjustments.contrast}
+              onChange={(e) => updateAdj('contrast', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'নরম' : 'Soft'}</span>
+              <span>{lang === 'bn' ? 'জোরালো' : 'Strong'}</span>
+            </div>
+          </div>
+
+          {/* 3. Warmth (উষ্ণতা) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span>{lang === 'bn' ? 'উষ্ণতা' : t.warmth}</span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {adjustments.warmth}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-40"
+              max="40"
+              value={adjustments.warmth}
+              onChange={(e) => updateAdj('warmth', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'ঠাণ্ডা (নীলচে)' : 'Cool'}</span>
+              <span>{lang === 'bn' ? 'গরম (হলদেটে)' : 'Warm'}</span>
+            </div>
+          </div>
+
+          {/* 4. Saturation (রঙের তীব্রতা) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span>{lang === 'bn' ? 'রঙের তীব্রতা' : t.saturation}</span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {adjustments.saturation}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-60"
+              max="60"
+              value={adjustments.saturation}
+              onChange={(e) => updateAdj('saturation', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'ফ্যাকাশে' : 'Muted'}</span>
+              <span>{lang === 'bn' ? 'গাঢ় রঙ' : 'Vibrant'}</span>
+            </div>
+          </div>
+
+          {/* 5. Sharpness (শার্পনেস) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span>{lang === 'bn' ? 'শার্পনেস' : t.sharpness}</span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {adjustments.sharpness}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={adjustments.sharpness}
+              onChange={(e) => updateAdj('sharpness', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'বাড়তি নেই' : 'None'}</span>
+              <span>{lang === 'bn' ? 'ধারালো' : 'Sharp'}</span>
+            </div>
+          </div>
+
+          {/* 6. Smoothness / Grain Reduction (মসৃণতা) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span>
+                {lang === 'bn' ? 'মসৃণতা (দানা/দাগ কমানো)' : 'Smoothness (Denoise)'}
+              </span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {smoothnessVal}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={smoothnessVal}
+              onChange={(e) => updateAdj('smoothness', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'বন্ধ' : 'Off'}</span>
+              <span>{lang === 'bn' ? 'বেশি' : 'High'}</span>
+            </div>
+          </div>
+
+          {/* 7. Skin Light Auto +/- Balance (স্ক্রিন আলো) */}
+          <div>
+            <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200 mb-1">
+              <span className="flex items-center gap-1.5">
+                <Sun className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span>
+                  {lang === 'bn' ? 'স্ক্রিন আলো (অটো ± সমন্বয়)' : 'Skin Light (Auto ± Balance)'}
+                </span>
+              </span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+                {skinLightVal}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-50"
+              max="50"
+              value={skinLightVal}
+              onChange={(e) => updateAdj('skinLight', Number(e.target.value))}
+              className="w-full accent-blue-600 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400">
+              <span>{lang === 'bn' ? 'কম' : 'Low'}</span>
+              <span>{lang === 'bn' ? 'বেশি' : 'Bright'}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="px-4 py-3 border-t border-slate-200/70 dark:border-white/10 flex items-center justify-between gap-2 shrink-0 bg-white/90 dark:bg-slate-900/90">
+          <button
+            type="button"
+            onClick={handleReset}
+            className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 rounded-xl transition cursor-pointer"
+          >
+            {t.reset}
+          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 rounded-xl transition cursor-pointer"
+            >
+              {t.cancel}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSave(adjustments, previewSrc, cutoutOverride)}
+              className="px-4 py-2 text-xs font-bold glass-btn-primary text-white rounded-xl flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>{lang === 'bn' ? 'ঠিক আছে' : t.applyChanges}</span>
+            </button>
           </div>
         </div>
       </div>

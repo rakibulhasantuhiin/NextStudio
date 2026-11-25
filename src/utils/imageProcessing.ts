@@ -409,14 +409,170 @@ export function removeBackgroundCanvas(
 }
 
 /**
+ * Fast edge-preserving bilateral-like surface smoothing (reduces skin grain & noise
+ * without blurring sharp edges like eyes, eyebrows, hair strands, or shirt collars).
+ */
+function applyEdgePreservingSmooth(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  strength: number // 0..1
+) {
+  const srcData = ctx.getImageData(0, 0, w, h);
+  const dstData = ctx.createImageData(w, h);
+  const src = srcData.data;
+  const dst = dstData.data;
+
+  // Color range threshold: prevents smearing across high-contrast edges (eyes/hair)
+  const colorSigma = 24 + strength * 26;
+  const blendAlpha = Math.min(0.82, strength * 0.85);
+  const radius = strength > 0.55 ? 2 : 1;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const cr = src[idx];
+      const cg = src[idx + 1];
+      const cb = src[idx + 2];
+      const ca = src[idx + 3];
+
+      let sumR = cr;
+      let sumG = cg;
+      let sumB = cb;
+      let wSum = 1;
+
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const nIdx = (ny * w + nx) * 4;
+          const nr = src[nIdx];
+          const ng = src[nIdx + 1];
+          const nb = src[nIdx + 2];
+          const diff = (Math.abs(nr - cr) + Math.abs(ng - cg) + Math.abs(nb - cb)) / 3;
+          if (diff < colorSigma) {
+            const wt = 1 - diff / colorSigma;
+            sumR += nr * wt;
+            sumG += ng * wt;
+            sumB += nb * wt;
+            wSum += wt;
+          }
+        }
+      }
+
+      const avgR = sumR / wSum;
+      const avgG = sumG / wSum;
+      const avgB = sumB / wSum;
+
+      dst[idx] = Math.round(cr * (1 - blendAlpha) + avgR * blendAlpha);
+      dst[idx + 1] = Math.round(cg * (1 - blendAlpha) + avgG * blendAlpha);
+      dst[idx + 2] = Math.round(cb * (1 - blendAlpha) + avgB * blendAlpha);
+      dst[idx + 3] = ca;
+    }
+  }
+
+  ctx.putImageData(dstData, 0, 0);
+}
+
+/**
+ * Applies interactive crop (percentage 0-100), panX/panY, zoom, 90-degree rotation,
+ * and fine straighten degrees onto a crisp high-resolution canvas, matching the
+ * interactive CropStraightenModal stage pixel-for-pixel.
+ */
+export async function applyCropAndStraighten(
+  src: string,
+  options: {
+    crop: CropRect | null;
+    straightenDeg: number; // -45..45
+    rotate90Deg?: number; // 0, 90, 180, 270
+    zoom?: number; // 0.4..3.5 (default 1)
+    panX?: number; // % of stage width (-100..100)
+    panY?: number; // % of stage height (-100..100)
+  }
+): Promise<string> {
+  const img = await loadImage(src);
+  const natW = img.naturalWidth || img.width;
+  const natH = img.naturalHeight || img.height;
+
+  const rot90 = ((options.rotate90Deg || 0) % 360 + 360) % 360;
+  const isOddRot = rot90 === 90 || rot90 === 270;
+  const effW = isOddRot ? natH : natW;
+  const effH = isOddRot ? natW : natH;
+
+  const zoom = Math.max(0.35, Math.min(4, options.zoom ?? 1));
+  const panX = options.panX ?? 0;
+  const panY = options.panY ?? 0;
+  const totalAngle = rot90 + (options.straightenDeg || 0);
+  const rad = (totalAngle * Math.PI) / 180;
+
+  // Preserve crisp native pixel density even when zoomed in (> 1x)
+  const supersample = Math.min(2.2, Math.max(1, zoom));
+  const stageW = Math.max(1, Math.round(effW * supersample));
+  const stageH = Math.max(1, Math.round(effH * supersample));
+
+  const stageCanvas = document.createElement('canvas');
+  stageCanvas.width = stageW;
+  stageCanvas.height = stageH;
+  const sCtx = stageCanvas.getContext('2d');
+  if (!sCtx) return src;
+
+  sCtx.fillStyle = '#ffffff';
+  sCtx.fillRect(0, 0, stageW, stageH);
+  sCtx.imageSmoothingEnabled = true;
+  sCtx.imageSmoothingQuality = 'high';
+  sCtx.save();
+  sCtx.translate(
+    stageW / 2 + (panX / 100) * stageW,
+    stageH / 2 + (panY / 100) * stageH
+  );
+  sCtx.scale(zoom * supersample, zoom * supersample);
+  sCtx.rotate(rad);
+  sCtx.drawImage(img, -natW / 2, -natH / 2, natW, natH);
+  sCtx.restore();
+
+  const crop = options.crop;
+  if (!crop) {
+    return stageCanvas.toDataURL('image/jpeg', 0.96);
+  }
+
+  const sx = Math.max(0, Math.round((crop.x / 100) * stageW));
+  const sy = Math.max(0, Math.round((crop.y / 100) * stageH));
+  const sw = Math.max(24, Math.min(stageW - sx, Math.round((crop.width / 100) * stageW)));
+  const sh = Math.max(24, Math.min(stageH - sy, Math.round((crop.height / 100) * stageH)));
+
+  // Cap huge outputs gracefully so memory/IndexedDB remain snappy while preserving 600+ DPI print quality
+  const maxOutSide = 2200;
+  const outScale = Math.max(sw, sh) > maxOutSide ? maxOutSide / Math.max(sw, sh) : 1;
+  const outW = Math.max(24, Math.round(sw * outScale));
+  const outH = Math.max(24, Math.round(sh * outScale));
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = outW;
+  outCanvas.height = outH;
+  const oCtx = outCanvas.getContext('2d');
+  if (!oCtx) return stageCanvas.toDataURL('image/jpeg', 0.96);
+  oCtx.imageSmoothingEnabled = true;
+  oCtx.imageSmoothingQuality = 'high';
+  oCtx.drawImage(stageCanvas, sx, sy, sw, sh, 0, 0, outW, outH);
+
+  return outCanvas.toDataURL('image/jpeg', 0.96);
+}
+
+/**
  * Advanced Client-Side Photo Processing:
  * Handles Crop, Rotation, Auto Background Removal & Replacement,
- * Brightness, Contrast, Saturation, Exposure, Warmth, Sharpness.
+ * Brightness, Contrast, Saturation, Exposure, Warmth, Smoothness, Skin Light, Sharpness.
  */
 export async function processStudioPhoto(
   src: string,
   adjustments: PhotoAdjustments
 ): Promise<string> {
+  const smoothness = adjustments.smoothness ?? 0;
+  const skinLight = adjustments.skinLight ?? 0;
+
   // If original photo with no modifications, return src directly for maximum fidelity & speed
   const isUntouched =
     adjustments.backgroundMode === 'original' &&
@@ -429,7 +585,9 @@ export async function processStudioPhoto(
     adjustments.saturation === 0 &&
     adjustments.exposure === 0 &&
     adjustments.warmth === 0 &&
-    adjustments.sharpness === 0;
+    adjustments.sharpness === 0 &&
+    smoothness === 0 &&
+    skinLight === 0;
 
   if (isUntouched) {
     return src;
@@ -457,12 +615,16 @@ export async function processStudioPhoto(
   const rad = (adjustments.rotation * Math.PI) / 180;
   const sin = Math.abs(Math.sin(rad));
   const cos = Math.abs(Math.cos(rad));
-  const rotWidth = Math.round(sWidth * cos + sHeight * sin);
-  const rotHeight = Math.round(sWidth * sin + sHeight * cos);
+  const rotWidth = Math.max(1, Math.round(sWidth * cos + sHeight * sin));
+  const rotHeight = Math.max(1, Math.round(sWidth * sin + sHeight * cos));
 
   cropCanvas.width = rotWidth;
   cropCanvas.height = rotHeight;
 
+  cropCtx.fillStyle = '#ffffff';
+  cropCtx.fillRect(0, 0, rotWidth, rotHeight);
+  cropCtx.imageSmoothingEnabled = true;
+  cropCtx.imageSmoothingQuality = 'high';
   cropCtx.save();
   cropCtx.translate(rotWidth / 2, rotHeight / 2);
   cropCtx.rotate(rad);
@@ -498,20 +660,37 @@ export async function processStudioPhoto(
     );
   }
 
-  // Brightness, Contrast, Saturation, Exposure, Warmth
+  // Smoothness (edge-preserving skin denoise before sharpening/toning)
+  if (smoothness > 0) {
+    applyEdgePreservingSmooth(cropCtx, w, h, Math.min(1, smoothness / 100));
+  }
+
+  // Brightness, Contrast, Saturation, Exposure, Warmth, Skin Light
   const imgData = cropCtx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  const bVal = adjustments.brightness * 1.5;
+  const bVal = adjustments.brightness * 1.4;
   const cFactor = (adjustments.contrast + 100) / 100;
   const sFactor = (adjustments.saturation + 100) / 100;
   const eVal = adjustments.exposure * 1.2;
-  const wVal = adjustments.warmth * 0.8;
+  const wVal = adjustments.warmth * 0.85;
+  const skinGamma = skinLight !== 0 ? Math.max(0.62, Math.min(1.45, 1 - skinLight * 0.0065)) : 1;
 
   for (let i = 0; i < data.length; i += 4) {
-    let r = data[i] + bVal + eVal;
-    let g = data[i + 1] + bVal + eVal;
-    let b = data[i + 2] + bVal + eVal;
+    let r = data[i];
+    let g = data[i + 1];
+    let b = data[i + 2];
+
+    // Adaptive Skin / Shadow Light curve (lifts midtones/shadows gently without blowing highlights)
+    if (skinGamma !== 1) {
+      r = Math.pow(r / 255, skinGamma) * 255;
+      g = Math.pow(g / 255, skinGamma) * 255;
+      b = Math.pow(b / 255, skinGamma) * 255;
+    }
+
+    r += bVal + eVal;
+    g += bVal + eVal;
+    b += bVal + eVal;
 
     // Contrast
     r = (r - 128) * cFactor + 128;

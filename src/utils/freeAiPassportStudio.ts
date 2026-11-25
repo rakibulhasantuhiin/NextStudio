@@ -1,4 +1,4 @@
-import { StudioBackdropPreset } from '../types';
+import { StudioBackdropPreset, StudioEnhanceIntensity } from '../types';
 
 export interface AiProgressUpdate {
   percent: number;
@@ -11,7 +11,10 @@ export interface FreeAiPassportResult {
   studioDataUrl: string;
   /** Upright transparent aligned portrait cutout (cached for instant BG color switching) */
   cutoutDataUrl: string;
+  /** Non-enhanced (background-replaced or original framing without lighting boost) for instant toggle */
+  unenhancedDataUrl?: string;
   bgPreset: StudioBackdropPreset;
+  customBgColor?: string;
 }
 
 interface PortraitMetrics {
@@ -32,6 +35,7 @@ interface DetectedFaceBox {
   y: number;
   width: number;
   height: number;
+  eyeTiltDeg?: number;
 }
 
 const SINGLE_OUT_W = 1050; // Exact 35:45 Bangladesh Passport ratio (~760 DPI)
@@ -53,7 +57,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
  * Normalizes any uploaded image File into an EXIF-upright capped working canvas
  * so mobile browsers never run out of RAM during ONNX segmentation.
  */
-async function fileToWorkingCanvas(file: File, maxSide = 1280): Promise<HTMLCanvasElement> {
+async function fileToWorkingCanvas(file: File, maxSide = 1440): Promise<HTMLCanvasElement> {
   const objectUrl = URL.createObjectURL(file);
   try {
     const img = await loadImage(objectUrl);
@@ -100,7 +104,12 @@ async function detectFaceNative(canvas: HTMLCanvasElement): Promise<DetectedFace
   try {
     const win = window as unknown as {
       FaceDetector?: new (opts?: { fastMode?: boolean; maxDetectedFaces?: number }) => {
-        detect: (src: HTMLCanvasElement) => Promise<Array<{ boundingBox: DOMRectReadOnly }>>;
+        detect: (src: HTMLCanvasElement) => Promise<
+          Array<{
+            boundingBox: DOMRectReadOnly;
+            landmarks?: Array<{ type?: string; locations?: Array<{ x: number; y: number }> }>;
+          }>
+        >;
       };
     };
     if (typeof win.FaceDetector !== 'function') return null;
@@ -108,10 +117,32 @@ async function detectFaceNative(canvas: HTMLCanvasElement): Promise<DetectedFace
     const faces = await detector.detect(canvas);
     if (!faces || faces.length === 0) return null;
     // Pick largest detected face
-    let best = faces[0].boundingBox;
+    let bestFace = faces[0];
     for (const f of faces) {
-      if (f.boundingBox.width * f.boundingBox.height > best.width * best.height) {
-        best = f.boundingBox;
+      if (
+        f.boundingBox.width * f.boundingBox.height >
+        bestFace.boundingBox.width * bestFace.boundingBox.height
+      ) {
+        bestFace = f;
+      }
+    }
+    const best = bestFace.boundingBox;
+    let eyeTiltDeg = 0;
+    const eyeLandmarks = (bestFace.landmarks || []).filter(
+      (lm) => lm.type === 'eye' && lm.locations && lm.locations.length > 0
+    );
+    if (eyeLandmarks.length >= 2) {
+      const p1 = eyeLandmarks[0].locations![0];
+      const p2 = eyeLandmarks[1].locations![0];
+      const leftEye = p1.x <= p2.x ? p1 : p2;
+      const rightEye = p1.x <= p2.x ? p2 : p1;
+      const dx = rightEye.x - leftEye.x;
+      const dy = rightEye.y - leftEye.y;
+      if (dx > 10) {
+        const rawDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+        if (Math.abs(rawDeg) >= 1.2 && Math.abs(rawDeg) <= 14) {
+          eyeTiltDeg = -rawDeg;
+        }
       }
     }
     return {
@@ -119,6 +150,7 @@ async function detectFaceNative(canvas: HTMLCanvasElement): Promise<DetectedFace
       y: best.y,
       width: best.width,
       height: best.height,
+      eyeTiltDeg,
     };
   } catch {
     return null;
@@ -280,8 +312,9 @@ async function runNeuralPortraitCutout(
 }
 
 /**
- * Cleans stray semi-transparent background spill (hair halo decontamination)
- * and removes tiny isolated background specks while keeping fine hair strands natural.
+ * Cleans stray semi-transparent background spill (hair halo decontamination),
+ * removes isolated floating background islands via connected-component analysis,
+ * and keeps fine hair strands crisp and natural with zero background residue.
  */
 function refineCutoutAlphaAndDecontaminate(cutoutCanvas: HTMLCanvasElement): void {
   const w = cutoutCanvas.width;
@@ -290,7 +323,78 @@ function refineCutoutAlphaAndDecontaminate(cutoutCanvas: HTMLCanvasElement): voi
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  // Keep a read-only snapshot of RGB/Alpha so decontamination reads pure interior colors
+  // 1) Keep only the main portrait silhouette (+ large valid body parts), removing isolated wall/leaf specks
+  const totalPx = w * h;
+  const visited = new Uint8Array(totalPx);
+  const compId = new Int32Array(totalPx).fill(-1);
+  const queue = new Int32Array(totalPx);
+  const compSizes: number[] = [];
+
+  for (let i = 0; i < totalPx; i++) {
+    if (visited[i] || data[i * 4 + 3] < 48) continue;
+    const cid = compSizes.length;
+    let head = 0;
+    let tail = 0;
+    visited[i] = 1;
+    compId[i] = cid;
+    queue[tail++] = i;
+
+    while (head < tail) {
+      const p = queue[head++];
+      const x = p % w;
+      const y = (p - x) / w;
+
+      if (x > 0) {
+        const np = p - 1;
+        if (!visited[np] && data[np * 4 + 3] >= 48) {
+          visited[np] = 1;
+          compId[np] = cid;
+          queue[tail++] = np;
+        }
+      }
+      if (x < w - 1) {
+        const np = p + 1;
+        if (!visited[np] && data[np * 4 + 3] >= 48) {
+          visited[np] = 1;
+          compId[np] = cid;
+          queue[tail++] = np;
+        }
+      }
+      if (y > 0) {
+        const np = p - w;
+        if (!visited[np] && data[np * 4 + 3] >= 48) {
+          visited[np] = 1;
+          compId[np] = cid;
+          queue[tail++] = np;
+        }
+      }
+      if (y < h - 1) {
+        const np = p + w;
+        if (!visited[np] && data[np * 4 + 3] >= 48) {
+          visited[np] = 1;
+          compId[np] = cid;
+          queue[tail++] = np;
+        }
+      }
+    }
+    compSizes.push(tail);
+  }
+
+  if (compSizes.length > 1) {
+    let maxArea = 0;
+    for (const s of compSizes) {
+      if (s > maxArea) maxArea = s;
+    }
+    const minKeepArea = Math.max(80, Math.round(maxArea * 0.02));
+    for (let i = 0; i < totalPx; i++) {
+      const cid = compId[i];
+      if (cid >= 0 && compSizes[cid] < minKeepArea) {
+        data[i * 4 + 3] = 0;
+      }
+    }
+  }
+
+  // 2) Snapshot clean RGB/Alpha so decontamination reads pure interior hair/clothing pixels
   const src = new Uint8ClampedArray(data);
 
   for (let y = 0; y < h; y++) {
@@ -299,27 +403,27 @@ function refineCutoutAlphaAndDecontaminate(cutoutCanvas: HTMLCanvasElement): voi
       const a = src[idx + 3];
 
       // Strip near-zero residual noise specks
-      if (a <= 14) {
+      if (a <= 18) {
         data[idx + 3] = 0;
         continue;
       }
 
-      // Slightly tighten semi-transparent edge to eliminate grey haze around hair/clothes
-      if (a < 236) {
-        const norm = (a - 14) / (236 - 14);
-        const tightened = Math.round(Math.pow(norm, 1.15) * 255);
+      // Tighten semi-transparent outer fringe to eliminate grey/green background haze
+      if (a < 238) {
+        const norm = (a - 18) / (238 - 18);
+        const tightened = Math.round(Math.pow(norm, 1.24) * 255);
         data[idx + 3] = Math.max(0, Math.min(255, tightened));
 
-        // Pull true foreground hair/cloth color from nearest solid interior pixels (radius 4)
+        // Pull true foreground hair/cloth color from nearest solid interior pixels (radius 5)
         let sumR = 0;
         let sumG = 0;
         let sumB = 0;
         let weightSum = 0;
 
-        for (let dy = -4; dy <= 4; dy += 2) {
+        for (let dy = -5; dy <= 5; dy += 2) {
           const ny = y + dy;
           if (ny < 0 || ny >= h) continue;
-          for (let dx = -4; dx <= 4; dx += 2) {
+          for (let dx = -5; dx <= 5; dx += 2) {
             const nx = x + dx;
             if (nx < 0 || nx >= w) continue;
             const nIdx = (ny * w + nx) * 4;
@@ -339,8 +443,7 @@ function refineCutoutAlphaAndDecontaminate(cutoutCanvas: HTMLCanvasElement): voi
           const pureR = sumR / weightSum;
           const pureG = sumG / weightSum;
           const pureB = sumB / weightSum;
-          // Blend stronger decontamination on outer fringe pixels
-          const deconStrength = Math.min(0.85, (1 - norm) * 0.92 + 0.15);
+          const deconStrength = Math.min(0.9, (1 - norm) * 0.94 + 0.16);
           data[idx] = Math.round(src[idx] * (1 - deconStrength) + pureR * deconStrength);
           data[idx + 1] = Math.round(src[idx + 1] * (1 - deconStrength) + pureG * deconStrength);
           data[idx + 2] = Math.round(src[idx + 2] * (1 - deconStrength) + pureB * deconStrength);
@@ -350,6 +453,28 @@ function refineCutoutAlphaAndDecontaminate(cutoutCanvas: HTMLCanvasElement): voi
   }
 
   ctx.putImageData(imgData, 0, 0);
+}
+
+/**
+ * Rotates a transparent cutout canvas gently around its center when eye tilt is detected.
+ */
+function straightenCutoutByAngle(
+  cutoutCanvas: HTMLCanvasElement,
+  angleDeg: number
+): HTMLCanvasElement {
+  if (!angleDeg || Math.abs(angleDeg) < 0.8) return cutoutCanvas;
+  const w = cutoutCanvas.width;
+  const h = cutoutCanvas.height;
+  const out = document.createElement('canvas');
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate((angleDeg * Math.PI) / 180);
+  ctx.drawImage(cutoutCanvas, -w / 2, -h / 2, w, h);
+  return out;
 }
 
 /**
@@ -526,7 +651,8 @@ function analyzePortraitMetrics(
  */
 function applyStudioForegroundLighting(
   cutoutCanvas: HTMLCanvasElement,
-  faceLuminance: number
+  faceLuminance: number,
+  intensity: StudioEnhanceIntensity = 'normal'
 ): void {
   const w = cutoutCanvas.width;
   const h = cutoutCanvas.height;
@@ -534,15 +660,17 @@ function applyStudioForegroundLighting(
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
-  // Target bright, even Bangladesh photo-studio facial luminance (~156–164 on 0-255 scale)
-  const targetLum = 158;
-  const deficit = Math.max(-18, Math.min(68, targetLum - faceLuminance));
+  const intensityMul = intensity === 'light' ? 0.6 : intensity === 'strong' ? 1.35 : 1.0;
+
+  // Target bright, even Bangladesh photo-studio facial luminance (~156–170 on 0-255 scale)
+  const targetLum = intensity === 'strong' ? 168 : intensity === 'light' ? 148 : 158;
+  const deficit = Math.max(-18, Math.min(75, targetLum - faceLuminance));
   // Smooth gamma curve lifts facial shadows without blowing out white shirts/highlights
-  const gamma = Math.max(0.66, Math.min(1.06, 1 - deficit * 0.0046));
-  const brightnessGain = Math.max(0.95, Math.min(1.22, 1 + deficit * 0.0024));
-  const contrastFactor = 1.07; // Clean studio crispness
-  const warmthBoost = 1.025; // Subtle healthy studio skin warmth
-  const satBoost = 1.06;
+  const gamma = Math.max(0.62, Math.min(1.06, 1 - deficit * 0.0046 * intensityMul));
+  const brightnessGain = Math.max(0.95, Math.min(1.26, 1 + deficit * 0.0024 * intensityMul));
+  const contrastFactor = 1 + 0.07 * intensityMul; // Clean studio crispness
+  const warmthBoost = 1 + 0.024 * intensityMul; // Subtle healthy studio skin warmth
+  const satBoost = 1 + 0.06 * intensityMul;
 
   // Precompute 256-entry tone curve LUT for instant processing
   const lut = new Uint8ClampedArray(256);
@@ -578,7 +706,7 @@ function applyStudioForegroundLighting(
 
   // Crisp studio micro-sharpening strictly on opaque interior pixels (eyes, hair, collar)
   const copy = new Uint8ClampedArray(data);
-  const sharpAmount = 0.26;
+  const sharpAmount = intensity === 'strong' ? 0.34 : intensity === 'light' ? 0.16 : 0.26;
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
       const idx = (y * w + x) * 4;
@@ -728,14 +856,21 @@ function frameCouplePassportCutout(
 }
 
 /**
- * Paints authentic studio backdrop (Classic BD Sky-Blue default, Soft Sky-Blue, or Pure White).
+ * Paints authentic studio backdrop (Classic BD Sky-Blue default, Soft Sky-Blue, Pure White, or Custom Hex).
  */
 function paintStudioBackdrop(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  bgPreset: StudioBackdropPreset
+  bgPreset: StudioBackdropPreset,
+  customHex?: string
 ): void {
+  if (bgPreset === 'custom' && customHex) {
+    ctx.fillStyle = customHex;
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+
   if (bgPreset === 'white') {
     const grad = ctx.createRadialGradient(w * 0.5, h * 0.36, w * 0.08, w * 0.5, h * 0.48, Math.max(w, h) * 0.85);
     grad.addColorStop(0, '#FFFFFF');
@@ -766,11 +901,12 @@ function paintStudioBackdrop(
 
 /**
  * Instantly composites any cached transparent cutout Data URL onto a chosen studio backdrop.
- * Takes <40ms — zero AI re-processing needed when toggling Blue / Soft Blue / White!
+ * Takes <40ms — zero AI re-processing needed when toggling Blue / Soft Blue / White / Custom!
  */
 export async function compositeCutoutWithBackdrop(
   cutoutDataUrl: string,
-  bgPreset: StudioBackdropPreset
+  bgPreset: StudioBackdropPreset,
+  customHex?: string
 ): Promise<string> {
   const img = await loadImage(cutoutDataUrl);
   const w = img.naturalWidth || SINGLE_OUT_W;
@@ -782,46 +918,59 @@ export async function compositeCutoutWithBackdrop(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  paintStudioBackdrop(ctx, w, h, bgPreset);
+  paintStudioBackdrop(ctx, w, h, bgPreset, customHex);
   ctx.drawImage(img, 0, 0, w, h);
   return canvas.toDataURL('image/jpeg', 0.95);
 }
 
+export interface SinglePassportPipelineOptions {
+  customBgColor?: string;
+  enableStudioEnhance?: boolean;
+  enhanceIntensity?: StudioEnhanceIntensity;
+  preserveExactCrop?: boolean;
+}
+
 /**
- * 100% Free On-Device AI Single Passport Studio Pipeline.
+ * 100% Free On-Device Auto Studio Single Passport Pipeline.
  */
 export async function generateFreeAiSinglePassport(
   file: File,
   bgPreset: StudioBackdropPreset = 'classic-blue',
-  onProgress?: (update: AiProgressUpdate) => void
+  onProgress?: (update: AiProgressUpdate) => void,
+  options?: SinglePassportPipelineOptions
 ): Promise<FreeAiPassportResult> {
+  const customBgColor = options?.customBgColor;
+  const enableStudioEnhance = options?.enableStudioEnhance ?? true;
+  const enhanceIntensity = options?.enhanceIntensity ?? 'normal';
+  const preserveExactCrop = options?.preserveExactCrop ?? false;
+
   onProgress?.({
     percent: 8,
     labelBn: 'ছবি প্রস্তুত হচ্ছে...',
     labelEn: 'Preparing photo...',
   });
 
-  const workingCanvas = await fileToWorkingCanvas(file, 1280);
+  const workingCanvas = await fileToWorkingCanvas(file, 1440);
   const nativeFacePromise = detectFaceNative(workingCanvas);
 
   onProgress?.({
     percent: 18,
-    labelBn: 'ফ্রি AI ব্যাকগ্রাউন্ড রিমুভ হচ্ছে...',
-    labelEn: 'Running free on-device AI segmentation...',
+    labelBn: 'অটো স্টুডিও ইঞ্জিন চালু হচ্ছে... (প্রথমবার একটু সময় নেয়)',
+    labelEn: 'Starting Auto Studio portrait engine...',
   });
 
-  const cutoutCanvas = await runNeuralPortraitCutout(workingCanvas, (frac, isDownloading) => {
+  let cutoutCanvas = await runNeuralPortraitCutout(workingCanvas, (frac, isDownloading) => {
     if (isDownloading) {
       onProgress?.({
         percent: Math.round(18 + frac * 34),
-        labelBn: 'ফ্রি AI মডেল লোড হচ্ছে (প্রথমবার)...',
-        labelEn: 'Loading free AI model (first time)...',
+        labelBn: 'অটো স্টুডিও মডেল প্রস্তুত হচ্ছে... (প্রথমবার একটু সময় নেয়)',
+        labelEn: 'Preparing Auto Studio model (first run)...',
       });
     } else {
       onProgress?.({
         percent: Math.round(52 + frac * 24),
-        labelBn: 'চুল ও ব্যাকগ্রাউন্ড নিখুঁতভাবে আলাদা হচ্ছে...',
-        labelEn: 'Removing background cleanly...',
+        labelBn: 'চুল, মুখ ও ব্যাকগ্রাউন্ড নিখুঁতভাবে আলাদা হচ্ছে...',
+        labelEn: 'Cutting out face & body cleanly...',
       });
     }
   });
@@ -829,28 +978,77 @@ export async function generateFreeAiSinglePassport(
   onProgress?.({
     percent: 80,
     labelBn: 'স্টুডিও লাইটিং ও পাসপোর্ট ফ্রেমিং হচ্ছে...',
-    labelEn: 'Applying studio lighting & passport framing...',
+    labelEn: 'Applying studio lighting & portrait framing...',
   });
 
   refineCutoutAlphaAndDecontaminate(cutoutCanvas);
   const nativeFace = await nativeFacePromise;
+  if (!preserveExactCrop && nativeFace?.eyeTiltDeg) {
+    cutoutCanvas = straightenCutoutByAngle(cutoutCanvas, nativeFace.eyeTiltDeg);
+  }
   const metrics = analyzePortraitMetrics(cutoutCanvas, nativeFace);
-  applyStudioForegroundLighting(cutoutCanvas, metrics.faceLuminance);
 
-  const framedCutout = frameSinglePassportCutout(cutoutCanvas, metrics);
+  // Preserve exact user-cropped canvas proportions when preserveExactCrop is true
+  const outW = SINGLE_OUT_W;
+  const outH = preserveExactCrop
+    ? Math.max(
+        420,
+        Math.min(1800, Math.round((SINGLE_OUT_W * cutoutCanvas.height) / Math.max(1, cutoutCanvas.width)))
+      )
+    : SINGLE_OUT_H;
+
+  // Build framed unenhanced cutout first (for "এনহ্যান্স ছাড়া" comparison)
+  let unenhancedFramedCutout: HTMLCanvasElement;
+  if (preserveExactCrop) {
+    unenhancedFramedCutout = document.createElement('canvas');
+    unenhancedFramedCutout.width = outW;
+    unenhancedFramedCutout.height = outH;
+    const uCtx = unenhancedFramedCutout.getContext('2d')!;
+    uCtx.imageSmoothingEnabled = true;
+    uCtx.imageSmoothingQuality = 'high';
+    uCtx.drawImage(cutoutCanvas, 0, 0, outW, outH);
+  } else {
+    unenhancedFramedCutout = frameSinglePassportCutout(cutoutCanvas, metrics);
+  }
+
+  const unenhancedStudioCanvas = document.createElement('canvas');
+  unenhancedStudioCanvas.width = outW;
+  unenhancedStudioCanvas.height = outH;
+  const uSCtx = unenhancedStudioCanvas.getContext('2d')!;
+  paintStudioBackdrop(uSCtx, outW, outH, bgPreset, customBgColor);
+  uSCtx.drawImage(unenhancedFramedCutout, 0, 0);
+  const unenhancedDataUrl = unenhancedStudioCanvas.toDataURL('image/jpeg', 0.95);
+
+  if (enableStudioEnhance) {
+    applyStudioForegroundLighting(cutoutCanvas, metrics.faceLuminance, enhanceIntensity);
+  }
+
+  let framedCutout: HTMLCanvasElement;
+  if (preserveExactCrop) {
+    framedCutout = document.createElement('canvas');
+    framedCutout.width = outW;
+    framedCutout.height = outH;
+    const fCtx = framedCutout.getContext('2d')!;
+    fCtx.imageSmoothingEnabled = true;
+    fCtx.imageSmoothingQuality = 'high';
+    fCtx.drawImage(cutoutCanvas, 0, 0, outW, outH);
+  } else {
+    framedCutout = frameSinglePassportCutout(cutoutCanvas, metrics);
+  }
+
   const cutoutDataUrl = framedCutout.toDataURL('image/png');
 
   onProgress?.({
     percent: 94,
-    labelBn: 'নীল স্টুডিও ব্যাকগ্রাউন্ড যুক্ত হচ্ছে...',
-    labelEn: 'Compositing sky-blue studio backdrop...',
+    labelBn: 'স্টুডিও ব্যাকগ্রাউন্ড যুক্ত হচ্ছে...',
+    labelEn: 'Compositing studio backdrop...',
   });
 
   const studioCanvas = document.createElement('canvas');
-  studioCanvas.width = SINGLE_OUT_W;
-  studioCanvas.height = SINGLE_OUT_H;
+  studioCanvas.width = outW;
+  studioCanvas.height = outH;
   const sCtx = studioCanvas.getContext('2d')!;
-  paintStudioBackdrop(sCtx, SINGLE_OUT_W, SINGLE_OUT_H, bgPreset);
+  paintStudioBackdrop(sCtx, outW, outH, bgPreset, customBgColor);
   sCtx.drawImage(framedCutout, 0, 0);
 
   const studioDataUrl = studioCanvas.toDataURL('image/jpeg', 0.95);
@@ -864,19 +1062,26 @@ export async function generateFreeAiSinglePassport(
   return {
     studioDataUrl,
     cutoutDataUrl,
+    unenhancedDataUrl,
     bgPreset,
+    customBgColor,
   };
 }
 
 /**
- * 100% Free On-Device AI Couple Passport Studio Pipeline (Boy Left + Girl Right).
+ * 100% Free On-Device Auto Studio Couple Passport Pipeline (Boy Left + Girl Right).
  */
 export async function generateFreeAiCouplePassport(
   boyFile: File,
   girlFile: File,
   bgPreset: StudioBackdropPreset = 'classic-blue',
-  onProgress?: (update: AiProgressUpdate) => void
+  onProgress?: (update: AiProgressUpdate) => void,
+  options?: SinglePassportPipelineOptions
 ): Promise<FreeAiPassportResult> {
+  const customBgColor = options?.customBgColor;
+  const enableStudioEnhance = options?.enableStudioEnhance ?? true;
+  const enhanceIntensity = options?.enhanceIntensity ?? 'normal';
+
   onProgress?.({
     percent: 6,
     labelBn: 'ছেলের ছবি (বামে) প্রস্তুত হচ্ছে...',
@@ -886,21 +1091,27 @@ export async function generateFreeAiCouplePassport(
   const boyWorking = await fileToWorkingCanvas(boyFile, 1152);
   const boyFacePromise = detectFaceNative(boyWorking);
 
-  const boyCutout = await runNeuralPortraitCutout(boyWorking, (frac, isDownloading) => {
+  let boyCutout = await runNeuralPortraitCutout(boyWorking, (frac, isDownloading) => {
     onProgress?.({
       percent: Math.round(10 + frac * 35),
       labelBn: isDownloading
-        ? 'ফ্রি AI মডেল লোড হচ্ছে (প্রথমবার)...'
+        ? 'অটো স্টুডিও মডেল প্রস্তুত হচ্ছে... (প্রথমবার একটু সময় নেয়)'
         : 'ছেলের ছবির ব্যাকগ্রাউন্ড রিমুভ হচ্ছে...',
       labelEn: isDownloading
-        ? 'Loading free AI model (first time)...'
+        ? 'Loading Auto Studio model (first run)...'
         : 'Removing background from Boy photo...',
     });
   });
 
   refineCutoutAlphaAndDecontaminate(boyCutout);
-  const boyMetrics = analyzePortraitMetrics(boyCutout, await boyFacePromise);
-  applyStudioForegroundLighting(boyCutout, boyMetrics.faceLuminance);
+  const boyFace = await boyFacePromise;
+  if (boyFace?.eyeTiltDeg) {
+    boyCutout = straightenCutoutByAngle(boyCutout, boyFace.eyeTiltDeg);
+  }
+  const boyMetrics = analyzePortraitMetrics(boyCutout, boyFace);
+  if (enableStudioEnhance) {
+    applyStudioForegroundLighting(boyCutout, boyMetrics.faceLuminance, enhanceIntensity);
+  }
 
   onProgress?.({
     percent: 48,
@@ -911,7 +1122,7 @@ export async function generateFreeAiCouplePassport(
   const girlWorking = await fileToWorkingCanvas(girlFile, 1152);
   const girlFacePromise = detectFaceNative(girlWorking);
 
-  const girlCutout = await runNeuralPortraitCutout(girlWorking, (frac) => {
+  let girlCutout = await runNeuralPortraitCutout(girlWorking, (frac) => {
     onProgress?.({
       percent: Math.round(50 + frac * 32),
       labelBn: 'মেয়ের ছবির ব্যাকগ্রাউন্ড রিমুভ হচ্ছে...',
@@ -920,8 +1131,14 @@ export async function generateFreeAiCouplePassport(
   });
 
   refineCutoutAlphaAndDecontaminate(girlCutout);
-  const girlMetrics = analyzePortraitMetrics(girlCutout, await girlFacePromise);
-  applyStudioForegroundLighting(girlCutout, girlMetrics.faceLuminance);
+  const girlFace = await girlFacePromise;
+  if (girlFace?.eyeTiltDeg) {
+    girlCutout = straightenCutoutByAngle(girlCutout, girlFace.eyeTiltDeg);
+  }
+  const girlMetrics = analyzePortraitMetrics(girlCutout, girlFace);
+  if (enableStudioEnhance) {
+    applyStudioForegroundLighting(girlCutout, girlMetrics.faceLuminance, enhanceIntensity);
+  }
 
   onProgress?.({
     percent: 86,
@@ -941,7 +1158,7 @@ export async function generateFreeAiCouplePassport(
   studioCanvas.width = COUPLE_OUT_W;
   studioCanvas.height = COUPLE_OUT_H;
   const sCtx = studioCanvas.getContext('2d')!;
-  paintStudioBackdrop(sCtx, COUPLE_OUT_W, COUPLE_OUT_H, bgPreset);
+  paintStudioBackdrop(sCtx, COUPLE_OUT_W, COUPLE_OUT_H, bgPreset, customBgColor);
   sCtx.drawImage(framedCoupleCutout, 0, 0);
 
   const studioDataUrl = studioCanvas.toDataURL('image/jpeg', 0.95);
@@ -956,5 +1173,6 @@ export async function generateFreeAiCouplePassport(
     studioDataUrl,
     cutoutDataUrl,
     bgPreset,
+    customBgColor,
   };
 }

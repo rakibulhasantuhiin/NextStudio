@@ -4,7 +4,15 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Edit3, FileDown, LayoutGrid, Loader2, Printer } from 'lucide-react';
+import {
+  Edit3,
+  FileDown,
+  ImageDown,
+  LayoutGrid,
+  Printer,
+  Save,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { CvControls } from './components/CvStudio/CvControls';
 import { CvSheetRenderer } from './components/CvStudio/CvSheetRenderer';
 import { CvWorkspace } from './components/CvStudio/CvWorkspace';
@@ -16,6 +24,8 @@ import { NidControls } from './components/NidStudio/NidControls';
 import { NidEditorModal } from './components/NidStudio/NidEditorModal';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PaperPreview } from './components/PaperPreview';
+import { BeforeAfterInspector } from './components/PassportStudio/BeforeAfterInspector';
+import { CropStraightenModal } from './components/PassportStudio/CropStraightenModal';
 import { PassportControls } from './components/PassportStudio/PassportControls';
 import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
 import { WebcamCaptureModal } from './components/PassportStudio/WebcamCaptureModal';
@@ -40,10 +50,12 @@ import {
   PaperOrientation,
   PaperSizeType,
   PhotoAdjustments,
+  PhotoCopyAllocation,
   PhotoPresetType,
   PlacedSheetItem,
   ReadyDocState,
   StudioBackdropPreset,
+  StudioEnhanceIntensity,
   StudioMode,
   StudioPhotoItem,
   StudioState,
@@ -230,7 +242,15 @@ export default function App() {
   const [photos, setPhotos] = useState<StudioPhotoItem[]>([]);
   const [activePhotoIndex, setActivePhotoIndex] = useState<number>(0);
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
+  const [croppingPhotoIndex, setCroppingPhotoIndex] = useState<number | null>(null);
+  const [passportStageView, setPassportStageView] = useState<'inspector' | 'sheet'>('inspector');
   const [coupleUploadMode, setCoupleUploadMode] = useState<boolean>(false);
+  const [autoBgRemove, setAutoBgRemove] = useState<boolean>(true);
+  const [selectedBgPreset, setSelectedBgPreset] = useState<StudioBackdropPreset>('classic-blue');
+  const [customBgColor, setCustomBgColor] = useState<string>('#1B8CF2');
+  const [autoStudioEnhance, setAutoStudioEnhance] = useState<boolean>(true);
+  const [enhanceIntensity, setEnhanceIntensity] = useState<StudioEnhanceIntensity>('normal');
+  const [photoAllocations, setPhotoAllocations] = useState<Record<string, PhotoCopyAllocation>>({});
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
   const [aiProgress, setAiProgress] = useState<number>(0);
   const [aiStatusText, setAiStatusText] = useState<string>('');
@@ -856,6 +876,8 @@ export default function App() {
       const hasPrimaryMod = (e.ctrlKey || e.metaKey) && !e.altKey;
       const modalOpen =
         editingPhotoIndex !== null ||
+        croppingPhotoIndex !== null ||
+        isWebcamOpen ||
         nidEditingSide !== null ||
         laminationEditingSide !== null ||
         editingDocumentPageIndex !== null;
@@ -909,6 +931,7 @@ export default function App() {
         if (
           isShortcutsOpen ||
           editingPhotoIndex !== null ||
+          isWebcamOpen ||
           nidEditingSide !== null ||
           laminationEditingSide !== null ||
           editingDocumentPageIndex !== null
@@ -916,6 +939,7 @@ export default function App() {
           e.preventDefault();
           setIsShortcutsOpen(false);
           setEditingPhotoIndex(null);
+          setIsWebcamOpen(false);
           setNidEditingSide(null);
           setLaminationEditingSide(null);
           setEditingDocumentPageIndex(null);
@@ -939,6 +963,8 @@ export default function App() {
     nid,
     isShortcutsOpen,
     editingPhotoIndex,
+    croppingPhotoIndex,
+    isWebcamOpen,
     nidEditingSide,
     laminationEditingSide,
     editingDocumentPageIndex,
@@ -1048,9 +1074,96 @@ export default function App() {
     setSelectedItemId(null);
   };
 
-  // Option 1: 100% Free On-Device Neural AI Auto Studio Passport (Zero API key, Zero cost, Unlimited)
-  const handleAiUploadPhotos = async (files: File[]) => {
+  // Rebuild placedItems cleanly from per-photo Passport & Stamp copy allocations
+  const syncPlacedItemsFromAllocations = (
+    targetPhotos: StudioPhotoItem[],
+    allocationsMap: Record<string, PhotoCopyAllocation>,
+    targetPreset: PhotoPresetType = photoPreset
+  ) => {
+    if (targetPhotos.length === 0) {
+      setPlacedItems([]);
+      return;
+    }
+
+    const passW =
+      targetPreset === 'bd-stamp'
+        ? 35
+        : targetPreset === 'custom'
+        ? customPhotoWidth
+        : PHOTO_PRESETS[targetPreset]?.width || 35;
+    const passH =
+      targetPreset === 'bd-stamp'
+        ? 45
+        : targetPreset === 'custom'
+        ? customPhotoHeight
+        : PHOTO_PRESETS[targetPreset]?.height || 45;
+    const passPreset: PhotoPresetType = targetPreset === 'bd-stamp' ? 'bd-passport' : targetPreset;
+
+    const rawItems: PlacedSheetItem[] = [];
+    const stampW = 20;
+    const stampH = 25;
+
+    for (const p of targetPhotos) {
+      const alloc = allocationsMap[p.id] || {
+        sizeMode: targetPreset === 'bd-stamp' ? 'stamp' : 'passport',
+        passportCount: targetPreset === 'bd-stamp' ? 0 : 4,
+        stampCount: targetPreset === 'bd-stamp' ? 8 : 0,
+      };
+      const passCount = alloc.sizeMode === 'stamp' ? 0 : Math.max(0, alloc.passportCount);
+      const stampCount = alloc.sizeMode === 'passport' ? 0 : Math.max(0, alloc.stampCount);
+
+      for (let i = 0; i < passCount; i++) {
+        rawItems.push({
+          id: `placed-p-${p.id}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+          photoId: p.id,
+          x: 0,
+          y: 0,
+          width: passW,
+          height: passH,
+          preset: passPreset,
+        });
+      }
+      for (let i = 0; i < stampCount; i++) {
+        rawItems.push({
+          id: `placed-s-${p.id}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+          photoId: p.id,
+          x: 0,
+          y: 0,
+          width: stampW,
+          height: stampH,
+          preset: 'bd-stamp',
+        });
+      }
+    }
+
+    const aligned = autoAlignPlacedItems(rawItems, currentPaper, orientation, margins);
+    setPlacedItems(aligned);
+  };
+
+  const handleUpdatePhotoAllocation = (photoId: string, next: PhotoCopyAllocation) => {
+    const nextMap = { ...photoAllocations, [photoId]: next };
+    setPhotoAllocations(nextMap);
+    syncPlacedItemsFromAllocations(photos, nextMap);
+  };
+
+  const dataUrlToFile = async (dataUrl: string, fileName = 'photo.jpg'): Promise<File> => {
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    return new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+  };
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  // Smart Unified Upload Pipeline (handles Single & Couple + Auto BG Remove + Studio Enhancement)
+  const handleSmartUploadFiles = async (files: File[]) => {
     if (!files || files.length === 0) return;
+
     if (coupleUploadMode && files.length < 2) {
       setAiError(
         lang === 'bn'
@@ -1061,63 +1174,319 @@ export default function App() {
     }
 
     setAiError(null);
-    setIsAiGenerating(true);
-    setAiProgress(5);
-    setAiStatusText(
-      lang === 'bn' ? 'ফ্রি AI চালু হচ্ছে...' : 'Starting free on-device AI...'
-    );
+    setPassportStageView('inspector');
+    setMobileTab('preview');
+
+    const defaultAlloc = (targetPreset: PhotoPresetType): PhotoCopyAllocation =>
+      targetPreset === 'bd-stamp'
+        ? { sizeMode: 'stamp', passportCount: 0, stampCount: 8 }
+        : { sizeMode: 'passport', passportCount: 4, stampCount: 0 };
+
+    // Couple Mode flow
+    if (coupleUploadMode) {
+      setIsAiGenerating(true);
+      setAiProgress(5);
+      setAiStatusText(lang === 'bn' ? 'কাপল ছবি প্রস্তুত হচ্ছে...' : 'Preparing Couple portrait...');
+      try {
+        const result = await generateFreeAiCouplePassport(
+          files[0],
+          files[1],
+          selectedBgPreset,
+          (update) => {
+            setAiProgress(update.percent);
+            setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+          },
+          {
+            customBgColor,
+            enableStudioEnhance: autoStudioEnhance,
+            enhanceIntensity,
+          }
+        );
+
+        const targetPreset: PhotoPresetType = 'couple';
+        const printReadyUrl = await rotateDataUrl90IfLandscape(result.studioDataUrl);
+        const dims = await getImageDimensions(result.studioDataUrl);
+        const id = `ai-couple-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+        const coupleItem: StudioPhotoItem = {
+          id,
+          rawOriginalSrc: result.studioDataUrl,
+          originalSrc: result.studioDataUrl,
+          enhancedSrc: result.studioDataUrl,
+          unenhancedSrc: result.studioDataUrl,
+          processedSrc: printReadyUrl,
+          cutoutSrc: result.cutoutDataUrl,
+          useEnhanced: autoStudioEnhance,
+          aiBgPreset: selectedBgPreset,
+          customBgColor,
+          enhanceIntensity,
+          fileName: `${files[0].name} + ${files[1].name}`,
+          fileSizeBytes: files[0].size + files[1].size,
+          dimensionsLabel: `${dims.width}×${dims.height}`,
+          type: 'couple',
+          label: lang === 'bn' ? 'কাপল পাসপোর্ট' : 'Couple Passport',
+          adjustments: {
+            ...DEFAULT_ADJUSTMENTS,
+            backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
+          },
+        };
+
+        setPhotoPreset(targetPreset);
+        const nextPhotos = [...photos, coupleItem];
+        const nextAllocs = { ...photoAllocations, [id]: defaultAlloc(targetPreset) };
+        setPhotos(nextPhotos);
+        setPhotoAllocations(nextAllocs);
+        setActivePhotoIndex(nextPhotos.length - 1);
+        syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
+      } catch (err) {
+        setAiError(
+          err instanceof Error
+            ? err.message
+            : lang === 'bn'
+            ? 'কাপল ছবি প্রসেস করতে সমস্যা হয়েছে।'
+            : 'Could not process couple photos.'
+        );
+      } finally {
+        setIsAiGenerating(false);
+        setAiProgress(0);
+        setAiStatusText('');
+      }
+      return;
+    }
+
+    // Single Mode flow (supports multiple files)
+    const targetPreset: PhotoPresetType = photoPreset;
+    const newlyCreated: StudioPhotoItem[] = [];
+
+    if (autoBgRemove) {
+      setIsAiGenerating(true);
+      setAiProgress(6);
+      setAiStatusText(
+        lang === 'bn'
+          ? 'অটো স্টুডিও ইঞ্জিন চালু হচ্ছে... (প্রথমবার একটু সময় নেয়)'
+          : 'Starting Auto Studio portrait engine...'
+      );
+    } else {
+      setIsUploading(true);
+    }
 
     try {
-      const defaultBg: StudioBackdropPreset = 'classic-blue';
-      const result = coupleUploadMode
-        ? await generateFreeAiCouplePassport(files[0], files[1], defaultBg, (update) => {
-            setAiProgress(update.percent);
-            setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
-          })
-        : await generateFreeAiSinglePassport(files[0], defaultBg, (update) => {
-            setAiProgress(update.percent);
-            setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+      for (const file of files) {
+        const rawDataUrl = await fileToDataUrl(file);
+        const dims = await getImageDimensions(rawDataUrl);
+        const dimensionsLabel = `${dims.width}×${dims.height}`;
+        const id = `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        if (autoBgRemove) {
+          const result = await generateFreeAiSinglePassport(
+            file,
+            selectedBgPreset,
+            (update) => {
+              setAiProgress(update.percent);
+              setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+            },
+            {
+              customBgColor,
+              enableStudioEnhance: autoStudioEnhance,
+              enhanceIntensity,
+            }
+          );
+
+          const unenhanced = result.unenhancedDataUrl || rawDataUrl;
+          const activeSrc = autoStudioEnhance ? result.studioDataUrl : unenhanced;
+
+          newlyCreated.push({
+            id,
+            rawOriginalSrc: rawDataUrl,
+            originalSrc: rawDataUrl,
+            enhancedSrc: result.studioDataUrl,
+            unenhancedSrc: unenhanced,
+            processedSrc: activeSrc,
+            cutoutSrc: result.cutoutDataUrl,
+            useEnhanced: autoStudioEnhance,
+            aiBgPreset: selectedBgPreset,
+            customBgColor,
+            enhanceIntensity,
+            needsReprocess: false,
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            dimensionsLabel,
+            type: 'individual',
+            adjustments: {
+              ...DEFAULT_ADJUSTMENTS,
+              backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
+            },
           });
+        } else {
+          const enhancedSrc = autoStudioEnhance
+            ? await processStudioPhoto(rawDataUrl, {
+                ...DEFAULT_ADJUSTMENTS,
+                brightness: 6,
+                contrast: 8,
+                sharpness: 25,
+                skinLight: 12,
+              })
+            : rawDataUrl;
+          const activeSrc = autoStudioEnhance ? enhancedSrc : rawDataUrl;
 
-      const targetPreset: PhotoPresetType = coupleUploadMode ? 'couple' : photoPreset;
-      const printReadyUrl =
-        targetPreset === 'couple'
-          ? await rotateDataUrl90IfLandscape(result.studioDataUrl)
-          : result.studioDataUrl;
+          newlyCreated.push({
+            id,
+            rawOriginalSrc: rawDataUrl,
+            originalSrc: rawDataUrl,
+            enhancedSrc,
+            unenhancedSrc: rawDataUrl,
+            processedSrc: activeSrc,
+            useEnhanced: autoStudioEnhance,
+            enhanceIntensity,
+            needsReprocess: false,
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            dimensionsLabel,
+            type: 'individual',
+            adjustments: { ...DEFAULT_ADJUSTMENTS, backgroundMode: 'original' },
+          });
+        }
+      }
 
-      const aiPhotoItem: StudioPhotoItem = {
-        id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        originalSrc: result.studioDataUrl,
-        processedSrc: printReadyUrl,
-        cutoutSrc: result.cutoutDataUrl,
-        aiBgPreset: result.bgPreset,
-        type: coupleUploadMode ? 'couple' : 'individual',
-        label: coupleUploadMode
-          ? lang === 'bn'
-            ? 'ফ্রি AI কাপল পাসপোর্ট'
-            : 'Free AI Couple Passport'
-          : lang === 'bn'
-          ? 'ফ্রি AI পাসপোর্ট'
-          : 'Free AI Passport',
-        adjustments: {
-          ...DEFAULT_ADJUSTMENTS,
-          backgroundMode: 'sky-blue',
-        },
-      };
-
-      loadPhotosDirectlyToSheet([aiPhotoItem], {
-        forcePreset: targetPreset,
-        replaceSheetWithLatest: true,
-      });
-      setMobileTab('preview');
+      if (newlyCreated.length > 0) {
+        const nextPhotos = [...photos, ...newlyCreated];
+        const nextAllocs = { ...photoAllocations };
+        for (const item of newlyCreated) {
+          nextAllocs[item.id] = defaultAlloc(targetPreset);
+        }
+        setPhotos(nextPhotos);
+        setPhotoAllocations(nextAllocs);
+        setActivePhotoIndex(photos.length);
+        syncPlacedItemsFromAllocations(nextPhotos, nextAllocs, targetPreset);
+      }
     } catch (err) {
-      const msg =
+      setAiError(
         err instanceof Error
           ? err.message
           : lang === 'bn'
           ? 'ছবি প্রসেস করতে সমস্যা হয়েছে। অনুগ্রহ করে সঠিক JPG বা PNG ছবি দিন।'
-          : 'Could not process the photo. Please choose a valid JPG or PNG image.';
-      setAiError(msg);
+          : 'Could not process the photo. Please choose a valid JPG or PNG image.'
+      );
+    } finally {
+      setIsAiGenerating(false);
+      setIsUploading(false);
+      setAiProgress(0);
+      setAiStatusText('');
+    }
+  };
+
+  // Run or Re-run offline background removal on an existing photo (preserving clean original/crop)
+  const handleRunAutoBgRemoveOnPhoto = async (
+    photoIndex: number,
+    bgPresetOverride?: StudioBackdropPreset,
+    customHexOverride?: string,
+    sourceDataUrlOverride?: string,
+    preserveExactCropOverride?: boolean
+  ) => {
+    const target = photos[photoIndex];
+    if (!target) return;
+
+    const useBg = bgPresetOverride ?? selectedBgPreset;
+    const useHex = customHexOverride ?? customBgColor;
+    const sourceUrl = sourceDataUrlOverride || target.originalSrc || target.rawOriginalSrc;
+    if (!sourceUrl) return;
+
+    const preserveCrop =
+      preserveExactCropOverride !== undefined
+        ? preserveExactCropOverride
+        : Boolean(target.adjustments.crop);
+
+    setAiError(null);
+    setPassportStageView('inspector');
+    setIsAiGenerating(true);
+    setAiProgress(8);
+    setAiStatusText(
+      lang === 'bn' ? 'অফলাইন ব্যাকগ্রাউন্ড রিমুভ হচ্ছে...' : 'Removing background offline...'
+    );
+
+    try {
+      if (!autoBgRemove) {
+        // User toggled Auto BG off and clicked Re-process -> restore clean cropped/original portrait
+        const unenhanced = sourceUrl;
+        const enhanced = autoStudioEnhance
+          ? await processStudioPhoto(sourceUrl, {
+              ...DEFAULT_ADJUSTMENTS,
+              brightness: 6,
+              contrast: 8,
+              sharpness: 25,
+              skinLight: 12,
+            })
+          : sourceUrl;
+        const activeSrc = autoStudioEnhance ? enhanced : unenhanced;
+        setPhotos((prev) =>
+          prev.map((p, idx) =>
+            idx === photoIndex
+              ? {
+                  ...p,
+                  enhancedSrc: enhanced,
+                  unenhancedSrc: unenhanced,
+                  processedSrc: activeSrc,
+                  cutoutSrc: undefined,
+                  useEnhanced: autoStudioEnhance,
+                  needsReprocess: false,
+                  adjustments: { ...p.adjustments, backgroundMode: 'original' },
+                }
+              : p
+          )
+        );
+        return;
+      }
+
+      const file = await dataUrlToFile(sourceUrl, target.fileName || 'portrait.jpg');
+      const result = await generateFreeAiSinglePassport(
+        file,
+        useBg,
+        (update) => {
+          setAiProgress(update.percent);
+          setAiStatusText(lang === 'bn' ? update.labelBn : update.labelEn);
+        },
+        {
+          customBgColor: useHex,
+          enableStudioEnhance: autoStudioEnhance,
+          enhanceIntensity,
+          preserveExactCrop: preserveCrop,
+        }
+      );
+
+      const useEnh = autoStudioEnhance;
+      const unenhanced = result.unenhancedDataUrl || sourceUrl;
+      const activeSrc = useEnh ? result.studioDataUrl : unenhanced;
+
+      setPhotos((prev) =>
+        prev.map((p, idx) =>
+          idx === photoIndex
+            ? {
+                ...p,
+                enhancedSrc: result.studioDataUrl,
+                unenhancedSrc: unenhanced,
+                processedSrc: activeSrc,
+                cutoutSrc: result.cutoutDataUrl,
+                useEnhanced: useEnh,
+                aiBgPreset: useBg,
+                customBgColor: useHex,
+                enhanceIntensity,
+                needsReprocess: false,
+                adjustments: {
+                  ...p.adjustments,
+                  backgroundMode: useBg === 'white' ? 'white' : 'sky-blue',
+                },
+              }
+            : p
+        )
+      );
+    } catch (err) {
+      setAiError(
+        err instanceof Error
+          ? err.message
+          : lang === 'bn'
+          ? 'ব্যাকগ্রাউন্ড রিমুভ করা যায়নি।'
+          : 'Background removal failed.'
+      );
     } finally {
       setIsAiGenerating(false);
       setAiProgress(0);
@@ -1125,15 +1494,31 @@ export default function App() {
     }
   };
 
-  // Instant zero-reprocess Studio Backdrop switch (Classic BD Sky-Blue / Soft Sky-Blue / Pure White)
-  const handleChangeAiBackdrop = async (
-    photoIndex: number,
-    bgPreset: StudioBackdropPreset
+  // Instant Studio Backdrop Swatch Click (White / Blue / Soft Blue / Custom Hex)
+  const handleSelectBackdrop = async (
+    bgPreset: StudioBackdropPreset,
+    customHex?: string
   ) => {
-    const target = photos[photoIndex];
-    if (!target || !target.cutoutSrc) return;
+    setSelectedBgPreset(bgPreset);
+    const nextHex = customHex ?? customBgColor;
+    if (customHex) setCustomBgColor(customHex);
+
+    const target = photos[activePhotoIndex];
+    if (!target) return;
+
+    if (!target.cutoutSrc) {
+      if (autoBgRemove) {
+        await handleRunAutoBgRemoveOnPhoto(activePhotoIndex, bgPreset, nextHex);
+      }
+      return;
+    }
+
     try {
-      const compositedUpright = await compositeCutoutWithBackdrop(target.cutoutSrc, bgPreset);
+      const compositedUpright = await compositeCutoutWithBackdrop(
+        target.cutoutSrc,
+        bgPreset,
+        nextHex
+      );
       const shouldRotateCouple = target.type === 'couple' || photoPreset === 'couple';
       const printReadyUrl = shouldRotateCouple
         ? await rotateDataUrl90IfLandscape(compositedUpright)
@@ -1141,15 +1526,23 @@ export default function App() {
 
       setPhotos((prev) =>
         prev.map((p, idx) =>
-          idx === photoIndex
+          idx === activePhotoIndex
             ? {
                 ...p,
-                originalSrc: compositedUpright,
+                enhancedSrc: compositedUpright,
                 processedSrc: printReadyUrl,
                 aiBgPreset: bgPreset,
+                customBgColor: nextHex,
+                needsReprocess: false,
                 adjustments: {
                   ...p.adjustments,
-                  backgroundMode: bgPreset === 'white' ? 'white' : 'sky-blue',
+                  backgroundMode:
+                    bgPreset === 'white'
+                      ? 'white'
+                      : bgPreset === 'custom'
+                      ? 'custom'
+                      : 'sky-blue',
+                  customBgColor: nextHex,
                 },
               }
             : p
@@ -1160,69 +1553,208 @@ export default function App() {
     }
   };
 
-  const handleWebcamCapture = (file: File) => {
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    void handleUploadPhotos(dt.files);
+  // Webcam Snapshot -> Preview First (User clicks "ক্রপ ও সোজা করুন" to open Crop Editor)
+  const handleWebcamCapture = async (file: File) => {
+    setIsWebcamOpen(false);
+    if (!coupleUploadMode) {
+      await handleSmartUploadFiles([file]);
+      return;
+    }
+
+    const rawDataUrl = await fileToDataUrl(file);
+    const dims = await getImageDimensions(rawDataUrl);
+    const id = `cam-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const stagedPhoto: StudioPhotoItem = {
+      id,
+      rawOriginalSrc: rawDataUrl,
+      originalSrc: rawDataUrl,
+      enhancedSrc: rawDataUrl,
+      unenhancedSrc: rawDataUrl,
+      processedSrc: rawDataUrl,
+      useEnhanced: autoStudioEnhance,
+      needsReprocess: false,
+      fileName: file.name || 'webcam-capture.jpg',
+      fileSizeBytes: file.size,
+      dimensionsLabel: `${dims.width}×${dims.height}`,
+      type: 'individual',
+      adjustments: { ...DEFAULT_ADJUSTMENTS, backgroundMode: 'original' },
+    };
+
+    const newIndex = photos.length;
+    const nextPhotos = [...photos, stagedPhoto];
+    const nextAllocs = {
+      ...photoAllocations,
+      [id]:
+        photoPreset === 'bd-stamp'
+          ? { sizeMode: 'stamp' as const, passportCount: 0, stampCount: 8 }
+          : { sizeMode: 'passport' as const, passportCount: 4, stampCount: 0 },
+    };
+
+    setPhotos(nextPhotos);
+    setPhotoAllocations(nextAllocs);
+    setActivePhotoIndex(newIndex);
+    setPassportStageView('inspector');
+    setMobileTab('preview');
+    syncPlacedItemsFromAllocations(nextPhotos, nextAllocs);
   };
 
-  // Option 2: Direct File Upload (Ready Photo — skips AI and loads directly onto print sheet)
+  // Confirm Crop & Straighten -> Apply cropped frame and run auto BG remove if enabled
+  const handleConfirmCropAndStraighten = async (
+    croppedDataUrl: string,
+    crop: CropRect | null,
+    angle: number
+  ) => {
+    if (croppingPhotoIndex === null || !photos[croppingPhotoIndex]) return;
+    const targetIdx = croppingPhotoIndex;
+    const target = photos[targetIdx];
+    setCroppingPhotoIndex(null);
+
+    const dims = await getImageDimensions(croppedDataUrl);
+
+    setPhotos((prev) =>
+      prev.map((p, idx) =>
+        idx === targetIdx
+          ? {
+              ...p,
+              originalSrc: croppedDataUrl,
+              enhancedSrc: croppedDataUrl,
+              unenhancedSrc: croppedDataUrl,
+              processedSrc: croppedDataUrl,
+              cutoutSrc: undefined,
+              needsReprocess: false,
+              dimensionsLabel: `${dims.width}×${dims.height}`,
+              adjustments: {
+                ...p.adjustments,
+                crop,
+                rotation: angle,
+              },
+            }
+          : p
+      )
+    );
+
+    if (autoBgRemove) {
+      await handleRunAutoBgRemoveOnPhoto(
+        targetIdx,
+        selectedBgPreset,
+        customBgColor,
+        croppedDataUrl,
+        true
+      );
+    } else if (autoStudioEnhance) {
+      const enhanced = await processStudioPhoto(croppedDataUrl, {
+        ...target.adjustments,
+        crop: null,
+        rotation: 0,
+        brightness: 6,
+        contrast: 8,
+        sharpness: 25,
+        skinLight: 12,
+      });
+      setPhotos((prev) =>
+        prev.map((p, idx) =>
+          idx === targetIdx
+            ? {
+                ...p,
+                enhancedSrc: enhanced,
+                processedSrc: enhanced,
+                useEnhanced: true,
+              }
+            : p
+        )
+      );
+    }
+  };
+
+  // Toggle "জবে কোন ছবি যাবে? এনহ্যান্স করা | এনহ্যান্স ছাড়া"
+  const handleToggleUseEnhanced = (useEnhanced: boolean) => {
+    setPhotos((prev) =>
+      prev.map((p, idx) => {
+        if (idx !== activePhotoIndex) return p;
+        const nextSrc = useEnhanced
+          ? p.enhancedSrc || p.originalSrc
+          : p.unenhancedSrc || p.rawOriginalSrc || p.originalSrc;
+        return {
+          ...p,
+          useEnhanced,
+          processedSrc: nextSrc,
+        };
+      })
+    );
+  };
+
+  const handleToggleAutoBgRemove = (enabled: boolean) => {
+    setAutoBgRemove(enabled);
+    if (photos[activePhotoIndex]) {
+      setPhotos((prev) =>
+        prev.map((p, idx) =>
+          idx === activePhotoIndex ? { ...p, needsReprocess: true } : p
+        )
+      );
+    }
+  };
+
+  const handleToggleAutoStudioEnhance = (enabled: boolean) => {
+    setAutoStudioEnhance(enabled);
+    if (photos[activePhotoIndex]) {
+      handleToggleUseEnhanced(enabled);
+    }
+  };
+
+  const handleChangeEnhanceIntensity = (nextIntensity: StudioEnhanceIntensity) => {
+    setEnhanceIntensity(nextIntensity);
+    const target = photos[activePhotoIndex];
+    if (!target) return;
+    setPhotos((prev) =>
+      prev.map((p, idx) =>
+        idx === activePhotoIndex ? { ...p, needsReprocess: true } : p
+      )
+    );
+  };
+
+  // Direct Upload Fallback (for PaperPreview empty sheet click-to-upload)
   const handleUploadPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-
-    setAiError(null);
-    setIsUploading(true);
-    const filesArray = Array.from(files);
-    const newlyLoadedPhotos: StudioPhotoItem[] = [];
-    const targetPreset: PhotoPresetType = coupleUploadMode ? 'couple' : photoPreset;
-
-    try {
-      for (const file of filesArray) {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-
-        const processedUrl =
-          targetPreset === 'couple' ? await rotateDataUrl90IfLandscape(dataUrl) : dataUrl;
-
-        newlyLoadedPhotos.push({
-          id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          originalSrc: dataUrl,
-          processedSrc: processedUrl,
-          type: coupleUploadMode ? 'couple' : 'individual',
-          adjustments: { ...DEFAULT_ADJUSTMENTS, backgroundMode: 'original' },
-        });
-      }
-
-      loadPhotosDirectlyToSheet(newlyLoadedPhotos, { forcePreset: targetPreset });
-    } finally {
-      setIsUploading(false);
-    }
+    await handleSmartUploadFiles(Array.from(files));
   };
 
   // Remove photo from studio & sheet
   const handleRemovePhoto = (index: number) => {
     const target = photos[index];
-    setPhotos((prev) => prev.filter((_, i) => i !== index));
+    const nextPhotos = photos.filter((_, i) => i !== index);
+    setPhotos(nextPhotos);
     if (target) {
+      const nextAllocs = { ...photoAllocations };
+      delete nextAllocs[target.id];
+      setPhotoAllocations(nextAllocs);
       setPlacedItems((prev) => prev.filter((i) => i.photoId !== target.id));
     }
-    if (activePhotoIndex >= photos.length - 1) {
-      setActivePhotoIndex(Math.max(0, photos.length - 2));
+    if (activePhotoIndex >= nextPhotos.length) {
+      setActivePhotoIndex(Math.max(0, nextPhotos.length - 1));
     }
   };
 
   const handleDuplicatePhoto = (index: number) => {
     const target = photos[index];
     if (!target) return;
+    const newId = `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const duplicated: StudioPhotoItem = {
       ...target,
-      id: `photo-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      id: newId,
     };
-    setPhotos((prev) => [...prev, duplicated]);
+    const nextPhotos = [...photos, duplicated];
+    const nextAllocs = {
+      ...photoAllocations,
+      [newId]: photoAllocations[target.id] || {
+        sizeMode: 'passport',
+        passportCount: 4,
+        stampCount: 0,
+      },
+    };
+    setPhotos(nextPhotos);
+    setPhotoAllocations(nextAllocs);
+    syncPlacedItemsFromAllocations(nextPhotos, nextAllocs);
   };
 
   // Helper to rebuild passport sheet whenever preset, custom size, margins, or paper changes
@@ -1245,6 +1777,45 @@ export default function App() {
     const useLayout = overrides?.nextLayout ?? layoutMode;
     const effW = usePreset === 'custom' ? useCustomW : PHOTO_PRESETS[usePreset].width;
     const effH = usePreset === 'custom' ? useCustomH : PHOTO_PRESETS[usePreset].height;
+
+    if (!overrides?.nextLayout && Object.keys(photoAllocations).length > 0) {
+      const passW = usePreset === 'bd-stamp' ? 35 : effW;
+      const passH = usePreset === 'bd-stamp' ? 45 : effH;
+      const passPreset: PhotoPresetType = usePreset === 'bd-stamp' ? 'bd-passport' : usePreset;
+      const rawItems: PlacedSheetItem[] = [];
+      for (const p of photos) {
+        const alloc = photoAllocations[p.id];
+        if (!alloc) continue;
+        const pCount = alloc.sizeMode === 'stamp' ? 0 : Math.max(0, alloc.passportCount);
+        const sCount = alloc.sizeMode === 'passport' ? 0 : Math.max(0, alloc.stampCount);
+        for (let i = 0; i < pCount; i++) {
+          rawItems.push({
+            id: `placed-p-${p.id}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            photoId: p.id,
+            x: 0,
+            y: 0,
+            width: passW,
+            height: passH,
+            preset: passPreset,
+          });
+        }
+        for (let i = 0; i < sCount; i++) {
+          rawItems.push({
+            id: `placed-s-${p.id}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            photoId: p.id,
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 25,
+            preset: 'bd-stamp',
+          });
+        }
+      }
+      if (rawItems.length > 0) {
+        setPlacedItems(autoAlignPlacedItems(rawItems, usePaper, useOrient, useMargins));
+        return;
+      }
+    }
 
     const newPlaced = generateDefaultPlacedItems({
       paper: usePaper,
@@ -1701,11 +2272,16 @@ export default function App() {
   };
 
   // 9. Photo Editor Modal Save
-  const handleSavePhotoAdjustments = async (updatedAdj: PhotoAdjustments) => {
+  const handleSavePhotoAdjustments = async (
+    updatedAdj: PhotoAdjustments,
+    newProcessedSrc?: string,
+    newCutoutSrc?: string
+  ) => {
     if (editingPhotoIndex === null || !photos[editingPhotoIndex]) return;
 
     const targetPhoto = photos[editingPhotoIndex];
-    const processedSrc = await processStudioPhoto(targetPhoto.originalSrc, updatedAdj);
+    const processedSrc =
+      newProcessedSrc || (await processStudioPhoto(targetPhoto.originalSrc, updatedAdj));
 
     setPhotos((prev) =>
       prev.map((p, idx) =>
@@ -1714,6 +2290,9 @@ export default function App() {
               ...p,
               adjustments: updatedAdj,
               processedSrc,
+              enhancedSrc: processedSrc,
+              useEnhanced: true,
+              ...(newCutoutSrc ? { cutoutSrc: newCutoutSrc } : {}),
             }
           : p
       )
@@ -2415,6 +2994,7 @@ export default function App() {
     setColorProfile('srgb');
     setBleedArea(0);
     setPhotos([]);
+    setPhotoAllocations({});
     setActivePhotoIndex(0);
     setPlacedItems([]);
     setSelectedItemId(null);
@@ -2558,20 +3138,30 @@ export default function App() {
               photos={photos}
               activePhotoIndex={activePhotoIndex}
               setActivePhotoIndex={setActivePhotoIndex}
-              onUploadPhotos={handleUploadPhotos}
-              onAiUploadPhotos={(files) => void handleAiUploadPhotos(files)}
+              onSmartUploadFiles={(files) => void handleSmartUploadFiles(files)}
               onRemovePhoto={handleRemovePhoto}
               onDuplicatePhoto={handleDuplicatePhoto}
               onOpenEditor={(idx) => setEditingPhotoIndex(idx)}
+              onOpenCropModal={(idx) => setCroppingPhotoIndex(idx)}
               onOpenWebcam={() => setIsWebcamOpen(true)}
               coupleMode={coupleUploadMode}
               setCoupleMode={handleSetCoupleUploadMode}
+              autoBgRemove={autoBgRemove}
+              setAutoBgRemove={handleToggleAutoBgRemove}
+              selectedBgPreset={selectedBgPreset}
+              customBgColor={customBgColor}
+              onSelectBackdrop={(bg, hex) => void handleSelectBackdrop(bg, hex)}
+              autoStudioEnhance={autoStudioEnhance}
+              setAutoStudioEnhance={handleToggleAutoStudioEnhance}
+              enhanceIntensity={enhanceIntensity}
+              setEnhanceIntensity={handleChangeEnhanceIntensity}
+              photoAllocations={photoAllocations}
+              onUpdatePhotoAllocation={handleUpdatePhotoAllocation}
               isAiGenerating={isAiGenerating}
               aiProgress={aiProgress}
               aiStatusText={aiStatusText}
               aiError={aiError}
               onClearAiError={() => setAiError(null)}
-              onChangeAiBackdrop={(idx, bg) => void handleChangeAiBackdrop(idx, bg)}
               isUploading={isUploading}
               preset={photoPreset}
               setPreset={handlePhotoPresetChange}
@@ -2732,104 +3322,232 @@ export default function App() {
 
         {/* Right Area: Architectural Studio Drafting Stage */}
         <section
-          className={`flex-1 studio-desk-grid flex flex-col overflow-auto lg:h-[calc(100vh-3.5rem)] ${
+          className={`flex-1 studio-desk-grid flex flex-col overflow-hidden lg:h-[calc(100vh-3.5rem)] ${
             mobileTab === 'controls' ? 'hidden lg:flex' : 'flex'
           }`}
         >
           {mode === 'cv' ? (
-            <CvWorkspace
-              lang={lang}
-              cvData={cvData}
-              setCvData={setCvData}
-              showGallery={cvShowGallery}
-              setShowGallery={setCvShowGallery}
-              studioPhotos={photos}
-              zoom={zoom}
-              setZoom={setZoom}
-              onFitZoom={handleFitZoom}
-              onPrintCv={handleDirectPrint}
-              onDownloadCvPdf={() => void handleDownloadPdf()}
-              isExporting={isExporting}
-            />
+            <div className="flex-1 overflow-auto">
+              <CvWorkspace
+                lang={lang}
+                cvData={cvData}
+                setCvData={setCvData}
+                showGallery={cvShowGallery}
+                setShowGallery={setCvShowGallery}
+                studioPhotos={photos}
+                zoom={zoom}
+                setZoom={setZoom}
+                onFitZoom={handleFitZoom}
+                onPrintCv={handleDirectPrint}
+                onDownloadCvPdf={() => void handleDownloadPdf()}
+                isExporting={isExporting}
+              />
+            </div>
           ) : mode === 'readydocs' ? (
-            <ReadyDocWorkspace
-              lang={lang}
-              template={activeReadyDocTemplate}
-              readyDocState={readyDocState}
-              setReadyDocState={setReadyDocState}
-              showGallery={readyDocShowGallery}
-              setShowGallery={setReadyDocShowGallery}
-              zoom={zoom}
-              setZoom={setZoom}
-              onFitZoom={handleFitZoom}
-              onPrintDoc={handleDirectPrint}
-              onDownloadDocPdf={() => void handleDownloadPdf()}
-              isExporting={isExporting}
-            />
+            <div className="flex-1 overflow-auto">
+              <ReadyDocWorkspace
+                lang={lang}
+                template={activeReadyDocTemplate}
+                readyDocState={readyDocState}
+                setReadyDocState={setReadyDocState}
+                showGallery={readyDocShowGallery}
+                setShowGallery={setReadyDocShowGallery}
+                zoom={zoom}
+                setZoom={setZoom}
+                onFitZoom={handleFitZoom}
+                onPrintDoc={handleDirectPrint}
+                onDownloadDocPdf={() => void handleDownloadPdf()}
+                isExporting={isExporting}
+              />
+            </div>
           ) : (
-            <PaperPreview
-            mode={mode}
-            lang={lang}
-            paper={currentPaper}
-            orientation={orientation}
-            margins={mode === 'passport' ? margins : nidMargins}
-            cuttingGuide={cuttingGuide}
-            bleedArea={bleedArea}
-            colorProfile={colorProfile}
-            zoom={zoom}
-            setZoom={setZoom}
-            onFitZoom={handleFitZoom}
-            passportItems={passportItems}
-            activePhotoIndex={activePhotoIndex}
-            onSelectPhoto={(idx) => setActivePhotoIndex(idx)}
-            onEditPhoto={(idx) => setEditingPhotoIndex(idx)}
-            nid={nid}
-            onEditNidSide={(side) => setNidEditingSide(side)}
-            onUploadPassportTrigger={() => passportUploadInputRef.current?.click()}
-            onUploadNidFrontTrigger={() => nidFrontInputRef.current?.click()}
-            onUploadNidBackTrigger={() => nidBackInputRef.current?.click()}
-            selectedItemId={selectedItemId}
-            onSelectItem={setSelectedItemId}
-            onMoveItem={handleMoveItem}
-            onMoveItems={handleMoveItems}
-            onNudgeItem={handleNudgeItem}
-            onNudgeItems={handleNudgeItems}
-            onToggleItemSize={handleToggleItemSize}
-            onDuplicateItem={handleDuplicateItem}
-            onDeleteItem={handleDeleteItem}
-            onAddStampCopy={() => handleAddStampCopy()}
-            onAddPassportCopy={() => handleAddPassportCopy()}
-            onAutoAlignGrid={handleAutoAlignGrid}
-            onCycleItemPhoto={handleCycleItemPhoto}
-            documentSettings={documentSettings}
-            onUploadDocumentTrigger={() => documentUploadInputRef.current?.click()}
-            onRotateDocumentPage={handleRotateDocumentPage}
-            onEditDocumentPage={(idx) => setEditingDocumentPageIndex(idx)}
-            onSelectDocumentPage={(idx) =>
-              setDocumentSettings((prev) => ({ ...prev, activePageIndex: idx }))
-            }
-            onChangeDocumentFitMode={(fitMode: DocumentFitMode) =>
-              setDocumentSettings((prev) => ({ ...prev, fitMode }))
-            }
-            onToggleDocumentWhiteFilter={handleToggleDocumentWhiteFilter}
-            onRemoveDocumentPage={handleRemoveDocumentPage}
-            onPrintAll={handleDirectPrint}
-            onDownloadAllPdf={() => void handleDownloadPdf()}
-            isExporting={isExporting}
-            lamination={lamination}
-            onMoveLamination={handleMoveLamination}
-            onEditLaminationSide={(side) => setLaminationEditingSide(side)}
-            onUploadLaminationFrontTrigger={() => lamFrontInputRef.current?.click()}
-            onUploadLaminationBackTrigger={() => lamBackInputRef.current?.click()}
-            onAlignLaminationTopCenter={handleAlignLaminationTopCenter}
-            onCenterLaminationPage={handleCenterLaminationPage}
-            onSnapLaminationLevel={handleSnapLaminationLevel}
-            onSwapLaminationSides={handleSwapLaminationSides}
-            onToggleLaminationFoldLine={() =>
-              setLamination((prev) => ({ ...prev, showFoldLine: !prev.showFoldLine }))
-            }
-            onRotateLaminationSide={handleRotateLaminationSide}
-          />
+            <>
+              {/* Passport Mode Dual-Stage View Switcher (Before/After Inspector vs Print Sheet) */}
+              {mode === 'passport' && (photos.length > 0 || isAiGenerating) && (
+                <div className="px-4 py-2.5 border-b border-slate-200/70 dark:border-white/10 bg-white/75 dark:bg-slate-900/60 backdrop-blur-md flex items-center justify-between gap-3 flex-wrap shrink-0">
+                  <div className="inline-flex rounded-xl p-1 bg-slate-200/75 dark:bg-slate-800/80 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setPassportStageView('inspector')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                        passportStageView === 'inspector'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                      }`}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                      <span>{lang === 'bn' ? 'আগে/পরে তুলনা' : 'Before / After'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPassportStageView('sheet')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                        passportStageView === 'sheet'
+                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                      }`}
+                    >
+                      <LayoutGrid className="w-3.5 h-3.5" />
+                      <span>
+                        {lang === 'bn'
+                          ? `প্রিন্ট শীট প্রিভিউ (${passportItems.length})`
+                          : `Print Sheet (${passportItems.length})`}
+                      </span>
+                    </button>
+                  </div>
+
+                  {passportStageView === 'inspector' && photos.length > 1 && (
+                    <div className="flex items-center gap-1.5 overflow-x-auto">
+                      {photos.map((p, idx) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setActivePhotoIndex(idx)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                            idx === activePhotoIndex
+                              ? 'bg-blue-600 border-blue-600 text-white'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                          }`}
+                        >
+                          <img
+                            src={p.processedSrc || p.originalSrc}
+                            alt=""
+                            className="w-4 h-5 rounded-xs object-cover"
+                          />
+                          <span>{lang === 'bn' ? `ছবি ${idx + 1}` : `#${idx + 1}`}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Scrollable Workspace Content */}
+              <div className="flex-1 overflow-auto">
+                {mode === 'passport' &&
+                passportStageView === 'inspector' &&
+                (photos.length > 0 || isAiGenerating) ? (
+                  <div className="p-4 sm:p-6">
+                    <BeforeAfterInspector
+                      lang={lang}
+                      photo={photos[activePhotoIndex] || photos[0] || null}
+                      isProcessing={isAiGenerating}
+                      progress={aiProgress}
+                      statusText={aiStatusText}
+                      onRunAutoBgRemove={() => void handleRunAutoBgRemoveOnPhoto(activePhotoIndex)}
+                      onOpenCropStraighten={() => setCroppingPhotoIndex(activePhotoIndex)}
+                      onOpenManualTools={() => setEditingPhotoIndex(activePhotoIndex)}
+                      onToggleUseEnhanced={handleToggleUseEnhanced}
+                      onViewPrintSheet={() => setPassportStageView('sheet')}
+                    />
+                  </div>
+                ) : (
+                  <PaperPreview
+                    mode={mode}
+                    lang={lang}
+                    paper={currentPaper}
+                    orientation={orientation}
+                    margins={mode === 'passport' ? margins : nidMargins}
+                    cuttingGuide={cuttingGuide}
+                    bleedArea={bleedArea}
+                    colorProfile={colorProfile}
+                    zoom={zoom}
+                    setZoom={setZoom}
+                    onFitZoom={handleFitZoom}
+                    passportItems={passportItems}
+                    activePhotoIndex={activePhotoIndex}
+                    onSelectPhoto={(idx) => setActivePhotoIndex(idx)}
+                    onEditPhoto={(idx) => setEditingPhotoIndex(idx)}
+                    nid={nid}
+                    onEditNidSide={(side) => setNidEditingSide(side)}
+                    onUploadPassportTrigger={() => passportUploadInputRef.current?.click()}
+                    onUploadNidFrontTrigger={() => nidFrontInputRef.current?.click()}
+                    onUploadNidBackTrigger={() => nidBackInputRef.current?.click()}
+                    selectedItemId={selectedItemId}
+                    onSelectItem={setSelectedItemId}
+                    onMoveItem={handleMoveItem}
+                    onMoveItems={handleMoveItems}
+                    onNudgeItem={handleNudgeItem}
+                    onNudgeItems={handleNudgeItems}
+                    onToggleItemSize={handleToggleItemSize}
+                    onDuplicateItem={handleDuplicateItem}
+                    onDeleteItem={handleDeleteItem}
+                    onAddStampCopy={() => handleAddStampCopy()}
+                    onAddPassportCopy={() => handleAddPassportCopy()}
+                    onAutoAlignGrid={handleAutoAlignGrid}
+                    onCycleItemPhoto={handleCycleItemPhoto}
+                    documentSettings={documentSettings}
+                    onUploadDocumentTrigger={() => documentUploadInputRef.current?.click()}
+                    onRotateDocumentPage={handleRotateDocumentPage}
+                    onEditDocumentPage={(idx) => setEditingDocumentPageIndex(idx)}
+                    onSelectDocumentPage={(idx) =>
+                      setDocumentSettings((prev) => ({ ...prev, activePageIndex: idx }))
+                    }
+                    onChangeDocumentFitMode={(fitMode: DocumentFitMode) =>
+                      setDocumentSettings((prev) => ({ ...prev, fitMode }))
+                    }
+                    onToggleDocumentWhiteFilter={handleToggleDocumentWhiteFilter}
+                    onRemoveDocumentPage={handleRemoveDocumentPage}
+                    onPrintAll={handleDirectPrint}
+                    onDownloadAllPdf={() => void handleDownloadPdf()}
+                    isExporting={isExporting}
+                    lamination={lamination}
+                    onMoveLamination={handleMoveLamination}
+                    onEditLaminationSide={(side) => setLaminationEditingSide(side)}
+                    onUploadLaminationFrontTrigger={() => lamFrontInputRef.current?.click()}
+                    onUploadLaminationBackTrigger={() => lamBackInputRef.current?.click()}
+                    onAlignLaminationTopCenter={handleAlignLaminationTopCenter}
+                    onCenterLaminationPage={handleCenterLaminationPage}
+                    onSnapLaminationLevel={handleSnapLaminationLevel}
+                    onSwapLaminationSides={handleSwapLaminationSides}
+                    onToggleLaminationFoldLine={() =>
+                      setLamination((prev) => ({ ...prev, showFoldLine: !prev.showFoldLine }))
+                    }
+                    onRotateLaminationSide={handleRotateLaminationSide}
+                  />
+                )}
+              </div>
+
+              {/* Persistent Desktop Bottom-Right Export Action Bar (JPG / PDF / Save / Print) */}
+              {mode === 'passport' && photos.length > 0 && (
+                <div className="hidden lg:flex items-center justify-end gap-2 px-5 py-2.5 border-t border-slate-200/80 dark:border-white/10 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md shrink-0">
+                  <button
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() => void handleDownloadImage('jpeg')}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400 text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition"
+                  >
+                    <ImageDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>JPG</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() => void handleDownloadPdf()}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400 text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition"
+                  >
+                    <FileDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportBackup}
+                    className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400 text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Save className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
+                    <span>{lang === 'bn' ? 'সেভ' : 'Save'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDirectPrint}
+                    className="px-5 py-2 rounded-xl glass-btn-primary text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/20"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>{lang === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </section>
       </main>
@@ -3046,58 +3764,51 @@ export default function App() {
       </div>
       )}
 
-      {/* 5. Photo Enhancement & Crop Modal (Optional manual adjustments) */}
+      {/* 5. Photo Manual Studio Tools Modal */}
       {editingPhotoIndex !== null && photos[editingPhotoIndex] && (
         <PhotoEditorModal
           photo={photos[editingPhotoIndex]}
           isOpen={true}
           onClose={() => setEditingPhotoIndex(null)}
           onSave={handleSavePhotoAdjustments}
+          onOpenCropModal={() => {
+            const idx = editingPhotoIndex;
+            setEditingPhotoIndex(null);
+            setCroppingPhotoIndex(idx);
+          }}
+          defaultBgPreset={selectedBgPreset}
+          defaultCustomBgColor={customBgColor}
           lang={lang}
         />
       )}
 
-      {/* 5B. Clean Free On-Device AI Passport Generation Loading Overlay */}
-      {isAiGenerating && (
-        <div className="fixed inset-0 z-50 no-print flex items-center justify-center bg-slate-950/55 backdrop-blur-sm p-4">
-          <div className="glass-modal rounded-3xl px-7 py-6 shadow-2xl border border-white/25 dark:border-white/10 flex flex-col items-center gap-3.5 max-w-xs w-full text-center">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-blue-600/30">
-              <Loader2 className="w-6 h-6 animate-spin" />
-            </div>
-            <div className="w-full space-y-2">
-              <p className="text-base font-bold text-slate-900 dark:text-white">
-                AI ছবি তৈরি করছে...
-              </p>
-              <p className="text-xs text-slate-600 dark:text-slate-300">
-                {aiStatusText ||
-                  (coupleUploadMode
-                    ? lang === 'bn'
-                      ? 'ছেলে ও মেয়ের কাপল স্টুডিও পাসপোর্ট ছবি তৈরি হচ্ছে'
-                      : 'Creating Couple Studio Passport (Boy Left + Girl Right)...'
-                    : lang === 'bn'
-                    ? 'স্টুডিও নীল ব্যাকগ্রাউন্ড ও উজ্জ্বল আলো তৈরি হচ্ছে'
-                    : 'Creating Studio Passport with sky-blue background...')}
-              </p>
-              <div className="w-full h-2 rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden mt-1">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300"
-                  style={{ width: `${Math.max(8, Math.min(100, aiProgress))}%` }}
-                />
-              </div>
-              <p className="text-[11px] font-semibold text-blue-600 dark:text-blue-400">
-                {Math.max(5, Math.min(100, aiProgress))}% •{' '}
-                {lang === 'bn' ? '১০০% ফ্রি অন-ডিভাইস AI' : '100% Free On-Device AI'}
-              </p>
-            </div>
-          </div>
-        </div>
+      {/* 5B. Interactive Crop & Straighten Modal (Dark Drafting Canvas) */}
+      {croppingPhotoIndex !== null && photos[croppingPhotoIndex] && (
+        <CropStraightenModal
+          isOpen={true}
+          imageSrc={
+            photos[croppingPhotoIndex].rawOriginalSrc || photos[croppingPhotoIndex].originalSrc
+          }
+          initialAspect={
+            photoPreset === 'bd-stamp'
+              ? 'stamp'
+              : photoPreset === 'couple'
+              ? 'couple'
+              : 'passport'
+          }
+          onClose={() => setCroppingPhotoIndex(null)}
+          onConfirm={(croppedUrl, cropRect, angle) =>
+            void handleConfirmCropAndStraighten(croppedUrl, cropRect, angle)
+          }
+          lang={lang}
+        />
       )}
 
       {/* 5C. Webcam Capture Modal */}
       <WebcamCaptureModal
         isOpen={isWebcamOpen}
         onClose={() => setIsWebcamOpen(false)}
-        onCapture={handleWebcamCapture}
+        onCapture={(file) => void handleWebcamCapture(file)}
         lang={lang}
       />
 
