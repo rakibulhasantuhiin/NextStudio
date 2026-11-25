@@ -131,7 +131,7 @@ export const DEFAULT_MARGINS: MarginSettings = {
   bottom: 10,
   left: 6,
   right: 6,
-  colGap: 5,
+  colGap: 5.5,
   rowGap: 5,
 };
 

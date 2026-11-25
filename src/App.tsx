@@ -1915,14 +1915,37 @@ export default function App() {
     const effW = usePreset === 'custom' ? useCustomW : PHOTO_PRESETS[usePreset].width;
     const effH = usePreset === 'custom' ? useCustomH : PHOTO_PRESETS[usePreset].height;
 
-    if (!overrides?.nextLayout && Object.keys(photoAllocations).length > 0) {
-      const passW = usePreset === 'bd-stamp' ? 35 : effW;
-      const passH = usePreset === 'bd-stamp' ? 45 : effH;
-      const passPreset: PhotoPresetType = usePreset === 'bd-stamp' ? 'bd-passport' : usePreset;
+    const useLayoutChanged = Boolean(overrides?.nextLayout && overrides.nextLayout !== layoutMode);
+    const usePresetExplicitlyChanged = Boolean(overrides?.preset);
+
+    if (!useLayoutChanged && Object.keys(photoAllocations).length > 0) {
+      const nextAllocs: Record<string, PhotoCopyAllocation> = { ...photoAllocations };
       const rawItems: PlacedSheetItem[] = [];
+
       for (const p of photos) {
-        const alloc = photoAllocations[p.id];
+        let alloc = nextAllocs[p.id];
         if (!alloc) continue;
+
+        if (usePresetExplicitlyChanged) {
+          if (usePreset === 'bd-stamp') {
+            alloc = {
+              ...alloc,
+              sizeMode: alloc.sizeMode === 'both' ? 'both' : 'stamp',
+              stampCount: alloc.stampCount > 0 ? alloc.stampCount : Math.max(8, (alloc.passportCount || 4) * 2),
+            };
+          } else if (alloc.sizeMode === 'stamp') {
+            alloc = {
+              ...alloc,
+              sizeMode: 'passport',
+              passportCount: Math.max(1, alloc.passportCount || 4),
+            };
+          }
+          nextAllocs[p.id] = alloc;
+        }
+
+        const passW = usePreset === 'bd-stamp' ? 35 : effW;
+        const passH = usePreset === 'bd-stamp' ? 45 : effH;
+        const passPreset: PhotoPresetType = usePreset === 'bd-stamp' ? 'bd-passport' : usePreset;
         const pCount = alloc.sizeMode === 'stamp' ? 0 : Math.max(0, alloc.passportCount);
         const sCount = alloc.sizeMode === 'passport' ? 0 : Math.max(0, alloc.stampCount);
         for (let i = 0; i < pCount; i++) {
@@ -1948,6 +1971,11 @@ export default function App() {
           });
         }
       }
+
+      if (usePresetExplicitlyChanged) {
+        setPhotoAllocations(nextAllocs);
+      }
+
       if (rawItems.length > 0) {
         setPlacedItems(autoAlignPlacedItems(rawItems, usePaper, useOrient, useMargins));
         return;
@@ -3593,6 +3621,11 @@ export default function App() {
                     setZoom={setZoom}
                     onFitZoom={handleFitZoom}
                     passportItems={passportItems}
+                    photoPreset={photoPreset}
+                    customPhotoWidth={customPhotoWidth}
+                    customPhotoHeight={customPhotoHeight}
+                    layoutMode={layoutMode}
+                    manualCount={manualCount}
                     activePhotoIndex={activePhotoIndex}
                     onSelectPhoto={(idx) => setActivePhotoIndex(idx)}
                     onEditPhoto={(idx) => setEditingPhotoIndex(idx)}

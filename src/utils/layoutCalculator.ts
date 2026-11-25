@@ -289,6 +289,53 @@ export function generateDefaultPlacedItems(options: {
 }
 
 /**
+ * Generates virtual placeholder slots for the empty-sheet preview so switching any
+ * photo preset, custom size, layout mode, or margin immediately updates the sheet preview.
+ */
+export function generateEmptyPreviewSlots(options: {
+  paper: PaperDimensions;
+  orientation: PaperOrientation;
+  margins: MarginSettings;
+  photoPreset: PhotoPresetType;
+  customPhotoWidth?: number;
+  customPhotoHeight?: number;
+  layoutMode: LayoutMode;
+  manualCount?: number;
+}): PlacedSheetItem[] {
+  const virtualPhotos: StudioPhotoItem[] = Array.from({ length: 12 }, (_, idx) => ({
+    id: `__preview_slot_${idx}__`,
+    name: `Slot ${idx + 1}`,
+    type: options.photoPreset === 'couple' ? 'couple' : 'individual',
+    originalSrc: '',
+    processedSrc: '',
+    naturalWidth: 700,
+    naturalHeight: 900,
+    adjustments: {
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      sharpness: 0,
+      exposure: 0,
+      warmth: 0,
+      rotation: 0,
+      flipH: false,
+      flipV: false,
+      backgroundMode: 'original',
+      customBgColor: '#2563eb',
+      bgSensitivity: 38,
+      bgFeather: 3,
+      crop: null,
+    },
+  }));
+
+  return generateDefaultPlacedItems({
+    ...options,
+    photos: virtualPhotos,
+    activePhotoIndex: 0,
+  });
+}
+
+/**
  * Intelligently appends a new photo to the sheet, placing it at the next available spot
  * (e.g. in the current row, new row, or bottom empty space).
  */
@@ -375,35 +422,64 @@ export function autoAlignPlacedItems(
 
   const isLandscape = orientation === 'landscape';
   const paperWidth = isLandscape ? paper.height : paper.width;
+  const minSafeMargin = 3.5;
+  const maxContentRight = paperWidth - minSafeMargin;
+  const printableWidth = Math.max(10, paperWidth - margins.left - margins.right);
 
   let currentY = margins.top;
   let currentX = margins.left;
   let rowMaxHeight = 0;
 
-  return items.map((item) => {
-    // Check if item fits in current row
-    if (currentX + item.width > paperWidth - 3 && currentX > margins.left) {
-      // Wrap to next row
+  type PackedRowItem = {
+    item: PlacedSheetItem;
+    x: number;
+    y: number;
+  };
+  const rows: PackedRowItem[][] = [];
+  let currentRow: PackedRowItem[] = [];
+
+  for (const item of items) {
+    if (currentX + item.width > maxContentRight && currentRow.length > 0) {
+      rows.push(currentRow);
+      currentRow = [];
       currentY += rowMaxHeight + margins.rowGap;
       currentX = margins.left;
       rowMaxHeight = 0;
     }
 
-    const placedX = currentX;
-    const placedY = currentY;
-
+    currentRow.push({ item, x: currentX, y: currentY });
     currentX += item.width + margins.colGap;
     if (item.height > rowMaxHeight) {
       rowMaxHeight = item.height;
     }
+  }
+  if (currentRow.length > 0) {
+    rows.push(currentRow);
+  }
 
-    return {
-      ...item,
-      x: Math.round(placedX * 10) / 10,
-      y: Math.round(placedY * 10) / 10,
-      customPositioned: false,
-    };
-  });
+  // Symmetrically center each packed row inside printable bounds so there is no lopsided right gap
+  const aligned: PlacedSheetItem[] = [];
+  for (const row of rows) {
+    const rowMinX = row[0].x;
+    const last = row[row.length - 1];
+    const rowWidth = last.x + last.item.width - rowMinX;
+    const targetStartX =
+      rowWidth <= printableWidth
+        ? margins.left + (printableWidth - rowWidth) / 2
+        : Math.max(minSafeMargin, (paperWidth - rowWidth) / 2);
+    const shiftX = targetStartX - rowMinX;
+
+    for (const entry of row) {
+      aligned.push({
+        ...entry.item,
+        x: Math.round((entry.x + shiftX) * 10) / 10,
+        y: Math.round(entry.y * 10) / 10,
+        customPositioned: false,
+      });
+    }
+  }
+
+  return aligned;
 }
 
 /**

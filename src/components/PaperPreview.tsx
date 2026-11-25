@@ -42,14 +42,16 @@ import {
   DocumentFitMode,
   DocumentPrintSettings,
   LaminationCardSettings,
+  LayoutMode,
   MarginSettings,
   NIDCardSettings,
   PaperDimensions,
   PaperOrientation,
+  PhotoPresetType,
   StudioMode,
 } from '../types';
 import { calculateDocumentPlacement } from '../utils/documentLayout';
-import { CalculatedItem } from '../utils/layoutCalculator';
+import { CalculatedItem, generateEmptyPreviewSlots } from '../utils/layoutCalculator';
 import { translations } from '../utils/translations';
 
 interface Props {
@@ -65,6 +67,11 @@ interface Props {
   setZoom?: (updater: (prev: number) => number) => void;
   onFitZoom?: () => void;
   passportItems: CalculatedItem[];
+  photoPreset?: PhotoPresetType;
+  customPhotoWidth?: number;
+  customPhotoHeight?: number;
+  layoutMode?: LayoutMode;
+  manualCount?: number;
   activePhotoIndex: number;
   onSelectPhoto: (index: number) => void;
   onEditPhoto: (index: number) => void;
@@ -127,6 +134,11 @@ export const PaperPreview: React.FC<Props> = ({
   setZoom,
   onFitZoom,
   passportItems,
+  photoPreset = 'bd-passport',
+  customPhotoWidth = 35,
+  customPhotoHeight = 45,
+  layoutMode = 'top-5',
+  manualCount = 5,
   activePhotoIndex,
   onSelectPhoto,
   onEditPhoto,
@@ -255,6 +267,32 @@ export const PaperPreview: React.FC<Props> = ({
       height: maxY - minY,
     };
   }, [passportItems]);
+
+  // Dynamic millimeter-exact empty-sheet cutout slots synced to active preset, layout & margins
+  const emptyPreviewSlots = useMemo(() => {
+    if (mode !== 'passport' || passportItems.length > 0) return [];
+    return generateEmptyPreviewSlots({
+      paper,
+      orientation,
+      margins,
+      photoPreset,
+      customPhotoWidth,
+      customPhotoHeight,
+      layoutMode,
+      manualCount,
+    });
+  }, [
+    mode,
+    passportItems.length,
+    paper,
+    orientation,
+    margins,
+    photoPreset,
+    customPhotoWidth,
+    customPhotoHeight,
+    layoutMode,
+    manualCount,
+  ]);
 
   const dragRef = useRef<{
     isAll: boolean;
@@ -1683,11 +1721,32 @@ export const PaperPreview: React.FC<Props> = ({
                     bottom: `${documentSettings.marginMm * mmToPx}px`,
                   }
                 : {
-                    top: `${margins.top * mmToPx}px`,
-                    left: `${(passportItems.length > 0 ? Math.min(margins.left, Math.min(...passportItems.map((p) => p.x))) : margins.left) * mmToPx}px`,
-                    right: `${(passportItems.length > 0 ? Math.min(margins.right, Math.max(0, paperWidthMm - Math.max(...passportItems.map((p) => p.x + p.width)))) : margins.right) * mmToPx}px`,
-                    bottom: `${margins.bottom * mmToPx}px`,
-                  }
+                  top: `${margins.top * mmToPx}px`,
+                  left: `${(
+                    passportItems.length > 0
+                      ? Math.min(margins.left, Math.min(...passportItems.map((p) => p.x)))
+                      : emptyPreviewSlots.length > 0
+                      ? Math.min(margins.left, Math.min(...emptyPreviewSlots.map((p) => p.x)))
+                      : margins.left
+                  ) * mmToPx}px`,
+                  right: `${(
+                    passportItems.length > 0
+                      ? Math.min(
+                          margins.right,
+                          Math.max(0, paperWidthMm - Math.max(...passportItems.map((p) => p.x + p.width)))
+                        )
+                      : emptyPreviewSlots.length > 0
+                      ? Math.min(
+                          margins.right,
+                          Math.max(
+                            0,
+                            paperWidthMm - Math.max(...emptyPreviewSlots.map((p) => p.x + p.width))
+                          )
+                        )
+                      : margins.right
+                  ) * mmToPx}px`,
+                  bottom: `${margins.bottom * mmToPx}px`,
+                }
             }
           />
 
@@ -1697,29 +1756,71 @@ export const PaperPreview: React.FC<Props> = ({
           {mode === 'passport' && (
             <>
               {passportItems.length === 0 ? (
-                /* Empty Sheet State (Clean, inviting, no dummy photo) */
+                /* Empty Sheet State (Dynamic preset-synced cutout preview) */
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                  {/* Ghost slots */}
-                  <div
-                    className="absolute flex gap-2 pointer-events-none opacity-40"
-                    style={{
-                      top: `${margins.top * mmToPx}px`,
-                      left: `${margins.left * mmToPx}px`,
-                    }}
-                  >
-                    {[1, 2, 3, 4, 5].map((slot) => (
+                  {/* Millimeter-accurate Cutout Preview Slots */}
+                  {emptyPreviewSlots.map((slot, idx) => {
+                    const slotWpx = slot.width * mmToPx;
+                    const slotHpx = slot.height * mmToPx;
+                    const isCoupleSlot = slot.preset === 'couple';
+                    const showDimsLabel = slotWpx >= 66 && slotHpx >= 78;
+                    const showSilhouette = slotWpx >= 42 && slotHpx >= 50;
+                    const fmtDim = (v: number) =>
+                      Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10);
+
+                    return (
                       <div
-                        key={slot}
-                        className="border border-dashed border-slate-400/70 rounded-xs flex flex-col items-center justify-center text-slate-400"
+                        key={slot.id}
+                        className="absolute border border-dashed border-slate-400/75 bg-slate-50/55 rounded-xs flex flex-col items-center justify-center text-slate-400 pointer-events-none overflow-hidden select-none"
                         style={{
-                          width: `${35 * mmToPx}px`,
-                          height: `${45 * mmToPx}px`,
+                          left: `${slot.x * mmToPx}px`,
+                          top: `${slot.y * mmToPx}px`,
+                          width: `${slotWpx}px`,
+                          height: `${slotHpx}px`,
                         }}
                       >
-                        <span className="text-[10px] font-mono">#{slot}</span>
+                        {showSilhouette && (
+                          <div
+                            className={`flex items-center justify-center opacity-35 ${
+                              isCoupleSlot ? 'rotate-90' : ''
+                            }`}
+                          >
+                            {isCoupleSlot ? (
+                              <svg
+                                viewBox="0 0 64 46"
+                                className="w-8 h-6 text-slate-500"
+                                fill="currentColor"
+                                aria-hidden="true"
+                              >
+                                <circle cx="20" cy="14" r="6.5" />
+                                <path d="M8 38c0-7.2 5.4-12 12-12s12 4.8 12 12H8z" />
+                                <circle cx="44" cy="15.5" r="6" />
+                                <path d="M33 38c0-6.6 4.9-11 11-11s11 4.4 11 11H33z" />
+                              </svg>
+                            ) : (
+                              <svg
+                                viewBox="0 0 40 44"
+                                className="w-6 h-7 text-slate-500"
+                                fill="currentColor"
+                                aria-hidden="true"
+                              >
+                                <circle cx="20" cy="14" r="7" />
+                                <path d="M6 39c0-7.8 6.2-13.5 14-13.5S34 31.2 34 39H6z" />
+                              </svg>
+                            )}
+                          </div>
+                        )}
+                        <span className="text-[10px] font-mono font-semibold tabular-nums text-slate-500/85 leading-tight mt-0.5">
+                          #{idx + 1}
+                        </span>
+                        {showDimsLabel && (
+                          <span className="text-[9px] font-mono tabular-nums text-slate-400 leading-tight">
+                            {fmtDim(slot.width)}×{fmtDim(slot.height)} mm
+                          </span>
+                        )}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
 
                   <div className="relative z-10 max-w-sm p-6 rounded-2xl glass-card text-center space-y-3">
                     <div className="w-12 h-12 rounded-2xl bg-blue-500/15 border border-blue-400/30 text-blue-600 flex items-center justify-center mx-auto">
