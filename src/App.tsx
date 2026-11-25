@@ -89,6 +89,7 @@ import { exportCvElementToImage, exportCvElementToPdf } from './utils/cvExport';
 import { createEmptyCvData } from './utils/cvTemplates';
 import {
   compositeCutoutWithBackdrop,
+  enhanceStudioPortrait4k,
   generateFreeAiCouplePassport,
   generateFreeAiSinglePassport,
 } from './utils/freeAiPassportStudio';
@@ -1314,6 +1315,7 @@ export default function App() {
         processedSrc: printReadyUrl,
         cutoutSrc: result.cutoutDataUrl,
         useEnhanced: autoStudioEnhance,
+        clarityBaseline: autoStudioEnhance ? { sharpness: 100, smoothness: 100 } : undefined,
         aiBgPreset: selectedBgPreset,
         customBgColor,
         enhanceIntensity,
@@ -1324,6 +1326,8 @@ export default function App() {
         label: lang === 'bn' ? 'কাপল পাসপোর্ট' : 'Couple Passport',
         adjustments: {
           ...DEFAULT_ADJUSTMENTS,
+          sharpness: autoStudioEnhance ? 100 : 0,
+          smoothness: autoStudioEnhance ? 100 : 0,
           backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
         },
       };
@@ -1369,7 +1373,7 @@ export default function App() {
     const preserveCrop =
       preserveExactCropOverride !== undefined
         ? preserveExactCropOverride
-        : Boolean(target.adjustments.crop);
+        : Boolean(target.isUserCropped || target.adjustments.crop);
 
     setAiError(null);
     setPassportStageView('inspector');
@@ -1384,13 +1388,7 @@ export default function App() {
         // User toggled Auto BG off and clicked Re-process -> restore clean cropped/original portrait
         const unenhanced = sourceUrl;
         const enhanced = autoStudioEnhance
-          ? await processStudioPhoto(sourceUrl, {
-              ...DEFAULT_ADJUSTMENTS,
-              brightness: 6,
-              contrast: 8,
-              sharpness: 25,
-              skinLight: 12,
-            })
+          ? await enhanceStudioPortrait4k(sourceUrl, enhanceIntensity)
           : sourceUrl;
         const activeSrc = autoStudioEnhance ? enhanced : unenhanced;
         setPhotos((prev) =>
@@ -1403,8 +1401,18 @@ export default function App() {
                   processedSrc: activeSrc,
                   cutoutSrc: undefined,
                   useEnhanced: autoStudioEnhance,
+                  clarityBaseline: autoStudioEnhance
+                    ? { sharpness: 100, smoothness: 100 }
+                    : undefined,
                   needsReprocess: false,
-                  adjustments: { ...p.adjustments, backgroundMode: 'original' },
+                  adjustments: {
+                    ...p.adjustments,
+                    rotation: 0,
+                    crop: null,
+                    sharpness: autoStudioEnhance ? 100 : 0,
+                    smoothness: autoStudioEnhance ? 100 : 0,
+                    backgroundMode: 'original',
+                  },
                 }
               : p
           )
@@ -1442,12 +1450,19 @@ export default function App() {
                 processedSrc: activeSrc,
                 cutoutSrc: result.cutoutDataUrl,
                 useEnhanced: useEnh,
+                clarityBaseline: useEnh
+                  ? { sharpness: 100, smoothness: 100 }
+                  : undefined,
                 aiBgPreset: useBg,
                 customBgColor: useHex,
                 enhanceIntensity,
                 needsReprocess: false,
                 adjustments: {
                   ...p.adjustments,
+                  rotation: 0,
+                  crop: null,
+                  sharpness: useEnh ? 100 : 0,
+                  smoothness: useEnh ? 100 : 0,
                   backgroundMode: useBg === 'white' ? 'white' : 'sky-blue',
                 },
               }
@@ -1635,6 +1650,10 @@ export default function App() {
             processedSrc: activeSrc,
             cutoutSrc: result.cutoutDataUrl,
             useEnhanced: autoStudioEnhance,
+            isUserCropped: true,
+            clarityBaseline: autoStudioEnhance
+              ? { sharpness: 100, smoothness: 100 }
+              : undefined,
             aiBgPreset: selectedBgPreset,
             customBgColor,
             enhanceIntensity,
@@ -1645,20 +1664,16 @@ export default function App() {
             type: 'individual',
             adjustments: {
               ...DEFAULT_ADJUSTMENTS,
-              crop,
-              rotation: angle,
+              crop: null,
+              rotation: 0,
+              sharpness: autoStudioEnhance ? 100 : 0,
+              smoothness: autoStudioEnhance ? 100 : 0,
               backgroundMode: selectedBgPreset === 'white' ? 'white' : 'sky-blue',
             },
           };
         } else {
           const enhancedSrc = autoStudioEnhance
-            ? await processStudioPhoto(croppedDataUrl, {
-                ...DEFAULT_ADJUSTMENTS,
-                brightness: 6,
-                contrast: 8,
-                sharpness: 25,
-                skinLight: 12,
-              })
+            ? await enhanceStudioPortrait4k(croppedDataUrl, enhanceIntensity)
             : croppedDataUrl;
           const activeSrc = autoStudioEnhance ? enhancedSrc : croppedDataUrl;
 
@@ -1670,6 +1685,10 @@ export default function App() {
             unenhancedSrc: croppedDataUrl,
             processedSrc: activeSrc,
             useEnhanced: autoStudioEnhance,
+            isUserCropped: true,
+            clarityBaseline: autoStudioEnhance
+              ? { sharpness: 100, smoothness: 100 }
+              : undefined,
             enhanceIntensity,
             needsReprocess: false,
             fileName: pending.fileName,
@@ -1678,8 +1697,10 @@ export default function App() {
             type: 'individual',
             adjustments: {
               ...DEFAULT_ADJUSTMENTS,
-              crop,
-              rotation: angle,
+              crop: null,
+              rotation: 0,
+              sharpness: autoStudioEnhance ? 100 : 0,
+              smoothness: autoStudioEnhance ? 100 : 0,
               backgroundMode: 'original',
             },
           };
@@ -1723,7 +1744,6 @@ export default function App() {
     // Path B: Re-cropping/straightening an existing photo in the studio list
     if (croppingPhotoIndex === null || !photos[croppingPhotoIndex]) return;
     const targetIdx = croppingPhotoIndex;
-    const target = photos[targetIdx];
     setCroppingPhotoIndex(null);
 
     const dims = await getImageDimensions(croppedDataUrl);
@@ -1738,12 +1758,13 @@ export default function App() {
               unenhancedSrc: croppedDataUrl,
               processedSrc: croppedDataUrl,
               cutoutSrc: undefined,
+              isUserCropped: true,
               needsReprocess: false,
               dimensionsLabel: `${dims.width}×${dims.height}`,
               adjustments: {
                 ...p.adjustments,
-                crop,
-                rotation: angle,
+                crop: null,
+                rotation: 0,
               },
             }
           : p
@@ -1759,15 +1780,7 @@ export default function App() {
         true
       );
     } else if (autoStudioEnhance) {
-      const enhanced = await processStudioPhoto(croppedDataUrl, {
-        ...target.adjustments,
-        crop: null,
-        rotation: 0,
-        brightness: 6,
-        contrast: 8,
-        sharpness: 25,
-        skinLight: 12,
-      });
+      const enhanced = await enhanceStudioPortrait4k(croppedDataUrl, enhanceIntensity);
       setPhotos((prev) =>
         prev.map((p, idx) =>
           idx === targetIdx
@@ -1776,6 +1789,14 @@ export default function App() {
                 enhancedSrc: enhanced,
                 processedSrc: enhanced,
                 useEnhanced: true,
+                clarityBaseline: { sharpness: 100, smoothness: 100 },
+                adjustments: {
+                  ...p.adjustments,
+                  crop: null,
+                  rotation: 0,
+                  sharpness: 100,
+                  smoothness: 100,
+                },
               }
             : p
         )

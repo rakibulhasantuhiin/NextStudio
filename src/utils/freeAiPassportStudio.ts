@@ -38,10 +38,10 @@ interface DetectedFaceBox {
   eyeTiltDeg?: number;
 }
 
-const SINGLE_OUT_W = 1050; // Exact 35:45 Bangladesh Passport ratio (~760 DPI)
-const SINGLE_OUT_H = 1350;
-const COUPLE_OUT_W = 1500; // Exact 50:40 Couple Passport ratio (~760 DPI)
-const COUPLE_OUT_H = 1200;
+const SINGLE_OUT_W = 1400; // Exact 35:45 Bangladesh Passport 4K studio resolution (~1016 DPI)
+const SINGLE_OUT_H = 1800;
+const COUPLE_OUT_W = 1600; // Exact 50:40 Couple Passport high-res (~812 DPI)
+const COUPLE_OUT_H = 1280;
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -646,8 +646,89 @@ function analyzePortraitMetrics(
 }
 
 /**
- * Applies adaptive Bright Studio Lighting + soft shadow recovery + crisp micro-sharpening
- * strictly to the segmented foreground portrait (preserving 100% real facial identity).
+ * Edge-preserving bilateral denoise strictly on foreground pixels (alpha >= 140).
+ * Removes low-light webcam grain, sensor speckles & JPEG artifacts while keeping
+ * eyes, eyebrows, eyelashes, hair strands, and shirt collars crisp.
+ */
+function applyForegroundEdgePreservingDenoise(
+  canvas: HTMLCanvasElement,
+  intensity: StudioEnhanceIntensity = 'normal'
+): void {
+  const w = canvas.width;
+  const h = canvas.height;
+  const ctx = canvas.getContext('2d')!;
+  const srcData = ctx.getImageData(0, 0, w, h);
+  const dstData = ctx.createImageData(w, h);
+  const src = srcData.data;
+  const dst = dstData.data;
+
+  const strength = intensity === 'light' ? 0.62 : intensity === 'strong' ? 0.94 : 0.82;
+  const colorSigma = 24 + strength * 22;
+  const radius = 2;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const cr = src[idx];
+      const cg = src[idx + 1];
+      const cb = src[idx + 2];
+      const ca = src[idx + 3];
+
+      if (ca < 140) {
+        dst[idx] = cr;
+        dst[idx + 1] = cg;
+        dst[idx + 2] = cb;
+        dst[idx + 3] = ca;
+        continue;
+      }
+
+      let sumR = cr;
+      let sumG = cg;
+      let sumB = cb;
+      let wSum = 1;
+
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= h) continue;
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= w) continue;
+          const nIdx = (ny * w + nx) * 4;
+          if (src[nIdx + 3] < 140) continue;
+
+          const nr = src[nIdx];
+          const ng = src[nIdx + 1];
+          const nb = src[nIdx + 2];
+          const diff = (Math.abs(nr - cr) + Math.abs(ng - cg) + Math.abs(nb - cb)) / 3;
+          if (diff < colorSigma) {
+            const wt = 1 - diff / colorSigma;
+            sumR += nr * wt;
+            sumG += ng * wt;
+            sumB += nb * wt;
+            wSum += wt;
+          }
+        }
+      }
+
+      const avgR = sumR / wSum;
+      const avgG = sumG / wSum;
+      const avgB = sumB / wSum;
+
+      dst[idx] = Math.round(cr * (1 - strength) + avgR * strength);
+      dst[idx + 1] = Math.round(cg * (1 - strength) + avgG * strength);
+      dst[idx + 2] = Math.round(cb * (1 - strength) + avgB * strength);
+      dst[idx + 3] = ca;
+    }
+  }
+
+  ctx.putImageData(dstData, 0, 0);
+}
+
+/**
+ * Applies adaptive Bright Studio Lighting + soft shadow recovery + 4K dual-radius clarity
+ * sharpening strictly to opaque foreground pixels (restores low-res/blurry photos cleanly
+ * with zero cutout-edge halos and preserves real facial identity).
  */
 function applyStudioForegroundLighting(
   cutoutCanvas: HTMLCanvasElement,
@@ -704,35 +785,89 @@ function applyStudioForegroundLighting(
     data[i + 2] = Math.max(0, Math.min(255, Math.round(b)));
   }
 
-  // Crisp studio micro-sharpening strictly on opaque interior pixels (eyes, hair, collar)
+  // Dual-radius 4K micro-detail & clarity sharpening strictly on opaque interior pixels
   const copy = new Uint8ClampedArray(data);
-  const sharpAmount = intensity === 'strong' ? 0.34 : intensity === 'light' ? 0.16 : 0.26;
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
+  const fineAmount = intensity === 'strong' ? 0.92 : intensity === 'light' ? 0.54 : 0.78;
+  const localClarity = intensity === 'strong' ? 0.34 : intensity === 'light' ? 0.16 : 0.26;
+  const rowStride = w * 4;
+
+  for (let y = 2; y < h - 2; y++) {
+    for (let x = 2; x < w - 2; x++) {
       const idx = (y * w + x) * 4;
       if (copy[idx + 3] < 235) continue;
-      // Only sharpen when 4-neighbors are also inside foreground (avoids sharpening cutout edge)
-      const up = idx - w * 4;
-      const dn = idx + w * 4;
+
+      const up = idx - rowStride;
+      const dn = idx + rowStride;
       const lt = idx - 4;
       const rt = idx + 4;
+      const up2 = idx - rowStride * 2;
+      const dn2 = idx + rowStride * 2;
+      const lt2 = idx - 8;
+      const rt2 = idx + 8;
+
       if (
         copy[up + 3] < 220 ||
         copy[dn + 3] < 220 ||
         copy[lt + 3] < 220 ||
-        copy[rt + 3] < 220
+        copy[rt + 3] < 220 ||
+        copy[up2 + 3] < 210 ||
+        copy[dn2 + 3] < 210 ||
+        copy[lt2 + 3] < 210 ||
+        copy[rt2 + 3] < 210
       ) {
         continue;
       }
+
       for (let c = 0; c < 3; c++) {
-        const blur = (copy[up + c] + copy[dn + c] + copy[lt + c] + copy[rt + c]) * 0.25;
-        const val = copy[idx + c] + (copy[idx + c] - blur) * sharpAmount;
-        data[idx + c] = Math.max(0, Math.min(255, Math.round(val)));
+        const orig = copy[idx + c];
+        const blurFine = (copy[up + c] + copy[dn + c] + copy[lt + c] + copy[rt + c]) * 0.25;
+        const blurMed =
+          (copy[up2 + c] + copy[dn2 + c] + copy[lt2 + c] + copy[rt2 + c] + blurFine * 2) / 6;
+        const fineDelta = (orig - blurFine) * fineAmount;
+        const clarityDelta = (orig - blurMed) * localClarity;
+        const clampedDelta = Math.max(-42, Math.min(42, fineDelta + clarityDelta));
+        data[idx + c] = Math.max(0, Math.min(255, Math.round(orig + clampedDelta)));
       }
     }
   }
 
   ctx.putImageData(imgData, 0, 0);
+}
+
+/**
+ * Applies the same 4K edge-preserving denoise + studio clarity sharpening directly
+ * to an unsegmented cropped photo (used when Auto Background Remove is turned off).
+ */
+export async function enhanceStudioPortrait4k(
+  src: string,
+  intensity: StudioEnhanceIntensity = 'normal'
+): Promise<string> {
+  const img = await loadImage(src);
+  const w = Math.max(img.naturalWidth || img.width || 800, 1200);
+  const h = Math.max(1, Math.round((w * (img.naturalHeight || img.height || 1000)) / Math.max(1, img.naturalWidth || img.width || 800)));
+
+  // Step 1: Denoise at source resolution so webcam/JPEG grain isn't magnified
+  const nativeCanvas = document.createElement('canvas');
+  nativeCanvas.width = img.naturalWidth || img.width || 800;
+  nativeCanvas.height = img.naturalHeight || img.height || 1000;
+  const nCtx = nativeCanvas.getContext('2d')!;
+  nCtx.fillStyle = '#ffffff';
+  nCtx.fillRect(0, 0, nativeCanvas.width, nativeCanvas.height);
+  nCtx.drawImage(img, 0, 0, nativeCanvas.width, nativeCanvas.height);
+  applyForegroundEdgePreservingDenoise(nativeCanvas, intensity);
+
+  // Step 2: Upscale to 4K studio density and apply adaptive lighting + dual-radius crispness
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = w;
+  outCanvas.height = h;
+  const oCtx = outCanvas.getContext('2d')!;
+  oCtx.imageSmoothingEnabled = true;
+  oCtx.imageSmoothingQuality = 'high';
+  oCtx.drawImage(nativeCanvas, 0, 0, w, h);
+
+  const metrics = analyzePortraitMetrics(outCanvas, null);
+  applyStudioForegroundLighting(outCanvas, metrics.faceLuminance, intensity);
+  return outCanvas.toDataURL('image/jpeg', 0.95);
 }
 
 /**
@@ -953,6 +1088,15 @@ export async function generateFreeAiSinglePassport(
   const workingCanvas = await fileToWorkingCanvas(file, 1440);
   const nativeFacePromise = detectFaceNative(workingCanvas);
 
+  // Track pixels that were originally inside the rotated/cropped photo (alpha >= 160)
+  // so transparent rotation wedges NEVER get left as white border corners.
+  const wCtx = workingCanvas.getContext('2d')!;
+  const workingPixels = wCtx.getImageData(0, 0, workingCanvas.width, workingCanvas.height).data;
+  const inBoundsMask = new Uint8Array(workingCanvas.width * workingCanvas.height);
+  for (let i = 0; i < inBoundsMask.length; i++) {
+    if (workingPixels[i * 4 + 3] >= 160) inBoundsMask[i] = 1;
+  }
+
   onProgress?.({
     percent: 18,
     labelBn: 'অটো স্টুডিও ইঞ্জিন চালু হচ্ছে... (প্রথমবার একটু সময় নেয়)',
@@ -975,10 +1119,24 @@ export async function generateFreeAiSinglePassport(
     }
   });
 
+  // Zero out any transparent out-of-bounds pixels from tilted crop edges
+  {
+    const cCtx = cutoutCanvas.getContext('2d')!;
+    const cImg = cCtx.getImageData(0, 0, cutoutCanvas.width, cutoutCanvas.height);
+    const cData = cImg.data;
+    const len = Math.min(inBoundsMask.length, cutoutCanvas.width * cutoutCanvas.height);
+    for (let i = 0; i < len; i++) {
+      if (!inBoundsMask[i]) {
+        cData[i * 4 + 3] = 0;
+      }
+    }
+    cCtx.putImageData(cImg, 0, 0);
+  }
+
   onProgress?.({
     percent: 80,
-    labelBn: 'স্টুডিও লাইটিং ও পাসপোর্ট ফ্রেমিং হচ্ছে...',
-    labelEn: 'Applying studio lighting & portrait framing...',
+    labelBn: 'ফোর-কে শার্পনেস, ডিনয়েজ ও স্টুডিও ফ্রেমিং হচ্ছে...',
+    labelEn: 'Applying 4K clarity, denoise & studio framing...',
   });
 
   refineCutoutAlphaAndDecontaminate(cutoutCanvas);
@@ -992,12 +1150,12 @@ export async function generateFreeAiSinglePassport(
   const outW = SINGLE_OUT_W;
   const outH = preserveExactCrop
     ? Math.max(
-        420,
-        Math.min(1800, Math.round((SINGLE_OUT_W * cutoutCanvas.height) / Math.max(1, cutoutCanvas.width)))
+        560,
+        Math.min(2400, Math.round((SINGLE_OUT_W * cutoutCanvas.height) / Math.max(1, cutoutCanvas.width)))
       )
     : SINGLE_OUT_H;
 
-  // Build framed unenhanced cutout first (for "এনহ্যান্স ছাড়া" comparison)
+  // Build framed unenhanced cutout first (for "এনহ্যান্স ছাড়া" & Before/After slider baseline)
   let unenhancedFramedCutout: HTMLCanvasElement;
   if (preserveExactCrop) {
     unenhancedFramedCutout = document.createElement('canvas');
@@ -1019,8 +1177,9 @@ export async function generateFreeAiSinglePassport(
   uSCtx.drawImage(unenhancedFramedCutout, 0, 0);
   const unenhancedDataUrl = unenhancedStudioCanvas.toDataURL('image/jpeg', 0.95);
 
+  // Stage 1: Clean low-res sensor grain & JPEG noise BEFORE upscaling to 4K studio density
   if (enableStudioEnhance) {
-    applyStudioForegroundLighting(cutoutCanvas, metrics.faceLuminance, enhanceIntensity);
+    applyForegroundEdgePreservingDenoise(cutoutCanvas, enhanceIntensity);
   }
 
   let framedCutout: HTMLCanvasElement;
@@ -1034,6 +1193,11 @@ export async function generateFreeAiSinglePassport(
     fCtx.drawImage(cutoutCanvas, 0, 0, outW, outH);
   } else {
     framedCutout = frameSinglePassportCutout(cutoutCanvas, metrics);
+  }
+
+  // Stage 2: Apply adaptive studio lighting + dual-radius 4K clarity sharpening at full 1400×1800 studio resolution
+  if (enableStudioEnhance) {
+    applyStudioForegroundLighting(framedCutout, metrics.faceLuminance, enhanceIntensity);
   }
 
   const cutoutDataUrl = framedCutout.toDataURL('image/png');

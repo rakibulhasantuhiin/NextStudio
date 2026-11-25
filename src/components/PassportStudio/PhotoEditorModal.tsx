@@ -14,7 +14,7 @@ import {
 import { PhotoAdjustments, StudioBackdropPreset, StudioPhotoItem } from '../../types';
 import { DEFAULT_ADJUSTMENTS } from '../../utils/constants';
 import { generateFreeAiSinglePassport } from '../../utils/freeAiPassportStudio';
-import { processStudioPhoto } from '../../utils/imageProcessing';
+import { blendTwoImages, processStudioPhoto } from '../../utils/imageProcessing';
 import { translations } from '../../utils/translations';
 
 interface Props {
@@ -45,13 +45,22 @@ export const PhotoEditorModal: React.FC<Props> = ({
   const [adjustments, setAdjustments] = useState<PhotoAdjustments>(() => ({
     ...DEFAULT_ADJUSTMENTS,
     ...(photo?.adjustments || {}),
-    smoothness: photo?.adjustments?.smoothness ?? 0,
+    sharpness:
+      photo?.adjustments?.sharpness ?? photo?.clarityBaseline?.sharpness ?? 0,
+    smoothness:
+      photo?.adjustments?.smoothness ?? photo?.clarityBaseline?.smoothness ?? 0,
     skinLight: photo?.adjustments?.skinLight ?? 0,
     backgroundMode: photo?.adjustments?.backgroundMode || 'original',
   }));
   const [baseSrc, setBaseSrc] = useState<string>(
     photo?.enhancedSrc || photo?.processedSrc || photo?.originalSrc || ''
   );
+  const [unenhancedBaseSrc, setUnenhancedBaseSrc] = useState<string>(
+    photo?.unenhancedSrc || photo?.originalSrc || ''
+  );
+  const [clarityBaseline, setClarityBaseline] = useState<
+    { sharpness: number; smoothness: number } | undefined
+  >(photo?.clarityBaseline);
   const [previewSrc, setPreviewSrc] = useState<string>(
     photo?.enhancedSrc || photo?.processedSrc || photo?.originalSrc || ''
   );
@@ -63,28 +72,61 @@ export const PhotoEditorModal: React.FC<Props> = ({
     if (!photo || !isOpen) return;
     const initialBase = photo.enhancedSrc || photo.processedSrc || photo.originalSrc;
     setBaseSrc(initialBase);
+    setUnenhancedBaseSrc(photo.unenhancedSrc || photo.originalSrc);
+    setClarityBaseline(photo.clarityBaseline);
     setPreviewSrc(initialBase);
     setCutoutOverride(photo.cutoutSrc);
     setAdjustments({
       ...DEFAULT_ADJUSTMENTS,
       ...photo.adjustments,
-      smoothness: photo.adjustments.smoothness ?? 0,
+      sharpness:
+        photo.adjustments.sharpness ?? photo.clarityBaseline?.sharpness ?? 0,
+      smoothness:
+        photo.adjustments.smoothness ?? photo.clarityBaseline?.smoothness ?? 0,
       skinLight: photo.adjustments.skinLight ?? 0,
       backgroundMode: photo.adjustments.backgroundMode || 'original',
     });
   }, [photo, isOpen]);
 
-  // Instant zero-latency preview update (zero loading overlay!)
+  // Instant zero-latency preview update (zero loading overlay, zero double-sharpen!)
   useEffect(() => {
     if (!isOpen || !baseSrc) return;
     if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
 
     debounceTimer.current = window.setTimeout(async () => {
       try {
-        const result = await processStudioPhoto(baseSrc, {
+        let workingSrc = baseSrc;
+        let residualSharpness = adjustments.sharpness;
+        let residualSmoothness = adjustments.smoothness ?? 0;
+
+        if (clarityBaseline) {
+          const baseTotal = Math.max(
+            1,
+            (clarityBaseline.sharpness || 100) + (clarityBaseline.smoothness || 100)
+          );
+          const currTotal =
+            (adjustments.sharpness ?? 0) + (adjustments.smoothness ?? 0);
+          const ratio = Math.min(1, Math.max(0, currTotal / baseTotal));
+
+          if (unenhancedBaseSrc && ratio < 0.995) {
+            workingSrc = await blendTwoImages(unenhancedBaseSrc, baseSrc, ratio);
+          }
+          residualSharpness = Math.max(
+            0,
+            adjustments.sharpness - clarityBaseline.sharpness
+          );
+          residualSmoothness = Math.max(
+            0,
+            (adjustments.smoothness ?? 0) - clarityBaseline.smoothness
+          );
+        }
+
+        const result = await processStudioPhoto(workingSrc, {
           ...adjustments,
           crop: null, // crop already baked or handled in CropStraightenModal
           backgroundMode: 'original',
+          sharpness: residualSharpness,
+          smoothness: residualSmoothness,
         });
         setPreviewSrc(result);
       } catch (err) {
@@ -95,7 +137,7 @@ export const PhotoEditorModal: React.FC<Props> = ({
     return () => {
       if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
     };
-  }, [adjustments, baseSrc, isOpen]);
+  }, [adjustments, baseSrc, unenhancedBaseSrc, clarityBaseline, isOpen]);
 
   if (!isOpen || !photo) return null;
 
@@ -117,14 +159,21 @@ export const PhotoEditorModal: React.FC<Props> = ({
           customBgColor: photo.customBgColor || defaultCustomBgColor,
           enableStudioEnhance: true,
           enhanceIntensity: photo.enhanceIntensity || 'normal',
-          preserveExactCrop: Boolean(photo.adjustments.crop),
+          preserveExactCrop: Boolean(photo.isUserCropped || photo.adjustments.crop),
         }
       );
+      const nextBaseline = { sharpness: 100, smoothness: 100 };
       setBaseSrc(result.studioDataUrl);
+      setUnenhancedBaseSrc(result.unenhancedDataUrl || result.studioDataUrl);
+      setClarityBaseline(nextBaseline);
       setPreviewSrc(result.studioDataUrl);
       setCutoutOverride(result.cutoutDataUrl);
       setAdjustments((prev) => ({
         ...prev,
+        rotation: 0,
+        crop: null,
+        sharpness: 100,
+        smoothness: 100,
         backgroundMode:
           (photo.aiBgPreset || defaultBgPreset) === 'white' ? 'white' : 'sky-blue',
       }));
@@ -142,7 +191,8 @@ export const PhotoEditorModal: React.FC<Props> = ({
   const handleReset = () => {
     setAdjustments({
       ...DEFAULT_ADJUSTMENTS,
-      smoothness: 0,
+      sharpness: clarityBaseline?.sharpness ?? 0,
+      smoothness: clarityBaseline?.smoothness ?? 0,
       skinLight: 0,
       backgroundMode: adjustments.backgroundMode,
     });

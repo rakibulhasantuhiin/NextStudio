@@ -50,7 +50,7 @@ export const BeforeAfterInspector: React.FC<Props> = ({
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0) return;
     const pct = ((clientX - rect.left) / rect.width) * 100;
-    setSplitPercent(Math.max(4, Math.min(96, Math.round(pct * 10) / 10)));
+    setSplitPercent(Math.max(0, Math.min(100, Math.round(pct * 10) / 10)));
   };
 
   if (!photo && !isProcessing) {
@@ -146,67 +146,70 @@ export const BeforeAfterInspector: React.FC<Props> = ({
                   }}
                   className={`relative w-full ${
                     isCouple ? 'max-w-[390px] aspect-[50/40]' : 'max-w-[330px] aspect-[35/45]'
-                  } rounded-xl overflow-hidden border-2 border-slate-900 dark:border-slate-500 bg-white shadow-md select-none cursor-ew-resize touch-none`}
+                  } rounded-xl border-2 border-slate-900 dark:border-slate-500 bg-white shadow-md select-none cursor-ew-resize touch-none`}
                 >
-                  {/* AFTER (Full layer beneath) */}
-                  <img
-                    src={afterSrc}
-                    alt={lang === 'bn' ? 'পরে' : 'After'}
-                    draggable={false}
-                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 pointer-events-none"
-                    style={{
-                      transform: isZoomed ? 'scale(1.65)' : 'scale(1)',
-                      transformOrigin: 'center 32%',
-                    }}
-                  />
-
-                  {/* BEFORE (Clipped left side) */}
-                  <div
-                    className="absolute inset-0 overflow-hidden pointer-events-none"
-                    style={{
-                      clipPath: `inset(0 ${100 - splitPercent}% 0 0)`,
-                    }}
-                  >
+                  {/* Clipped Image Stage (full 0% to 100% wipe without edge gap) */}
+                  <div className="absolute inset-0 rounded-[10px] overflow-hidden pointer-events-none">
+                    {/* AFTER (Full layer beneath) */}
                     <img
-                      src={beforeSrc}
-                      alt={lang === 'bn' ? 'আগে' : 'Before'}
+                      src={afterSrc}
+                      alt={lang === 'bn' ? 'পরে' : 'After'}
                       draggable={false}
-                      className="w-full h-full object-cover transition-transform duration-200"
+                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-200 pointer-events-none"
                       style={{
                         transform: isZoomed ? 'scale(1.65)' : 'scale(1)',
                         transformOrigin: 'center 32%',
                       }}
                     />
-                  </div>
 
-                  {/* Labels */}
-                  <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-full bg-slate-900/75 text-white text-[11px] font-bold pointer-events-none">
-                    {lang === 'bn' ? 'আগে' : 'Before'}
-                  </span>
-                  <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
-                    <span className="px-2.5 py-0.5 rounded-full bg-slate-900/75 text-white text-[11px] font-bold pointer-events-none">
-                      {lang === 'bn' ? 'পরে' : 'After'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setIsZoomed((z) => !z);
+                    {/* BEFORE (Clipped left side) */}
+                    <div
+                      className="absolute inset-0 overflow-hidden pointer-events-none"
+                      style={{
+                        clipPath: `inset(0 ${100 - splitPercent}% 0 0)`,
                       }}
-                      className="w-7 h-7 rounded-lg bg-white/90 hover:bg-white text-slate-800 border border-slate-300 shadow flex items-center justify-center cursor-pointer"
-                      title={lang === 'bn' ? 'জুম করে দেখুন' : 'Toggle Zoom'}
                     >
-                      {isZoomed ? (
-                        <ZoomOut className="w-3.5 h-3.5" />
-                      ) : (
-                        <ZoomIn className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                      <img
+                        src={beforeSrc}
+                        alt={lang === 'bn' ? 'আগে' : 'Before'}
+                        draggable={false}
+                        className="w-full h-full object-cover transition-transform duration-200"
+                        style={{
+                          transform: isZoomed ? 'scale(1.65)' : 'scale(1)',
+                          transformOrigin: 'center 32%',
+                        }}
+                      />
+                    </div>
+
+                    {/* Labels */}
+                    <span className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-full bg-slate-900/75 text-white text-[11px] font-bold pointer-events-none">
+                      {lang === 'bn' ? 'আগে' : 'Before'}
+                    </span>
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 pointer-events-auto">
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-900/75 text-white text-[11px] font-bold pointer-events-none">
+                        {lang === 'bn' ? 'পরে' : 'After'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsZoomed((z) => !z);
+                        }}
+                        className="w-7 h-7 rounded-lg bg-white/90 hover:bg-white text-slate-800 border border-slate-300 shadow flex items-center justify-center cursor-pointer"
+                        title={lang === 'bn' ? 'জুম করে দেখুন' : 'Toggle Zoom'}
+                      >
+                        {isZoomed ? (
+                          <ZoomOut className="w-3.5 h-3.5" />
+                        ) : (
+                          <ZoomIn className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Vertical Split Line & Draggable Handle */}
+                  {/* Vertical Split Line & Draggable Handle (unclipped at 0% and 100%) */}
                   <div
-                    className="absolute inset-y-0 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.65)] pointer-events-none"
+                    className="absolute inset-y-0 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.65)] pointer-events-none z-10"
                     style={{ left: `${splitPercent}%` }}
                   >
                     <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white border-2 border-slate-900 shadow-lg flex items-center justify-center text-blue-600">

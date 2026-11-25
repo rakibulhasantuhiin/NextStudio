@@ -519,8 +519,9 @@ export async function applyCropAndStraighten(
   const sCtx = stageCanvas.getContext('2d');
   if (!sCtx) return src;
 
-  sCtx.fillStyle = '#ffffff';
-  sCtx.fillRect(0, 0, stageW, stageH);
+  // Keep rotated out-of-bounds areas transparent (alpha = 0) so studio backdrop removal
+  // never leaves white tilted corner wedges around the portrait.
+  sCtx.clearRect(0, 0, stageW, stageH);
   sCtx.imageSmoothingEnabled = true;
   sCtx.imageSmoothingQuality = 'high';
   sCtx.save();
@@ -535,7 +536,7 @@ export async function applyCropAndStraighten(
 
   const crop = options.crop;
   if (!crop) {
-    return stageCanvas.toDataURL('image/jpeg', 0.96);
+    return stageCanvas.toDataURL('image/png');
   }
 
   const sx = Math.max(0, Math.round((crop.x / 100) * stageW));
@@ -553,12 +554,44 @@ export async function applyCropAndStraighten(
   outCanvas.width = outW;
   outCanvas.height = outH;
   const oCtx = outCanvas.getContext('2d');
-  if (!oCtx) return stageCanvas.toDataURL('image/jpeg', 0.96);
+  if (!oCtx) return stageCanvas.toDataURL('image/png');
+  oCtx.clearRect(0, 0, outW, outH);
   oCtx.imageSmoothingEnabled = true;
   oCtx.imageSmoothingQuality = 'high';
   oCtx.drawImage(stageCanvas, sx, sy, sw, sh, 0, 0, outW, outH);
 
-  return outCanvas.toDataURL('image/jpeg', 0.96);
+  return outCanvas.toDataURL('image/png');
+}
+
+/**
+ * Fast canvas cross-fade between two aligned studio frames (e.g. unenhanced vs 4K enhanced)
+ * so manual clarity sliders scale smoothly without double-sharpening.
+ */
+export async function blendTwoImages(
+  baseSrc: string,
+  topSrc: string,
+  topAlpha: number
+): Promise<string> {
+  const alpha = Math.max(0, Math.min(1, topAlpha));
+  if (alpha >= 0.995) return topSrc;
+  if (alpha <= 0.005) return baseSrc;
+
+  const [baseImg, topImg] = await Promise.all([loadImage(baseSrc), loadImage(topSrc)]);
+  const w = topImg.naturalWidth || topImg.width || baseImg.naturalWidth || 1050;
+  const h = topImg.naturalHeight || topImg.height || baseImg.naturalHeight || 1350;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return topSrc;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(baseImg, 0, 0, w, h);
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(topImg, 0, 0, w, h);
+  ctx.globalAlpha = 1;
+  return canvas.toDataURL('image/jpeg', 0.95);
 }
 
 /**
@@ -611,12 +644,23 @@ export async function processStudioPhoto(
     sHeight = (adjustments.crop.height / 100) * img.height;
   }
 
-  // Handle rotation
+  // Handle rotation (exact dimensions for orthogonal 90° multiples to avoid 1px white border)
+  const normRot = ((adjustments.rotation % 360) + 360) % 360;
   const rad = (adjustments.rotation * Math.PI) / 180;
-  const sin = Math.abs(Math.sin(rad));
-  const cos = Math.abs(Math.cos(rad));
-  const rotWidth = Math.max(1, Math.round(sWidth * cos + sHeight * sin));
-  const rotHeight = Math.max(1, Math.round(sWidth * sin + sHeight * cos));
+  let rotWidth: number;
+  let rotHeight: number;
+  if (normRot === 0 || normRot === 180) {
+    rotWidth = Math.max(1, Math.round(sWidth));
+    rotHeight = Math.max(1, Math.round(sHeight));
+  } else if (normRot === 90 || normRot === 270) {
+    rotWidth = Math.max(1, Math.round(sHeight));
+    rotHeight = Math.max(1, Math.round(sWidth));
+  } else {
+    const sin = Math.abs(Math.sin(rad));
+    const cos = Math.abs(Math.cos(rad));
+    rotWidth = Math.max(1, Math.round(sWidth * cos + sHeight * sin));
+    rotHeight = Math.max(1, Math.round(sWidth * sin + sHeight * cos));
+  }
 
   cropCanvas.width = rotWidth;
   cropCanvas.height = rotHeight;

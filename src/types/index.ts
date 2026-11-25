@@ -110,6 +110,11 @@ export interface StudioPhotoItem {
   customBgColor?: string;
   enhanceIntensity?: StudioEnhanceIntensity;
   needsReprocess?: boolean; // true when BG/enhance settings changed since last processing
+  isUserCropped?: boolean; // true when crop & straighten were already baked into originalSrc
+  clarityBaseline?: {
+    sharpness: number;
+    smoothness: number;
+  };
   fileName?: string;
   fileSizeBytes?: number;
   dimensionsLabel?: string;
