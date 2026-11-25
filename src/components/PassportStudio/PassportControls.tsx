@@ -6,6 +6,7 @@ import {
   ArrowLeftRight,
   ArrowRight,
   ArrowUp,
+  Camera,
   Check,
   Copy,
   Edit3,
@@ -53,6 +54,7 @@ interface Props {
   onRemovePhoto: (index: number) => void;
   onDuplicatePhoto: (index: number) => void;
   onOpenEditor: (index: number) => void;
+  onOpenWebcam: () => void;
   coupleMode: boolean;
   setCoupleMode: (val: boolean) => void;
   isAiGenerating?: boolean;
@@ -118,6 +120,7 @@ export const PassportControls: React.FC<Props> = ({
   onRemovePhoto,
   onDuplicatePhoto,
   onOpenEditor,
+  onOpenWebcam,
   coupleMode,
   setCoupleMode,
   isAiGenerating = false,
@@ -694,6 +697,24 @@ export const PassportControls: React.FC<Props> = ({
                     {lang === 'bn'
                       ? 'AI ছাড়াই আগে থেকে এডিট করা ছবি সরাসরি প্রিন্ট পেজে নিন'
                       : 'Load already-edited photo directly to print sheet without AI'}
+                  </span>
+                </div>
+              </div>
+
+              {/* OPTION 3: Live Webcam Capture */}
+              <div
+                onClick={onOpenWebcam}
+                className="glass-dropzone rounded-2xl p-3 text-left cursor-pointer flex items-center gap-3 hover:border-blue-400/60 transition-all"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-600/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100 block leading-snug">
+                    {lang === 'bn' ? 'ওয়েবক্যাম থেকে ছবি তুলুন' : 'Live Webcam Capture'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5 leading-snug">
+                    {lang === 'bn' ? 'ক্যামেরা দিয়ে সরাসরি লাইভ স্ন্যাপ নিন' : 'Snap portrait live using device camera'}
                   </span>
                 </div>
               </div>

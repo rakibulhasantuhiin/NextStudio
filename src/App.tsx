@@ -18,6 +18,7 @@ import { OfflineIndicator } from './components/OfflineIndicator';
 import { PaperPreview } from './components/PaperPreview';
 import { PassportControls } from './components/PassportStudio/PassportControls';
 import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
+import { WebcamCaptureModal } from './components/PassportStudio/WebcamCaptureModal';
 import { PrintSheetHidden } from './components/PrintSheetHidden';
 import { ReadyDocControls } from './components/ReadyDocsStudio/ReadyDocControls';
 import { ReadyDocSheetRenderer } from './components/ReadyDocsStudio/ReadyDocSheetRenderer';
@@ -234,6 +235,7 @@ export default function App() {
   const [aiProgress, setAiProgress] = useState<number>(0);
   const [aiStatusText, setAiStatusText] = useState<string>('');
   const [aiError, setAiError] = useState<string | null>(null);
+  const [isWebcamOpen, setIsWebcamOpen] = useState<boolean>(false);
 
   // Placed items on the paper sheet (enables drag-and-drop, nudging, mixed passport & stamp sizes)
   const [placedItems, setPlacedItems] = useState<PlacedSheetItem[]>([]);
@@ -1156,6 +1158,12 @@ export default function App() {
     } catch (err) {
       console.error('Backdrop switch failed:', err);
     }
+  };
+
+  const handleWebcamCapture = (file: File) => {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    void handleUploadPhotos(dt.files);
   };
 
   // Option 2: Direct File Upload (Ready Photo — skips AI and loads directly onto print sheet)
@@ -2555,6 +2563,7 @@ export default function App() {
               onRemovePhoto={handleRemovePhoto}
               onDuplicatePhoto={handleDuplicatePhoto}
               onOpenEditor={(idx) => setEditingPhotoIndex(idx)}
+              onOpenWebcam={() => setIsWebcamOpen(true)}
               coupleMode={coupleUploadMode}
               setCoupleMode={handleSetCoupleUploadMode}
               isAiGenerating={isAiGenerating}
@@ -3083,6 +3092,14 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* 5C. Webcam Capture Modal */}
+      <WebcamCaptureModal
+        isOpen={isWebcamOpen}
+        onClose={() => setIsWebcamOpen(false)}
+        onCapture={handleWebcamCapture}
+        lang={lang}
+      />
 
       {/* 6. NID Card Modal Editor */}
       {nidEditingSide && (

@@ -48,12 +48,11 @@ export const PhotoEditorModal: React.FC<Props> = ({
     });
   }, [photo]);
 
-  // Live preview update
+  // Live preview update (instant zero-latency)
   useEffect(() => {
     if (!photo) return;
     if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
 
-    setIsProcessing(true);
     debounceTimer.current = window.setTimeout(async () => {
       try {
         const result = await processStudioPhoto(photo.originalSrc, {
@@ -63,10 +62,8 @@ export const PhotoEditorModal: React.FC<Props> = ({
         setPreviewSrc(result);
       } catch (err) {
         console.error('Failed to preview adjustments:', err);
-      } finally {
-        setIsProcessing(false);
       }
-    }, 120);
+    }, 40);
 
     return () => {
       if (debounceTimer.current) window.clearTimeout(debounceTimer.current);
@@ -119,12 +116,6 @@ export const PhotoEditorModal: React.FC<Props> = ({
                 alt="Preview"
                 className="max-h-[240px] sm:max-h-[320px] max-w-full object-contain"
               />
-              {isProcessing && (
-                <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center text-white text-xs font-medium">
-                  <RefreshCw className="w-5 h-5 animate-spin mr-2" />
-                  <span>{lang === 'bn' ? 'প্রসেসিং হচ্ছে...' : 'Processing...'}</span>
-                </div>
-              )}
             </div>
 
             {/* Quick Rotate & Flip toolbar */}
