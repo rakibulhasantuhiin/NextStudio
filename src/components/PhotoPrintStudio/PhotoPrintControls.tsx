@@ -130,11 +130,20 @@ export const PhotoPrintControls: React.FC<Props> = ({
   const presetList = Object.values(PHOTO_PRINT_PRESETS);
 
   const handleSelectSize = (sizeId: PhotoPrintSizeId) => {
-    setSettings((prev) => ({ ...prev, sizeId }));
-    // Convenience: selecting '4up-a4' or 'a4-full' on 4R paper switches to A4 automatically so 4-up / full A4 fits
-    if ((sizeId === '4up-a4' || sizeId === 'a4-full') && paperSize === '4r') {
+    setSettings((prev) => ({ ...prev, sizeId, slotPositions: {} }));
+    if (sizeId === 'a3-full' && paperSize !== 'a3') {
+      setPaperSize('a3');
+    } else if (
+      (sizeId === '4up-a4' || sizeId === 'a4-full') &&
+      (paperSize === '2r' || paperSize === '3r' || paperSize === '4r' || paperSize === 'a6')
+    ) {
       setPaperSize('a4');
     }
+  };
+
+  const handleSelectPaperSheet = (nextPaper: PaperSizeType) => {
+    setPaperSize(nextPaper);
+    setSettings((prev) => ({ ...prev, slotPositions: {} }));
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -332,32 +341,91 @@ export const PhotoPrintControls: React.FC<Props> = ({
             title={lang === 'bn' ? '২. ছবির সাইজ ও পেপার' : '2. Photo Size & Sheet'}
             meta={`${grid.slotWidthMm}×${grid.slotHeightMm} mm`}
           >
-            {/* Quick Paper Presets */}
-            <div className="grid grid-cols-4 gap-1.5">
-              {(
-                [
-                  { id: 'a4', label: 'A4' },
-                  { id: '4r', label: '4R' },
-                  { id: 'a5', label: 'A5' },
-                  { id: 'letter', label: 'Letter' },
-                ] as { id: PaperSizeType; label: string }[]
-              ).map((pOpt) => {
-                const active = paperSize === pOpt.id;
-                return (
-                  <button
-                    key={pOpt.id}
-                    type="button"
-                    onClick={() => setPaperSize(pOpt.id)}
-                    className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition cursor-pointer ${
-                      active
-                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900'
-                        : 'glass-tile text-slate-700 dark:text-slate-200'
-                    }`}
-                  >
-                    {pOpt.label}
-                  </button>
-                );
-              })}
+            {/* Complete Paper Sheet Sizes (Lab Photo Sheets + Office Sheets + Custom) */}
+            <div className="space-y-1.5">
+              <div className="grid grid-cols-4 gap-1.5">
+                {(
+                  [
+                    { id: 'a4', label: 'A4', sub: '210×297' },
+                    { id: '4r', label: '4R', sub: '102×152' },
+                    { id: '3r', label: '3R', sub: '89×127' },
+                    { id: '5r', label: '5R', sub: '127×178' },
+                    { id: '6r', label: '6R', sub: '152×203' },
+                    { id: '8r', label: '8R', sub: '203×254' },
+                    { id: '10r', label: '10R', sub: '203×305' },
+                    { id: '2r', label: '2R', sub: '64×89' },
+                    { id: 'a3', label: 'A3', sub: '297×420' },
+                    { id: 'a5', label: 'A5', sub: '148×210' },
+                    { id: 'a6', label: 'A6', sub: '105×148' },
+                    { id: 'b5', label: 'B5', sub: '176×250' },
+                    { id: 'letter', label: 'Letter', sub: '216×279' },
+                    { id: 'legal', label: 'Legal', sub: '216×356' },
+                    { id: 'custom', label: lang === 'bn' ? 'কাস্টম' : 'Custom', sub: 'mm' },
+                  ] as { id: PaperSizeType; label: string; sub: string }[]
+                ).map((pOpt) => {
+                  const active = paperSize === pOpt.id;
+                  return (
+                    <button
+                      key={pOpt.id}
+                      type="button"
+                      onClick={() => handleSelectPaperSheet(pOpt.id)}
+                      className={`py-1.5 px-1 rounded-lg text-center transition cursor-pointer ${
+                        active
+                          ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+                          : 'glass-tile text-slate-700 dark:text-slate-200'
+                      }`}
+                    >
+                      <span className="text-[11px] font-bold block leading-tight">{pOpt.label}</span>
+                      <span
+                        className={`text-[9px] font-mono tabular-nums block mt-0.5 ${
+                          active
+                            ? 'text-slate-300 dark:text-slate-600'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {pOpt.sub}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {paperSize === 'custom' && (
+                <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl glass-track">
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                      {lang === 'bn' ? 'শিট প্রস্থ (মিমি)' : 'Sheet W (mm)'}
+                    </label>
+                    <input
+                      type="number"
+                      min="30"
+                      max="1000"
+                      value={customPaperWidth}
+                      onChange={(e) => {
+                        setCustomPaperWidth(Math.max(30, Number(e.target.value) || 210));
+                        setSettings((prev) => ({ ...prev, slotPositions: {} }));
+                      }}
+                      className="w-full px-2 py-1 rounded-lg glass-input text-xs font-mono font-semibold tabular-nums"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                      {lang === 'bn' ? 'শিট উচ্চতা (মিমি)' : 'Sheet H (mm)'}
+                    </label>
+                    <input
+                      type="number"
+                      min="30"
+                      max="1000"
+                      value={customPaperHeight}
+                      onChange={(e) => {
+                        setCustomPaperHeight(Math.max(30, Number(e.target.value) || 297));
+                        setSettings((prev) => ({ ...prev, slotPositions: {} }));
+                      }}
+                      className="w-full px-2 py-1 rounded-lg glass-input text-xs font-mono font-semibold tabular-nums"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Complete Studio Photo Size Grid */}
@@ -485,7 +553,11 @@ export const PhotoPrintControls: React.FC<Props> = ({
                 type="checkbox"
                 checked={settings.autoRotateToFit}
                 onChange={(e) =>
-                  setSettings((prev) => ({ ...prev, autoRotateToFit: e.target.checked }))
+                  setSettings((prev) => ({
+                    ...prev,
+                    autoRotateToFit: e.target.checked,
+                    slotPositions: {},
+                  }))
                 }
                 className="rounded accent-blue-600 w-3.5 h-3.5 cursor-pointer"
               />
@@ -512,7 +584,11 @@ export const PhotoPrintControls: React.FC<Props> = ({
                   step="1"
                   value={settings.marginMm}
                   onChange={(e) =>
-                    setSettings((prev) => ({ ...prev, marginMm: Number(e.target.value) }))
+                    setSettings((prev) => ({
+                      ...prev,
+                      marginMm: Number(e.target.value),
+                      slotPositions: {},
+                    }))
                   }
                   className="w-full accent-blue-600 cursor-pointer"
                 />
@@ -531,7 +607,11 @@ export const PhotoPrintControls: React.FC<Props> = ({
                   step="1"
                   value={settings.gapMm}
                   onChange={(e) =>
-                    setSettings((prev) => ({ ...prev, gapMm: Number(e.target.value) }))
+                    setSettings((prev) => ({
+                      ...prev,
+                      gapMm: Number(e.target.value),
+                      slotPositions: {},
+                    }))
                   }
                   className="w-full accent-blue-600 cursor-pointer"
                 />

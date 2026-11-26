@@ -21,10 +21,21 @@ import {
   User,
   Zap,
 } from 'lucide-react';
-import { CvData, CvDensity, CvFontStyle, CvTemplateId } from '../../types/cv';
+import {
+  CvData,
+  CvDensity,
+  CvFontStyle,
+  CvPaperSizeId,
+  CvSectionKey,
+  CvTemplateId,
+} from '../../types/cv';
 import {
   BLOOD_GROUP_OPTIONS,
   CV_ACCENT_COLORS,
+  CV_EDUCATION_BOARD_GROUPS,
+  CV_EDUCATION_EXAM_GROUPS,
+  CV_EDUCATION_YEARS,
+  CV_PAPER_SIZES,
   CV_QUICK_FILL_PRESETS,
   CV_TEMPLATES,
   MARITAL_STATUS_OPTIONS,
@@ -37,6 +48,7 @@ import {
   DEFAULT_BANGLA_FONT,
   HIGHLIGHT_COLORS,
 } from '../../utils/richText';
+import { EducationSelectInput } from './EducationSelectInput';
 
 interface CvControlsProps {
   lang: 'bn' | 'en';
@@ -362,20 +374,19 @@ export const CvControls: React.FC<CvControlsProps> = ({
               <div key={exp.id} className="p-2.5 rounded-xl glass-tile space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-mono font-bold text-slate-500">#{idx + 1}</span>
-                  {cvData.experiences.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCvData((p) => ({
-                          ...p,
-                          experiences: p.experiences.filter((_, i) => i !== idx),
-                        }))
-                      }
-                      className="text-red-500 hover:bg-red-500/10 p-1 rounded cursor-pointer"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCvData((p) => ({
+                        ...p,
+                        experiences: p.experiences.filter((_, i) => i !== idx),
+                      }))
+                    }
+                    className="text-red-500 hover:bg-red-500/10 p-1 rounded cursor-pointer"
+                    title={isBn ? 'মুছে ফেলুন' : 'Delete'}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
                   <input
@@ -487,34 +498,35 @@ export const CvControls: React.FC<CvControlsProps> = ({
               <div key={edu.id} className="p-2.5 rounded-xl glass-tile space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-mono font-bold text-slate-500">#{idx + 1}</span>
-                  {cvData.educations.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCvData((p) => ({
-                          ...p,
-                          educations: p.educations.filter((_, i) => i !== idx),
-                        }))
-                      }
-                      className="text-red-500 hover:bg-red-500/10 p-1 rounded cursor-pointer"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCvData((p) => ({
+                        ...p,
+                        educations: p.educations.filter((_, i) => i !== idx),
+                      }))
+                    }
+                    className="text-red-500 hover:bg-red-500/10 p-1 rounded cursor-pointer"
+                    title={isBn ? 'মুছে ফেলুন' : 'Delete'}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                 </div>
-                <input
-                  type="text"
+                <EducationSelectInput
                   value={edu.degree}
-                  onChange={(e) =>
+                  onChange={(val) =>
                     setCvData((p) => ({
                       ...p,
                       educations: p.educations.map((x, i) =>
-                        i === idx ? { ...x, degree: e.target.value } : x
+                        i === idx ? { ...x, degree: val } : x
                       ),
                     }))
                   }
-                  placeholder={isBn ? 'ডিগ্রি (যেমন: BBA / HSC)' : 'Degree (e.g. BBA / HSC)'}
-                  className="w-full px-2 py-1 rounded-lg glass-input text-xs"
+                  groups={CV_EDUCATION_EXAM_GROUPS}
+                  lang={lang}
+                  compact
+                  placeholder={isBn ? 'পরীক্ষা / ডিগ্রি' : 'Exam / Degree'}
+                  emptyOptionLabel={isBn ? '— পরীক্ষা বা ডিগ্রি বাছুন —' : '— Select Exam / Degree —'}
                 />
                 <input
                   type="text"
@@ -527,37 +539,41 @@ export const CvControls: React.FC<CvControlsProps> = ({
                       ),
                     }))
                   }
-                  placeholder={isBn ? 'প্রতিষ্ঠান' : 'Institution'}
+                  placeholder={isBn ? 'প্রতিষ্ঠান / স্কুল / কলেজ' : 'Institution / College / University'}
                   className="w-full px-2 py-1 rounded-lg glass-input text-xs"
                 />
-                <div className="grid grid-cols-3 gap-1.5">
-                  <input
-                    type="text"
-                    value={edu.boardOrGroup}
-                    onChange={(e) =>
-                      setCvData((p) => ({
-                        ...p,
-                        educations: p.educations.map((x, i) =>
-                          i === idx ? { ...x, boardOrGroup: e.target.value } : x
-                        ),
-                      }))
-                    }
-                    placeholder={isBn ? 'বোর্ড' : 'Board'}
-                    className="px-2 py-1 rounded-lg glass-input text-[11px]"
-                  />
-                  <input
-                    type="text"
+                <EducationSelectInput
+                  value={edu.boardOrGroup}
+                  onChange={(val) =>
+                    setCvData((p) => ({
+                      ...p,
+                      educations: p.educations.map((x, i) =>
+                        i === idx ? { ...x, boardOrGroup: val } : x
+                      ),
+                    }))
+                  }
+                  groups={CV_EDUCATION_BOARD_GROUPS}
+                  lang={lang}
+                  compact
+                  placeholder={isBn ? 'বোর্ড / বিভাগ' : 'Board / Group'}
+                  emptyOptionLabel={isBn ? '— বোর্ড / বিভাগ বাছুন —' : '— Select Board / Group —'}
+                />
+                <div className="grid grid-cols-2 gap-1.5">
+                  <EducationSelectInput
                     value={edu.year}
-                    onChange={(e) =>
+                    onChange={(val) =>
                       setCvData((p) => ({
                         ...p,
                         educations: p.educations.map((x, i) =>
-                          i === idx ? { ...x, year: e.target.value } : x
+                          i === idx ? { ...x, year: val } : x
                         ),
                       }))
                     }
+                    flatOptions={CV_EDUCATION_YEARS}
+                    lang={lang}
+                    compact
                     placeholder={isBn ? 'সাল' : 'Year'}
-                    className="px-2 py-1 rounded-lg glass-input text-[11px]"
+                    emptyOptionLabel={isBn ? '— সাল (১৯৮০–২০৫০) —' : '— Year (1980–2050) —'}
                   />
                   <input
                     type="text"
@@ -570,7 +586,7 @@ export const CvControls: React.FC<CvControlsProps> = ({
                         ),
                       }))
                     }
-                    placeholder="GPA"
+                    placeholder="GPA / Result"
                     className="px-2 py-1 rounded-lg glass-input text-[11px]"
                   />
                 </div>
@@ -848,6 +864,80 @@ export const CvControls: React.FC<CvControlsProps> = ({
             </select>
           </div>
 
+          {/* Paper Size Selector (Matches multi-page preview, PDF & Print) */}
+          <div className="glass-tile rounded-xl p-2.5 space-y-2">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-200">
+              <span>{isBn ? 'পেইজ / কাগজের সাইজ' : 'Paper Size'}</span>
+              <span className="font-mono text-[10px] text-blue-600 dark:text-blue-400">
+                {(cvData.paperSize || 'a4').toUpperCase()}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {CV_PAPER_SIZES.map((ps) => {
+                const active = (cvData.paperSize || 'a4') === ps.id;
+                return (
+                  <button
+                    key={ps.id}
+                    type="button"
+                    onClick={() =>
+                      setCvData((p) => ({
+                        ...p,
+                        paperSize: ps.id as CvPaperSizeId,
+                      }))
+                    }
+                    className={`py-1.5 px-1.5 rounded-lg text-[10.5px] font-bold cursor-pointer transition ${
+                      active
+                        ? 'glass-btn-primary text-white'
+                        : 'glass-tile text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    {ps.id === 'custom' ? (isBn ? 'কাস্টম' : 'Custom') : ps.id.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+            {(cvData.paperSize || 'a4') === 'custom' && (
+              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                <div>
+                  <label className="block text-[10px] text-slate-500 mb-0.5">
+                    {isBn ? 'প্রস্থ (mm)' : 'Width (mm)'}
+                  </label>
+                  <input
+                    type="number"
+                    min={100}
+                    max={450}
+                    value={cvData.customPaperWidthMm ?? 210}
+                    onChange={(e) =>
+                      setCvData((p) => ({
+                        ...p,
+                        customPaperWidthMm: Math.max(100, Math.min(450, Number(e.target.value) || 210)),
+                      }))
+                    }
+                    className="w-full px-2 py-1 rounded-lg glass-input text-xs font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] text-slate-500 mb-0.5">
+                    {isBn ? 'উচ্চতা (mm)' : 'Height (mm)'}
+                  </label>
+                  <input
+                    type="number"
+                    min={120}
+                    max={600}
+                    value={cvData.customPaperHeightMm ?? 297}
+                    onChange={(e) =>
+                      setCvData((p) => ({
+                        ...p,
+                        customPaperHeightMm: Math.max(120, Math.min(600, Number(e.target.value) || 297)),
+                      }))
+                    }
+                    className="w-full px-2 py-1 rounded-lg glass-input text-xs font-mono"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* CV Heading Language */}
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
@@ -1078,6 +1168,76 @@ export const CvControls: React.FC<CvControlsProps> = ({
                   {label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Universal Section Delete / Restore Toggles */}
+          <div className="glass-tile rounded-xl p-2.5 space-y-2">
+            <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+              {isBn ? 'যেকোনো সেকশন রাখুন বা বাদ দিন' : 'Show / Delete Any Section'}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { key: 'objective', bn: 'উদ্দেশ্য', en: 'Objective' },
+                  { key: 'experience', bn: 'অভিজ্ঞতা', en: 'Experience' },
+                  { key: 'education', bn: 'শিক্ষা', en: 'Education' },
+                  { key: 'skills', bn: 'দক্ষতা', en: 'Skills' },
+                  { key: 'personal', bn: 'ব্যক্তিগত', en: 'Personal' },
+                  { key: 'declaration', bn: 'ঘোষণাপত্র', en: 'Declaration' },
+                ] as { key: CvSectionKey; bn: string; en: string }[]
+              ).map((sec) => {
+                const isHidden = (cvData.hiddenSections || []).includes(sec.key);
+                return (
+                  <button
+                    key={sec.key}
+                    type="button"
+                    onClick={() =>
+                      setCvData((p) => {
+                        const prev = p.hiddenSections || [];
+                        return {
+                          ...p,
+                          hiddenSections: prev.includes(sec.key)
+                            ? prev.filter((k) => k !== sec.key)
+                            : [...prev, sec.key],
+                        };
+                      })
+                    }
+                    className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold cursor-pointer transition ${
+                      isHidden
+                        ? 'glass-tile text-slate-400 line-through'
+                        : 'bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
+                    }`}
+                  >
+                    {isHidden ? '+ ' : '✓ '}
+                    {isBn ? sec.bn : sec.en}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setCvData((p) => ({ ...p, hidePhoto: !p.hidePhoto }))}
+                className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold cursor-pointer transition ${
+                  cvData.hidePhoto
+                    ? 'glass-tile text-slate-400 line-through'
+                    : 'bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
+                }`}
+              >
+                {cvData.hidePhoto ? '+ ' : '✓ '}
+                {isBn ? 'ছবি' : 'Photo'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCvData((p) => ({ ...p, hideSignature: !p.hideSignature }))}
+                className={`px-2 py-1 rounded-lg text-[10.5px] font-semibold cursor-pointer transition ${
+                  cvData.hideSignature
+                    ? 'glass-tile text-slate-400 line-through'
+                    : 'bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
+                }`}
+              >
+                {cvData.hideSignature ? '+ ' : '✓ '}
+                {isBn ? 'স্বাক্ষর' : 'Signature'}
+              </button>
             </div>
           </div>
 

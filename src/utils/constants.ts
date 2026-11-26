@@ -16,10 +16,60 @@ export const PAPER_SIZES: Record<PaperSizeType, PaperDimensions> = {
     width: 210,
     height: 297,
   },
+  '4r': {
+    name: '4R / 4×6" (102 × 152 mm)',
+    width: 102,
+    height: 152,
+  },
+  '3r': {
+    name: '3R / 3.5×5" (89 × 127 mm)',
+    width: 89,
+    height: 127,
+  },
+  '5r': {
+    name: '5R / 5×7" (127 × 178 mm)',
+    width: 127,
+    height: 178,
+  },
+  '6r': {
+    name: '6R / 6×8" (152 × 203 mm)',
+    width: 152,
+    height: 203,
+  },
+  '8r': {
+    name: '8R / 8×10" (203 × 254 mm)',
+    width: 203,
+    height: 254,
+  },
+  '10r': {
+    name: '10R / 8×12" (203 × 305 mm)',
+    width: 203,
+    height: 305,
+  },
+  '2r': {
+    name: '2R / Wallet (64 × 89 mm)',
+    width: 64,
+    height: 89,
+  },
+  a3: {
+    name: 'A3 (297 × 420 mm)',
+    width: 297,
+    height: 420,
+  },
   a5: {
     name: 'A5 (148 × 210 mm)',
     width: 148,
     height: 210,
+  },
+  a6: {
+    name: 'A6 / Postcard (105 × 148 mm)',
+    width: 105,
+    height: 148,
+  },
+  b5: {
+    name: 'B5 (176 × 250 mm)',
+    width: 176,
+    height: 250,
   },
   letter: {
     name: 'Letter (215.9 × 279.4 mm)',
@@ -30,16 +80,6 @@ export const PAPER_SIZES: Record<PaperSizeType, PaperDimensions> = {
     name: 'Legal (215.9 × 355.6 mm)',
     width: 215.9,
     height: 355.6,
-  },
-  b5: {
-    name: 'B5 (176 × 250 mm)',
-    width: 176,
-    height: 250,
-  },
-  '4r': {
-    name: '4R / 4x6" (102 × 152 mm)',
-    width: 102,
-    height: 152,
   },
   custom: {
     name: 'Custom Size',

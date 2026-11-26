@@ -15,6 +15,9 @@ import { CvData, CvFieldTarget } from '../../types/cv';
 import { StudioPhotoItem } from '../../types';
 import {
   BLOOD_GROUP_OPTIONS,
+  CV_EDUCATION_BOARD_GROUPS,
+  CV_EDUCATION_EXAM_GROUPS,
+  CV_EDUCATION_YEARS,
   EXPERIENCE_DESC_SUGGESTIONS,
   GENDER_OPTIONS,
   LANGUAGE_SUGGESTIONS,
@@ -29,6 +32,7 @@ import {
   applyInlineFormatToValue,
 } from '../../utils/richText';
 import { InlineTextFormatBar } from '../RichTextToolbar';
+import { EducationSelectInput } from './EducationSelectInput';
 
 interface CvFieldModalProps {
   target: CvFieldTarget | null;
@@ -739,18 +743,19 @@ export const CvFieldModal: React.FC<CvFieldModalProps> = ({
         }));
 
       return (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           <div>
             <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-              {isBn ? 'ডিগ্রি / পরীক্ষা' : 'Degree / Examination'}
+              {isBn ? 'ডিগ্রি / পরীক্ষা (PSC থেকে PhD)' : 'Degree / Examination (PSC to PhD)'}
             </label>
-            <input
-              type="text"
-              autoFocus={target.subField === 'degree' || !target.subField}
+            <EducationSelectInput
               value={edu.degree}
-              onChange={(e) => updateEdu({ degree: e.target.value })}
-              placeholder="BBA / HSC / SSC / B.Sc"
-              className="w-full px-3 py-2 rounded-xl glass-input text-sm"
+              onChange={(val) => updateEdu({ degree: val })}
+              groups={CV_EDUCATION_EXAM_GROUPS}
+              lang={lang}
+              autoFocus={target.subField === 'degree' || !target.subField}
+              placeholder="SSC / HSC / BBA / B.Sc / MBA"
+              emptyOptionLabel={isBn ? '— পরীক্ষা বা ডিগ্রি বাছুন —' : '— Select Exam / Degree —'}
             />
           </div>
           <div>
@@ -766,46 +771,48 @@ export const CvFieldModal: React.FC<CvFieldModalProps> = ({
               className="w-full px-3 py-2 rounded-xl glass-input text-sm"
             />
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                {isBn ? 'বোর্ড / বিভাগ' : 'Board / Group'}
+                {isBn ? 'শিক্ষা বোর্ড / বিভাগ' : 'Board / Group'}
               </label>
-              <input
-                type="text"
-                autoFocus={target.subField === 'boardOrGroup'}
+              <EducationSelectInput
                 value={edu.boardOrGroup}
-                onChange={(e) => updateEdu({ boardOrGroup: e.target.value })}
-                placeholder="Dhaka / Science"
-                className="w-full px-2.5 py-2 rounded-xl glass-input text-xs"
+                onChange={(val) => updateEdu({ boardOrGroup: val })}
+                groups={CV_EDUCATION_BOARD_GROUPS}
+                lang={lang}
+                autoFocus={target.subField === 'boardOrGroup'}
+                placeholder="Dhaka Board / Science"
+                emptyOptionLabel={isBn ? '— বোর্ড বা বিভাগ বাছুন —' : '— Select Board / Group —'}
               />
             </div>
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                {isBn ? 'পাসের সাল' : 'Year'}
+                {isBn ? 'পাসের সাল (১৯৮০–২০৫০)' : 'Year (1980–2050)'}
               </label>
-              <input
-                type="text"
-                autoFocus={target.subField === 'year'}
+              <EducationSelectInput
                 value={edu.year}
-                onChange={(e) => updateEdu({ year: e.target.value })}
+                onChange={(val) => updateEdu({ year: val })}
+                flatOptions={CV_EDUCATION_YEARS}
+                lang={lang}
+                autoFocus={target.subField === 'year'}
                 placeholder="2022"
-                className="w-full px-2.5 py-2 rounded-xl glass-input text-xs"
+                emptyOptionLabel={isBn ? '— সাল বাছুন —' : '— Select Year —'}
               />
             </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
-                {isBn ? 'ফলাফল' : 'Result'}
-              </label>
-              <input
-                type="text"
-                autoFocus={target.subField === 'result'}
-                value={edu.result}
-                onChange={(e) => updateEdu({ result: e.target.value })}
-                placeholder="GPA 4.50"
-                className="w-full px-2.5 py-2 rounded-xl glass-input text-xs"
-              />
-            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1">
+              {isBn ? 'ফলাফল (GPA / CGPA / Division)' : 'Result (GPA / CGPA)'}
+            </label>
+            <input
+              type="text"
+              autoFocus={target.subField === 'result'}
+              value={edu.result}
+              onChange={(e) => updateEdu({ result: e.target.value })}
+              placeholder="GPA 4.50 / 5.00"
+              className="w-full px-3 py-2 rounded-xl glass-input text-sm"
+            />
           </div>
         </div>
       );

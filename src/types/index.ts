@@ -22,7 +22,22 @@ export type PhotoPresetType =
   | 'us-passport'
   | 'custom';
 
-export type PaperSizeType = 'a4' | 'a5' | 'letter' | 'legal' | 'b5' | '4r' | 'custom';
+export type PaperSizeType =
+  | 'a4'
+  | 'a5'
+  | 'a6'
+  | 'a3'
+  | 'b5'
+  | 'letter'
+  | 'legal'
+  | '2r'
+  | '3r'
+  | '4r'
+  | '5r'
+  | '6r'
+  | '8r'
+  | '10r'
+  | 'custom';
 
 export type DocumentFitMode = 'contain' | 'stretch' | 'cover';
 
@@ -231,15 +246,22 @@ export interface DocumentPrintSettings {
 
 export type PhotoPrintSizeId =
   | '4up-a4'
-  | '4r'
-  | '3r'
+  | 'passport-35x45'
+  | 'passport-40x50'
+  | 'stamp-20x25'
   | '2r'
+  | '3r'
+  | '4r'
   | '5r'
   | '6r'
   | '8r'
+  | '10r'
   | 'sq-4x4'
+  | 'sq-5x5'
+  | 'a6'
   | 'a5'
   | 'a4-full'
+  | 'a3-full'
   | 'custom';
 
 export interface PhotoPrintSlotItem {
@@ -248,6 +270,13 @@ export interface PhotoPrintSlotItem {
   name: string;
   rotation: number; // 0, 90, 180, 270
   fitMode: 'cover' | 'contain';
+}
+
+export interface PhotoPrintSlotRectOverride {
+  x: number; // mm
+  y: number; // mm
+  width?: number; // mm
+  height?: number; // mm
 }
 
 export interface PhotoPrintSettings {
@@ -260,6 +289,7 @@ export interface PhotoPrintSettings {
   gapMm: number;
   autoRotateToFit: boolean;
   slots: (PhotoPrintSlotItem | null)[];
+  slotPositions?: Record<number, PhotoPrintSlotRectOverride>;
 }
 
 export interface StudioState {

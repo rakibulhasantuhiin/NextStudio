@@ -1,6 +1,26 @@
-import React from 'react';
-import { Camera, PenTool, Plus, Trash2 } from 'lucide-react';
-import { CvData, CvFieldTarget } from '../../types/cv';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Camera,
+  Check,
+  CornerDownRight,
+  CornerUpLeft,
+  GripVertical,
+  Minus,
+  PenTool,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import {
+  CvData,
+  CvFieldTarget,
+  CvLayoutMetrics,
+  CvPageMetric,
+  CvSectionKey,
+  CvTemplateId,
+} from '../../types/cv';
+import { CV_PX_PER_MM, getCvPaperDimensions } from '../../utils/cvTemplates';
 import {
   DEFAULT_BANGLA_FONT,
   getBanglaFontStack,
@@ -12,6 +32,9 @@ interface CvSheetRendererProps {
   data: CvData;
   interactive?: boolean;
   isThumbnail?: boolean;
+  paginated?: boolean;
+  showPageDropTarget?: boolean;
+  markedSections?: CvSectionKey[];
   onEditField?: (target: CvFieldTarget) => void;
   onAddExperience?: () => void;
   onRemoveExperience?: (index: number) => void;
@@ -21,6 +44,16 @@ interface CvSheetRendererProps {
   onRemoveTraining?: (index: number) => void;
   onAddReference?: () => void;
   onRemoveReference?: (index: number) => void;
+  onToggleMarkSection?: (key: CvSectionKey) => void;
+  onReorderSections?: (fromKey: CvSectionKey, toKey: CvSectionKey) => void;
+  onMoveSectionDirection?: (key: CvSectionKey, dir: 'up' | 'down') => void;
+  onTogglePageBreak?: (key: CvSectionKey) => void;
+  onAdjustSectionSpace?: (key: CvSectionKey, deltaPx: number) => void;
+  onDeleteSection?: (key: CvSectionKey) => void;
+  onHidePhoto?: () => void;
+  onHideSignature?: () => void;
+  onDropOnPage?: (targetPageIndex: number, draggedKey: CvSectionKey) => void;
+  onLayoutMetricsChange?: (metrics: CvLayoutMetrics) => void;
 }
 
 const LABELS = {
@@ -187,10 +220,108 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+export function getTemplateMainSections(tpl: CvTemplateId): CvSectionKey[] {
+  if (tpl === 'marriage-biodata') {
+    return [
+      'marriagePersonal',
+      'marriageAddress',
+      'education',
+      'occupation',
+      'familyInfo',
+      'partnerExpectation',
+      'guardianContact',
+    ];
+  }
+  if (tpl === 'modern-sidebar') {
+    return ['objective', 'experience', 'education', 'trainings', 'references', 'personal'];
+  }
+  if (
+    tpl === 'colored-sidebar-1p' ||
+    tpl === 'colored-sidebar-2p' ||
+    tpl === 'navy-tech-sidebar' ||
+    tpl === 'colored-header-band'
+  ) {
+    return ['objective', 'experience', 'education', 'trainings', 'references', 'declaration'];
+  }
+  if (tpl === 'abroad-visa' || tpl === 'abroad-gulf') {
+    return [
+      'passport',
+      'objective',
+      'personal',
+      'experience',
+      'skills',
+      'education',
+      'trainings',
+      'languages',
+      'bangladeshContact',
+      'declaration',
+    ];
+  }
+  if (tpl === 'bangla-biodata' || tpl === 'govt-ngo-formal') {
+    return [
+      'objective',
+      'personal',
+      'education',
+      'experience',
+      'skills',
+      'trainings',
+      'languages',
+      'references',
+      'declaration',
+    ];
+  }
+  if (tpl === 'fresher-1p') {
+    return [
+      'objective',
+      'education',
+      'skills',
+      'trainings',
+      'experience',
+      'personal',
+      'languages',
+      'references',
+      'declaration',
+    ];
+  }
+  return [
+    'objective',
+    'experience',
+    'education',
+    'skills',
+    'trainings',
+    'languages',
+    'personal',
+    'references',
+    'declaration',
+  ];
+}
+
+export function getMergedSectionOrder(
+  defaultOrder: CvSectionKey[],
+  customOrder?: CvSectionKey[]
+): CvSectionKey[] {
+  if (!customOrder || customOrder.length === 0) return defaultOrder;
+  const validCustom = customOrder.filter((k) => defaultOrder.includes(k));
+  const missing = defaultOrder.filter((k) => !validCustom.includes(k));
+  return [...validCustom, ...missing];
+}
+
+interface PageAssignment {
+  pageNumber: number;
+  items: { key: CvSectionKey; spacingTop: number }[];
+  usedPx: number;
+  totalPx: number;
+  fillPercent: number;
+  remainingMm: number;
+  overflowPx: number;
+}
+
 export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   data,
   interactive = false,
   isThumbnail = false,
+  paginated = false,
+  markedSections = [],
   onEditField,
   onAddExperience,
   onRemoveExperience,
@@ -200,12 +331,29 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   onRemoveTraining,
   onAddReference,
   onRemoveReference,
+  onToggleMarkSection,
+  onReorderSections,
+  onMoveSectionDirection,
+  onTogglePageBreak,
+  onAdjustSectionSpace,
+  onDeleteSection,
+  onHidePhoto,
+  onHideSignature,
+  onDropOnPage,
+  onLayoutMetricsChange,
 }) => {
   const L = LABELS[data.cvLang];
   const tpl = data.templateId;
   const accent = tpl === 'minimal-ats' ? '#111827' : data.accentColor || '#1d4ed8';
   const accentTint = hexToRgba(accent, 0.11);
   const accentBorder = hexToRgba(accent, 0.35);
+
+  const paperDims = useMemo(() => getCvPaperDimensions(data), [
+    data.paperSize,
+    data.customPaperWidthMm,
+    data.customPaperHeightMm,
+  ]);
+  const isNarrowPaper = paperDims.widthPx < 640;
 
   const selectedBanglaFont = data.banglaFont || DEFAULT_BANGLA_FONT;
   const banglaStack = getBanglaFontStack(selectedBanglaFont);
@@ -219,12 +367,24 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
       ? `Georgia, 'Times New Roman', ${banglaStack}`
       : `'Source Serif 4', Georgia, 'Times New Roman', ${banglaStack}`;
 
-  const padClass =
-    data.density === 'compact'
-      ? 'px-8 py-6'
-      : data.density === 'spacious'
-      ? 'px-12 py-10'
-      : 'px-10 py-8';
+  const padClass = isNarrowPaper
+    ? 'px-6 py-5'
+    : data.density === 'compact'
+    ? 'px-8 py-6'
+    : data.density === 'spacious'
+    ? 'px-12 py-10'
+    : 'px-10 py-8';
+
+  const padVerticalPx = isNarrowPaper
+    ? 40
+    : data.density === 'compact'
+    ? 48
+    : data.density === 'spacious'
+    ? 80
+    : 64;
+
+  const sectionGapPx =
+    data.density === 'compact' ? 12 : data.density === 'spacious' ? 20 : 16;
 
   const sectionGap =
     data.density === 'compact'
@@ -252,7 +412,20 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     .filter(Boolean)
     .join(' ');
 
-  // Helper: Clickable inline editable span (matches screenshots 1-6 amber dashed style when empty in edit mode)
+  const hiddenSet = useMemo(
+    () => new Set<CvSectionKey>(data.hiddenSections || []),
+    [data.hiddenSections]
+  );
+  const pageBreakSet = useMemo(
+    () => new Set<CvSectionKey>(data.pageBreakBefore || []),
+    [data.pageBreakBefore]
+  );
+
+  const [draggedKey, setDraggedKey] = useState<CvSectionKey | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<CvSectionKey | null>(null);
+  const [dragOverPage, setDragOverPage] = useState<number | null>(null);
+
+  // Helper: Clickable inline editable span
   const renderEditable = (
     value: string,
     placeholder: string,
@@ -330,11 +503,11 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     );
   };
 
-  // Photo box renderer (supports rect, rounded, circle & clean silhouette placeholder in gallery thumbnails)
+  // Photo box renderer with quick Delete affordance
   const renderPhotoBox = (opts?: { width?: number; height?: number; darkBorder?: boolean }) => {
-    if (tpl === 'minimal-ats') return null;
-    const w = opts?.width ?? 102;
-    const h = opts?.height ?? 124;
+    if (tpl === 'minimal-ats' || data.hidePhoto) return null;
+    const w = opts?.width ?? (isNarrowPaper ? 82 : 102);
+    const h = opts?.height ?? (isNarrowPaper ? 100 : 124);
     const radius =
       data.photoShape === 'circle' ? '9999px' : data.photoShape === 'rounded' ? '10px' : '3px';
 
@@ -364,7 +537,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
           overflow: 'hidden',
           flexShrink: 0,
         }}
-        className={`flex flex-col items-center justify-center text-center select-none ${
+        className={`relative group flex flex-col items-center justify-center text-center select-none ${
           interactive ? 'cursor-pointer hover:ring-2 hover:ring-blue-500 transition' : ''
         }`}
       >
@@ -386,12 +559,27 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
             <span className="text-[11px] font-semibold leading-tight">{L.phPhoto}</span>
           </div>
         )}
+
+        {interactive && onHidePhoto && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onHidePhoto();
+            }}
+            className="absolute top-1 right-1 p-1 rounded-md bg-red-600/90 hover:bg-red-700 text-white opacity-0 group-hover:opacity-100 transition cursor-pointer shadow-xs"
+            title={data.cvLang === 'bn' ? 'ছবি বাদ দিন' : 'Delete photo'}
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
       </div>
     );
   };
 
-  // Signature block renderer
+  // Signature block renderer with quick Delete affordance
   const renderSignature = (align: 'left' | 'right' = 'left', darkSurface = false) => {
+    if (data.hideSignature) return null;
     const hasSign = Boolean(data.signatureImage || data.signatureText?.trim());
     if (!hasSign && !interactive) {
       return (
@@ -415,8 +603,21 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
             e.stopPropagation();
             onEditField({ type: 'signature' });
           }}
-          className={`w-48 ${interactive ? 'cursor-pointer group' : ''}`}
+          className={`relative w-48 ${interactive ? 'cursor-pointer group' : ''}`}
         >
+          {interactive && onHideSignature && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onHideSignature();
+              }}
+              className="absolute -top-2 -right-2 p-1 rounded-md bg-red-600/90 hover:bg-red-700 text-white opacity-0 group-hover:opacity-100 transition cursor-pointer z-10 shadow-xs"
+              title={data.cvLang === 'bn' ? 'স্বাক্ষর বাদ দিন' : 'Delete signature'}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
           {data.signatureImage ? (
             <div className="h-12 flex items-end pb-1 border-b border-slate-800">
               <img
@@ -568,18 +769,25 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
 
   // Reusable Section Blocks
   const renderObjectiveBlock = (num?: number) => {
+    if (hiddenSet.has('objective')) return null;
     if (!data.careerObjective?.trim() && !interactive) return null;
     return (
       <div>
         {renderSectionHeading(L.careerObjective, num)}
         <div style={{ fontSize: baseTextSize, lineHeight: 1.55, color: '#1e293b' }}>
-          {renderEditable(data.careerObjective, L.phObjective, { type: 'basic', field: 'careerObjective' }, { block: true })}
+          {renderEditable(
+            data.careerObjective,
+            L.phObjective,
+            { type: 'basic', field: 'careerObjective' },
+            { block: true }
+          )}
         </div>
       </div>
     );
   };
 
   const renderExperienceBlock = (num?: number) => {
+    if (hiddenSet.has('experience')) return null;
     const visibleExps = interactive
       ? data.experiences
       : data.experiences.filter((e) => e.role.trim() || e.company.trim() || e.description.trim());
@@ -592,7 +800,10 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
           {visibleExps.map((exp, idx) => (
             <div key={exp.id} className="relative group">
               <div className="flex items-baseline justify-between gap-2 flex-wrap">
-                <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap" style={{ fontSize: baseTextSize }}>
+                <div
+                  className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap"
+                  style={{ fontSize: baseTextSize }}
+                >
                   {renderEditable(exp.role, L.phRole, { type: 'experience', index: idx, subField: 'role' })}
                   <span className="text-slate-400 font-normal">—</span>
                   <span className="font-semibold text-slate-700">
@@ -603,7 +814,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
                   {renderEditable(exp.startDate, L.phStart, { type: 'experience', index: idx, subField: 'startDate' })}
                   {(exp.startDate || exp.endDate || interactive) && <span>–</span>}
                   {renderEditable(exp.endDate, L.phEnd, { type: 'experience', index: idx, subField: 'endDate' })}
-                  {interactive && onRemoveExperience && data.experiences.length > 1 && (
+                  {interactive && onRemoveExperience && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -611,7 +822,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
                         onRemoveExperience(idx);
                       }}
                       className="ml-1 p-0.5 text-red-500 hover:bg-red-50 rounded cursor-pointer"
-                      title="Remove"
+                      title={data.cvLang === 'bn' ? 'মুছে ফেলুন' : 'Delete'}
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -622,7 +833,12 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
                 className="mt-1 whitespace-pre-line text-slate-700"
                 style={{ fontSize: '12px', lineHeight: 1.5 }}
               >
-                {renderEditable(exp.description, L.phJobDesc, { type: 'experience', index: idx, subField: 'description' }, { block: true })}
+                {renderEditable(
+                  exp.description,
+                  L.phJobDesc,
+                  { type: 'experience', index: idx, subField: 'description' },
+                  { block: true }
+                )}
               </div>
             </div>
           ))}
@@ -646,6 +862,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   };
 
   const renderEducationBlock = (num?: number, asTable = false) => {
+    if (hiddenSet.has('education')) return null;
     const visibleEdus = interactive
       ? data.educations
       : data.educations.filter((e) => e.degree.trim() || e.institution.trim() || e.result.trim());
@@ -655,38 +872,76 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
       return (
         <div>
           {renderSectionHeading(L.academicQual, num)}
-          <table className="w-full border-collapse text-[11.5px]" style={{ border: '1px solid #94a3b8' }}>
-            <thead>
-              <tr style={{ backgroundColor: accentTint }}>
-                <th className="text-left px-2 py-1.5 border border-slate-300 font-bold text-slate-800">{L.exam}</th>
-                <th className="text-left px-2 py-1.5 border border-slate-300 font-bold text-slate-800">{L.institute}</th>
-                <th className="text-left px-2 py-1.5 border border-slate-300 font-bold text-slate-800">{L.boardGroup}</th>
-                <th className="text-center px-2 py-1.5 border border-slate-300 font-bold text-slate-800">{L.year}</th>
-                <th className="text-center px-2 py-1.5 border border-slate-300 font-bold text-slate-800">{L.result}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleEdus.map((edu, idx) => (
-                <tr key={edu.id}>
-                  <td className="px-2 py-1.5 border border-slate-300 font-semibold text-slate-900">
-                    {renderEditable(edu.degree, L.phDegree, { type: 'education', index: idx, subField: 'degree' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300 text-slate-700">
-                    {renderEditable(edu.institution, L.phInst, { type: 'education', index: idx, subField: 'institution' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300 text-slate-700">
-                    {renderEditable(edu.boardOrGroup, L.phWrite, { type: 'education', index: idx, subField: 'boardOrGroup' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300 text-center font-mono text-slate-700">
-                    {renderEditable(edu.year, L.phYear, { type: 'education', index: idx, subField: 'year' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300 text-center font-semibold text-slate-800">
-                    {renderEditable(edu.result, L.phResult, { type: 'education', index: idx, subField: 'result' })}
-                  </td>
+          {visibleEdus.length > 0 && (
+            <table className="w-full border-collapse text-[11.5px]" style={{ border: '1px solid #94a3b8' }}>
+              <thead>
+                <tr style={{ backgroundColor: accentTint }}>
+                  <th className="text-left px-2 py-1.5 border border-slate-300 font-bold text-slate-800">
+                    {L.exam}
+                  </th>
+                  <th className="text-left px-2 py-1.5 border border-slate-300 font-bold text-slate-800">
+                    {L.institute}
+                  </th>
+                  <th className="text-left px-2 py-1.5 border border-slate-300 font-bold text-slate-800">
+                    {L.boardGroup}
+                  </th>
+                  <th className="text-center px-2 py-1.5 border border-slate-300 font-bold text-slate-800">
+                    {L.year}
+                  </th>
+                  <th className="text-center px-2 py-1.5 border border-slate-300 font-bold text-slate-800">
+                    {L.result}
+                  </th>
+                  {interactive && onRemoveEducation && (
+                    <th className="w-7 px-1 py-1.5 border border-slate-300 text-center text-slate-500" />
+                  )}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {visibleEdus.map((edu, idx) => (
+                  <tr key={edu.id}>
+                    <td className="px-2 py-1.5 border border-slate-300 font-semibold text-slate-900">
+                      {renderEditable(edu.degree, L.phDegree, { type: 'education', index: idx, subField: 'degree' })}
+                    </td>
+                    <td className="px-2 py-1.5 border border-slate-300 text-slate-700">
+                      {renderEditable(edu.institution, L.phInst, {
+                        type: 'education',
+                        index: idx,
+                        subField: 'institution',
+                      })}
+                    </td>
+                    <td className="px-2 py-1.5 border border-slate-300 text-slate-700">
+                      {renderEditable(edu.boardOrGroup, L.phWrite, {
+                        type: 'education',
+                        index: idx,
+                        subField: 'boardOrGroup',
+                      })}
+                    </td>
+                    <td className="px-2 py-1.5 border border-slate-300 text-center font-mono text-slate-700">
+                      {renderEditable(edu.year, L.phYear, { type: 'education', index: idx, subField: 'year' })}
+                    </td>
+                    <td className="px-2 py-1.5 border border-slate-300 text-center font-semibold text-slate-800">
+                      {renderEditable(edu.result, L.phResult, { type: 'education', index: idx, subField: 'result' })}
+                    </td>
+                    {interactive && onRemoveEducation && (
+                      <td className="px-1 py-1 border border-slate-300 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveEducation(idx);
+                          }}
+                          className="p-0.5 text-red-500 hover:bg-red-50 rounded cursor-pointer"
+                          title={data.cvLang === 'bn' ? 'মুছে ফেলুন' : 'Delete'}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           {interactive && onAddEducation && (
             <button
               type="button"
@@ -716,7 +971,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
                 </div>
                 <div className="text-[11.5px] font-mono text-slate-600 flex items-center gap-1">
                   {renderEditable(edu.year, L.phYear, { type: 'education', index: idx, subField: 'year' })}
-                  {interactive && onRemoveEducation && data.educations.length > 1 && (
+                  {interactive && onRemoveEducation && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -724,7 +979,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
                         onRemoveEducation(idx);
                       }}
                       className="ml-1 p-0.5 text-red-500 hover:bg-red-50 rounded cursor-pointer"
-                      title="Remove"
+                      title={data.cvLang === 'bn' ? 'মুছে ফেলুন' : 'Delete'}
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -734,24 +989,43 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
               {tpl === 'colored-bar' ? (
                 <ul className="pl-4 mt-0.5 text-[11.5px] text-slate-700 list-disc space-y-0.5">
                   <li>
-                    {L.institute}: {renderEditable(edu.institution, L.phInst, { type: 'education', index: idx, subField: 'institution' })}
+                    {L.institute}:{' '}
+                    {renderEditable(edu.institution, L.phInst, {
+                      type: 'education',
+                      index: idx,
+                      subField: 'institution',
+                    })}
                   </li>
                   {(edu.boardOrGroup || interactive) && (
                     <li>
-                      {L.boardGroup}: {renderEditable(edu.boardOrGroup, L.phWrite, { type: 'education', index: idx, subField: 'boardOrGroup' })}
+                      {L.boardGroup}:{' '}
+                      {renderEditable(edu.boardOrGroup, L.phWrite, {
+                        type: 'education',
+                        index: idx,
+                        subField: 'boardOrGroup',
+                      })}
                     </li>
                   )}
                   <li>
-                    {L.result}: {renderEditable(edu.result, L.phResult, { type: 'education', index: idx, subField: 'result' })}
+                    {L.result}:{' '}
+                    {renderEditable(edu.result, L.phResult, { type: 'education', index: idx, subField: 'result' })}
                   </li>
                 </ul>
               ) : (
                 <div className="pl-3 mt-0.5 text-[12px] text-slate-700 flex items-center gap-1.5 flex-wrap">
-                  {renderEditable(edu.institution, L.phInst, { type: 'education', index: idx, subField: 'institution' })}
-                  {edu.boardOrGroup && (
+                  {renderEditable(edu.institution, L.phInst, {
+                    type: 'education',
+                    index: idx,
+                    subField: 'institution',
+                  })}
+                  {(edu.boardOrGroup || interactive) && (
                     <>
                       <span className="text-slate-400">·</span>
-                      <span>{edu.boardOrGroup}</span>
+                      {renderEditable(edu.boardOrGroup, L.boardGroup, {
+                        type: 'education',
+                        index: idx,
+                        subField: 'boardOrGroup',
+                      })}
                     </>
                   )}
                   <span className="text-slate-400">·</span>
@@ -782,15 +1056,32 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     );
   };
 
-  const renderSkillsBlock = (num?: number, styleMode: 'inline' | 'tags' | 'sidebar-dark' = 'inline') => {
+  const renderSkillsBlock = (
+    num?: number,
+    styleMode: 'inline' | 'tags' | 'sidebar-dark' = 'inline'
+  ) => {
+    if (hiddenSet.has('skills')) return null;
     const hasSkills = data.skills.length > 0;
     if (!hasSkills && !interactive) return null;
 
     if (styleMode === 'sidebar-dark') {
       return (
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-white/95 border-b border-white/25 pb-1 mb-2">
-            {L.skills}
+        <div className="relative group/side">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-white/95 border-b border-white/25 pb-1 mb-2 flex items-center justify-between">
+            <span>{L.skills}</span>
+            {interactive && onDeleteSection && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSection('skills');
+                }}
+                className="p-0.5 rounded bg-red-500/80 text-white opacity-0 group-hover/side:opacity-100 transition cursor-pointer"
+                title={data.cvLang === 'bn' ? 'দক্ষতা মুছুন' : 'Delete Skills'}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
           </div>
           <div
             onClick={(e) => {
@@ -829,7 +1120,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     }
 
     return (
-      <div>
+      <div className="relative group/side">
         {renderSectionHeading(L.skills, num)}
         <div
           onClick={(e) => {
@@ -881,14 +1172,28 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   };
 
   const renderLanguagesBlock = (num?: number, darkSidebar = false) => {
+    if (hiddenSet.has('languages')) return null;
     const show = data.showLanguages || data.languages.length > 0;
     if (!show) return null;
 
     if (darkSidebar) {
       return (
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-white/95 border-b border-white/25 pb-1 mb-1.5">
-            {L.languages}
+        <div className="relative group/side">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-white/95 border-b border-white/25 pb-1 mb-1.5 flex items-center justify-between">
+            <span>{L.languages}</span>
+            {interactive && onDeleteSection && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSection('languages');
+                }}
+                className="p-0.5 rounded bg-red-500/80 text-white opacity-0 group-hover/side:opacity-100 transition cursor-pointer"
+                title={data.cvLang === 'bn' ? 'ভাষা মুছুন' : 'Delete Languages'}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
           </div>
           <div
             onClick={(e) => {
@@ -942,6 +1247,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   };
 
   const renderTrainingsBlock = (num?: number) => {
+    if (hiddenSet.has('trainings')) return null;
     const show = data.showTrainings || data.trainings.length > 0;
     if (!show) return null;
 
@@ -1001,6 +1307,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
   };
 
   const renderReferencesBlock = (num?: number) => {
+    if (hiddenSet.has('references')) return null;
     const show = data.showReferences || data.references.length > 0;
     if (!show) return null;
 
@@ -1060,9 +1367,18 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
 
   const personalRows: {
     label: string;
-    field: 'fatherName' | 'motherName' | 'dateOfBirth' | 'nationalId' | 'religion' | 'maritalStatus' | 'nationality' | 'bloodGroup' | 'height' | 'weight';
+    field:
+      | 'fatherName'
+      | 'motherName'
+      | 'dateOfBirth'
+      | 'nationalId'
+      | 'religion'
+      | 'maritalStatus'
+      | 'nationality'
+      | 'bloodGroup'
+      | 'height'
+      | 'weight';
     value: string;
-    includePhysical?: boolean;
   }[] = [
     { label: L.fatherName, field: 'fatherName', value: data.fatherName },
     { label: L.motherName, field: 'motherName', value: data.motherName },
@@ -1080,6 +1396,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     includePhysical = false,
     darkSidebar = false
   ) => {
+    if (hiddenSet.has('personal')) return null;
     const rows = includePhysical
       ? [
           ...personalRows,
@@ -1093,15 +1410,33 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
 
     if (darkSidebar) {
       return (
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-white/95 border-b border-white/25 pb-1 mb-1.5">
-            {L.personalDetails}
+        <div className="relative group/side">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-white/95 border-b border-white/25 pb-1 mb-1.5 flex items-center justify-between">
+            <span>{L.personalDetails}</span>
+            {interactive && onDeleteSection && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteSection('personal');
+                }}
+                className="p-0.5 rounded bg-red-500/80 text-white opacity-0 group-hover/side:opacity-100 transition cursor-pointer"
+                title={data.cvLang === 'bn' ? 'ব্যক্তিগত তথ্য মুছুন' : 'Delete Personal Info'}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
           </div>
           <div className="space-y-1 text-[10.5px] text-white/90">
             {visibleRows.map((row) => (
               <div key={row.field} className="leading-tight">
                 <span className="text-white/65">{row.label}: </span>
-                {renderEditable(row.value, L.phWrite, { type: 'personal', field: row.field }, { darkSurface: true })}
+                {renderEditable(
+                  row.value,
+                  L.phWrite,
+                  { type: 'personal', field: row.field },
+                  { darkSurface: true }
+                )}
               </div>
             ))}
           </div>
@@ -1113,7 +1448,7 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
       <div>
         {renderSectionHeading(L.personalDetails, num)}
         <div
-          className={columns === 2 ? 'grid grid-cols-2 gap-x-6 gap-y-1.5' : 'space-y-1'}
+          className={columns === 2 && !isNarrowPaper ? 'grid grid-cols-2 gap-x-6 gap-y-1.5' : 'space-y-1'}
           style={{ fontSize: '12px' }}
         >
           {visibleRows.map((row) => (
@@ -1130,532 +1465,515 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
     );
   };
 
-  const renderDeclarationBlock = (num?: number, signAlign: 'left' | 'right' = 'left') => (
-    <div>
-      {renderSectionHeading(L.declaration, num)}
-      <div style={{ fontSize: '12px', color: '#1e293b', lineHeight: 1.5 }}>
-        {renderEditable(data.declarationText, 'I hereby declare that the above information is true and correct.', {
-          type: 'basic',
-          field: 'declarationText',
-        })}
+  const renderDeclarationBlock = (num?: number, signAlign: 'left' | 'right' = 'left') => {
+    if (hiddenSet.has('declaration') || data.hideDeclaration) return null;
+    return (
+      <div>
+        {renderSectionHeading(L.declaration, num)}
+        <div style={{ fontSize: '12px', color: '#1e293b', lineHeight: 1.5 }}>
+          {renderEditable(
+            data.declarationText,
+            'I hereby declare that the above information is true and correct.',
+            {
+              type: 'basic',
+              field: 'declarationText',
+            }
+          )}
+        </div>
+        {renderSignature(signAlign)}
       </div>
-      {renderSignature(signAlign)}
-    </div>
-  );
+    );
+  };
 
-  const renderSelectedTemplate = () => {
-  // =========================================================================
-  // SPECIALIZED LAYOUT 1: MARRIAGE BIODATA (Framed Traditional Layout)
-  // =========================================================================
-  if (tpl === 'marriage-biodata') {
-    const marriagePersonal: { label: string; target: CvFieldTarget; value: string }[] = [
-      { label: L.phName, target: { type: 'basic', field: 'fullName' }, value: data.fullName },
-      { label: L.dob, target: { type: 'personal', field: 'dateOfBirth' }, value: data.dateOfBirth },
-      { label: L.age, target: { type: 'personal', field: 'age' }, value: data.age },
-      { label: L.height, target: { type: 'personal', field: 'height' }, value: data.height },
-      { label: L.weight, target: { type: 'personal', field: 'weight' }, value: data.weight },
-      { label: L.complexion, target: { type: 'personal', field: 'complexion' }, value: data.complexion },
-      { label: L.bloodGroup, target: { type: 'personal', field: 'bloodGroup' }, value: data.bloodGroup },
-      { label: L.maritalStatus, target: { type: 'personal', field: 'maritalStatus' }, value: data.maritalStatus },
-      { label: L.religion, target: { type: 'personal', field: 'religion' }, value: data.religion },
-      { label: L.nationality, target: { type: 'personal', field: 'nationality' }, value: data.nationality },
-    ];
+  const renderPassportBlock = () => {
+    if (hiddenSet.has('passport')) return null;
+    if (!data.showPassportInfo && tpl !== 'abroad-visa' && tpl !== 'abroad-gulf') return null;
 
-    const familyRows: { label: string; target: CvFieldTarget; value: string }[] = [
-      { label: L.fatherName, target: { type: 'personal', field: 'fatherName' }, value: data.fatherName },
-      { label: L.fatherOcc, target: { type: 'family', field: 'fatherOccupation' }, value: data.fatherOccupation },
-      { label: L.motherName, target: { type: 'personal', field: 'motherName' }, value: data.motherName },
-      { label: L.motherOcc, target: { type: 'family', field: 'motherOccupation' }, value: data.motherOccupation },
-      { label: L.brothers, target: { type: 'family', field: 'brothers' }, value: data.brothers },
-      { label: L.sisters, target: { type: 'family', field: 'sisters' }, value: data.sisters },
-    ];
+    if (tpl === 'abroad-gulf') {
+      return (
+        <div>
+          <table
+            className="w-full border-collapse text-[11.5px]"
+            style={{ border: `1px solid ${accentBorder}` }}
+          >
+            <thead>
+              <tr style={{ backgroundColor: accentTint }}>
+                <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>
+                  {L.passportNo}
+                </th>
+                <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>
+                  {L.issueDate}
+                </th>
+                <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>
+                  {L.expiryDate}
+                </th>
+                <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>
+                  {L.issuePlace}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="px-2 py-1.5 border border-slate-300 font-mono font-bold">
+                  {renderEditable(data.passportNo, L.phWrite, { type: 'passport', field: 'passportNo' })}
+                </td>
+                <td className="px-2 py-1.5 border border-slate-300">
+                  {renderEditable(data.passportIssueDate, L.phWrite, {
+                    type: 'passport',
+                    field: 'passportIssueDate',
+                  })}
+                </td>
+                <td className="px-2 py-1.5 border border-slate-300">
+                  {renderEditable(data.passportExpiryDate, L.phWrite, {
+                    type: 'passport',
+                    field: 'passportExpiryDate',
+                  })}
+                </td>
+                <td className="px-2 py-1.5 border border-slate-300">
+                  {renderEditable(data.passportIssuePlace, L.phWrite, {
+                    type: 'passport',
+                    field: 'passportIssuePlace',
+                  })}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      );
+    }
 
     return (
-      <div
-        className="bg-white text-slate-900 box-border"
-        style={{
-          width: '794px',
-          minHeight: '1123px',
-          fontFamily,
-          padding: '26px',
-        }}
-      >
-        <div
-          className="h-full min-h-[1070px] px-8 py-6 flex flex-col justify-between"
-          style={{ border: `2.5px solid ${accent}`, borderRadius: '4px' }}
-        >
-          <div className="space-y-4">
-            {/* Title + Right Photo */}
-            <div className="flex items-start justify-between gap-4 border-b pb-3" style={{ borderColor: accentBorder }}>
-              <div className="flex-1 pt-4 text-center">
-                <h1 className="text-xl font-bold tracking-wider uppercase" style={{ color: accent }}>
-                  {L.marriageTitle}
-                </h1>
-              </div>
-              {renderPhotoBox({ width: 98, height: 118 })}
-            </div>
-
-            {/* Personal Details */}
-            <div>
-              {renderSectionHeading(L.personalDetails)}
-              <div className="space-y-1 text-[12px]">
-                {marriagePersonal
-                  .filter((r) => interactive || r.value?.trim())
-                  .map((row) => (
-                    <div key={row.label} className="flex items-baseline gap-2">
-                      <span className="w-40 text-slate-600 shrink-0">{row.label}</span>
-                      <span className="text-slate-400">:</span>
-                      <span className="font-medium text-slate-900">
-                        {renderEditable(row.value, L.phWrite, row.target)}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-
-            {/* Address */}
-            <div>
-              {renderSectionHeading(L.address)}
-              <div className="space-y-1 text-[12px]">
-                <div className="flex items-baseline gap-2">
-                  <span className="w-40 text-slate-600 shrink-0">{L.presentAddress}</span>
-                  <span className="text-slate-400">:</span>
-                  <span className="font-medium text-slate-900">
-                    {renderEditable(data.address, L.phWrite, { type: 'basic', field: 'address' })}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="w-40 text-slate-600 shrink-0">{L.permanentAddress}</span>
-                  <span className="text-slate-400">:</span>
-                  <span className="font-medium text-slate-900">
-                    {renderEditable(data.permanentAddress, L.phWrite, { type: 'basic', field: 'permanentAddress' })}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Education Table */}
-            {renderEducationBlock(undefined, true)}
-
-            {/* Occupation */}
-            {(interactive || data.occupation?.trim() || data.jobTitle?.trim()) && (
-              <div>
-                {renderSectionHeading(L.occupation)}
-                <div className="text-[12px] text-slate-900 font-medium">
-                  {renderEditable(data.occupation || data.jobTitle, L.phWrite, {
-                    type: 'family',
-                    field: 'occupation',
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Family Information */}
-            <div>
-              {renderSectionHeading(L.familyInfo)}
-              <div className="space-y-1 text-[12px]">
-                {familyRows
-                  .filter((r) => interactive || r.value?.trim())
-                  .map((row) => (
-                    <div key={row.label} className="flex items-baseline gap-2">
-                      <span className="w-40 text-slate-600 shrink-0">{row.label}</span>
-                      <span className="text-slate-400">:</span>
-                      <span className="font-medium text-slate-900">
-                        {renderEditable(row.value, L.phWrite, row.target)}
-                      </span>
-                    </div>
-                  ))}
-              </div>
-            </div>
-
-            {/* Partner Expectation */}
-            {(interactive || data.partnerExpectation?.trim()) && (
-              <div>
-                {renderSectionHeading(L.partnerExpectation)}
-                <div className="text-[12px] text-slate-800">
-                  {renderEditable(data.partnerExpectation, L.phWrite, {
-                    type: 'family',
-                    field: 'partnerExpectation',
-                  }, { block: true })}
-                </div>
-              </div>
-            )}
-
-            {/* Guardian Contact */}
-            <div>
-              {renderSectionHeading(L.guardianContact)}
-              <div className="space-y-1 text-[12px]">
-                <div className="flex items-baseline gap-2">
-                  <span className="w-40 text-slate-600 shrink-0">{L.guardianContact}</span>
-                  <span className="text-slate-400">:</span>
-                  <span className="font-semibold text-slate-900">
-                    {renderEditable(data.guardianContact || data.phone, L.phWrite, {
-                      type: 'family',
-                      field: 'guardianContact',
-                    })}
-                  </span>
-                </div>
-              </div>
-            </div>
+      <div className="border border-slate-300 rounded p-3">
+        {renderSectionHeading(L.passportDetails)}
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px]">
+          <div className="flex gap-2">
+            <span className="w-24 text-slate-600 shrink-0">{L.passportNo}:</span>
+            <span className="font-mono font-bold">
+              {renderEditable(data.passportNo, L.phWrite, { type: 'passport', field: 'passportNo' })}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <span className="w-24 text-slate-600 shrink-0">{L.issuePlace}:</span>
+            <span>
+              {renderEditable(data.passportIssuePlace, L.phWrite, {
+                type: 'passport',
+                field: 'passportIssuePlace',
+              })}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <span className="w-24 text-slate-600 shrink-0">{L.issueDate}:</span>
+            <span>
+              {renderEditable(data.passportIssueDate, L.phWrite, {
+                type: 'passport',
+                field: 'passportIssueDate',
+              })}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <span className="w-24 text-slate-600 shrink-0">{L.expiryDate}:</span>
+            <span>
+              {renderEditable(data.passportExpiryDate, L.phWrite, {
+                type: 'passport',
+                field: 'passportExpiryDate',
+              })}
+            </span>
           </div>
         </div>
       </div>
     );
-  }
+  };
 
-  // =========================================================================
-  // SPECIALIZED LAYOUT 2: SIDEBAR TEMPLATES (Modern, Colored 1P/2P, Navy Tech)
-  // =========================================================================
-  if (
+  const renderBangladeshContactBlock = () => {
+    if (hiddenSet.has('bangladeshContact')) return null;
+    if (!interactive && !data.bangladeshContact?.trim()) return null;
+    return (
+      <div>
+        {renderSectionHeading(L.contactBd)}
+        <div className="text-[12px] text-slate-800">
+          {renderEditable(data.bangladeshContact || data.permanentAddress, L.phWrite, {
+            type: 'passport',
+            field: 'bangladeshContact',
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMarriageSection = (key: CvSectionKey) => {
+    if (hiddenSet.has(key)) return null;
+    if (key === 'marriagePersonal') {
+      const marriagePersonal: { label: string; target: CvFieldTarget; value: string }[] = [
+        { label: L.phName, target: { type: 'basic', field: 'fullName' }, value: data.fullName },
+        { label: L.dob, target: { type: 'personal', field: 'dateOfBirth' }, value: data.dateOfBirth },
+        { label: L.age, target: { type: 'personal', field: 'age' }, value: data.age },
+        { label: L.height, target: { type: 'personal', field: 'height' }, value: data.height },
+        { label: L.weight, target: { type: 'personal', field: 'weight' }, value: data.weight },
+        { label: L.complexion, target: { type: 'personal', field: 'complexion' }, value: data.complexion },
+        { label: L.bloodGroup, target: { type: 'personal', field: 'bloodGroup' }, value: data.bloodGroup },
+        { label: L.maritalStatus, target: { type: 'personal', field: 'maritalStatus' }, value: data.maritalStatus },
+        { label: L.religion, target: { type: 'personal', field: 'religion' }, value: data.religion },
+        { label: L.nationality, target: { type: 'personal', field: 'nationality' }, value: data.nationality },
+      ];
+      return (
+        <div>
+          {renderSectionHeading(L.personalDetails)}
+          <div className="space-y-1 text-[12px]">
+            {marriagePersonal
+              .filter((r) => interactive || r.value?.trim())
+              .map((row) => (
+                <div key={row.label} className="flex items-baseline gap-2">
+                  <span className="w-40 text-slate-600 shrink-0">{row.label}</span>
+                  <span className="text-slate-400">:</span>
+                  <span className="font-medium text-slate-900">
+                    {renderEditable(row.value, L.phWrite, row.target)}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (key === 'marriageAddress') {
+      return (
+        <div>
+          {renderSectionHeading(L.address)}
+          <div className="space-y-1 text-[12px]">
+            <div className="flex items-baseline gap-2">
+              <span className="w-40 text-slate-600 shrink-0">{L.presentAddress}</span>
+              <span className="text-slate-400">:</span>
+              <span className="font-medium text-slate-900">
+                {renderEditable(data.address, L.phWrite, { type: 'basic', field: 'address' })}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="w-40 text-slate-600 shrink-0">{L.permanentAddress}</span>
+              <span className="text-slate-400">:</span>
+              <span className="font-medium text-slate-900">
+                {renderEditable(data.permanentAddress, L.phWrite, {
+                  type: 'basic',
+                  field: 'permanentAddress',
+                })}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (key === 'occupation') {
+      if (!interactive && !data.occupation?.trim() && !data.jobTitle?.trim()) return null;
+      return (
+        <div>
+          {renderSectionHeading(L.occupation)}
+          <div className="text-[12px] text-slate-900 font-medium">
+            {renderEditable(data.occupation || data.jobTitle, L.phWrite, {
+              type: 'family',
+              field: 'occupation',
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (key === 'familyInfo') {
+      const familyRows: { label: string; target: CvFieldTarget; value: string }[] = [
+        { label: L.fatherName, target: { type: 'personal', field: 'fatherName' }, value: data.fatherName },
+        { label: L.fatherOcc, target: { type: 'family', field: 'fatherOccupation' }, value: data.fatherOccupation },
+        { label: L.motherName, target: { type: 'personal', field: 'motherName' }, value: data.motherName },
+        { label: L.motherOcc, target: { type: 'family', field: 'motherOccupation' }, value: data.motherOccupation },
+        { label: L.brothers, target: { type: 'family', field: 'brothers' }, value: data.brothers },
+        { label: L.sisters, target: { type: 'family', field: 'sisters' }, value: data.sisters },
+      ];
+      return (
+        <div>
+          {renderSectionHeading(L.familyInfo)}
+          <div className="space-y-1 text-[12px]">
+            {familyRows
+              .filter((r) => interactive || r.value?.trim())
+              .map((row) => (
+                <div key={row.label} className="flex items-baseline gap-2">
+                  <span className="w-40 text-slate-600 shrink-0">{row.label}</span>
+                  <span className="text-slate-400">:</span>
+                  <span className="font-medium text-slate-900">
+                    {renderEditable(row.value, L.phWrite, row.target)}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (key === 'partnerExpectation') {
+      if (!interactive && !data.partnerExpectation?.trim()) return null;
+      return (
+        <div>
+          {renderSectionHeading(L.partnerExpectation)}
+          <div className="text-[12px] text-slate-800">
+            {renderEditable(
+              data.partnerExpectation,
+              L.phWrite,
+              { type: 'family', field: 'partnerExpectation' },
+              { block: true }
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (key === 'guardianContact') {
+      return (
+        <div>
+          {renderSectionHeading(L.guardianContact)}
+          <div className="space-y-1 text-[12px]">
+            <div className="flex items-baseline gap-2">
+              <span className="w-40 text-slate-600 shrink-0">{L.guardianContact}</span>
+              <span className="text-slate-400">:</span>
+              <span className="font-semibold text-slate-900">
+                {renderEditable(data.guardianContact || data.phone, L.phWrite, {
+                  type: 'family',
+                  field: 'guardianContact',
+                })}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  // Render any main section cleanly according to current template
+  const renderSectionByKey = (key: CvSectionKey, govtNum?: number): React.ReactNode => {
+    if (hiddenSet.has(key)) return null;
+    switch (key) {
+      case 'objective':
+        return renderObjectiveBlock(govtNum);
+      case 'experience':
+        return renderExperienceBlock(govtNum);
+      case 'education':
+        return renderEducationBlock(
+          govtNum,
+          tpl === 'marriage-biodata' || tpl === 'bangla-biodata' || tpl === 'govt-ngo-formal'
+        );
+      case 'skills':
+        return renderSkillsBlock(
+          govtNum,
+          tpl === 'fresher-1p' || tpl === 'minimal-line' ? 'tags' : 'inline'
+        );
+      case 'trainings':
+        return renderTrainingsBlock(govtNum);
+      case 'languages':
+        return renderLanguagesBlock(govtNum);
+      case 'personal':
+        return renderPersonalDetailsBlock(
+          govtNum,
+          tpl === 'colored-bar' || tpl === 'bangla-biodata' ? 1 : 2,
+          tpl === 'abroad-gulf'
+        );
+      case 'passport':
+        return renderPassportBlock();
+      case 'bangladeshContact':
+        return renderBangladeshContactBlock();
+      case 'references':
+        return renderReferencesBlock(govtNum);
+      case 'declaration':
+        return renderDeclarationBlock(
+          govtNum,
+          tpl === 'bangla-biodata' || tpl === 'govt-ngo-formal' ? 'right' : 'left'
+        );
+      case 'marriagePersonal':
+      case 'marriageAddress':
+      case 'occupation':
+      case 'familyInfo':
+      case 'partnerExpectation':
+      case 'guardianContact':
+        return renderMarriageSection(key);
+      default:
+        return null;
+    }
+  };
+
+  const defaultSectionOrder = useMemo(() => getTemplateMainSections(tpl), [tpl]);
+  const orderedKeys = useMemo(
+    () => getMergedSectionOrder(defaultSectionOrder, data.sectionOrder),
+    [defaultSectionOrder, data.sectionOrder]
+  );
+
+  // Build active visible main sections (in order, with numbering if govt-ngo-formal)
+  const visibleSectionEntries: { key: CvSectionKey; content: React.ReactNode }[] = (() => {
+    let secNum = 1;
+    const entries: { key: CvSectionKey; content: React.ReactNode }[] = [];
+    for (const key of orderedKeys) {
+      const num = tpl === 'govt-ngo-formal' ? secNum : undefined;
+      const content = renderSectionByKey(key, num);
+      if (content) {
+        if (tpl === 'govt-ngo-formal') secNum++;
+        entries.push({ key, content });
+      }
+    }
+    return entries;
+  })();
+
+  // Template Family Flags
+  const isMarriage = tpl === 'marriage-biodata';
+  const isSidebar =
     tpl === 'modern-sidebar' ||
     tpl === 'colored-sidebar-1p' ||
     tpl === 'colored-sidebar-2p' ||
-    tpl === 'navy-tech-sidebar'
-  ) {
-    const isLightSidebar = tpl === 'modern-sidebar';
-    const sidebarBg = isLightSidebar ? '#f1f5f9' : tpl === 'navy-tech-sidebar' ? (data.accentColor || '#1e3a5f') : accent;
+    tpl === 'navy-tech-sidebar';
+  const isHeaderBand = tpl === 'colored-header-band';
+  const isLightSidebar = tpl === 'modern-sidebar';
+  const sidebarWidthPx = isNarrowPaper ? 184 : 244;
+  const headerBandLeftColPx = isNarrowPaper ? 180 : 235;
 
-    return (
-      <div
-        className="bg-white text-slate-900 box-border flex"
-        style={{ width: '794px', minHeight: '1123px', fontFamily }}
-      >
-        {/* LEFT SIDEBAR COLUMN */}
+  const sidebarBg = isLightSidebar
+    ? '#f1f5f9'
+    : tpl === 'navy-tech-sidebar'
+    ? data.accentColor || '#1e3a5f'
+    : accent;
+
+  // Main column width for accurate measurement
+  const mainColWidthPx = isSidebar
+    ? paperDims.widthPx - sidebarWidthPx
+    : isHeaderBand
+    ? paperDims.widthPx - headerBandLeftColPx - 72 - 28
+    : isMarriage
+    ? paperDims.widthPx - 52 - 64
+    : paperDims.widthPx;
+
+  // Render Page 1 Top Header (for Single-Column, Abroad, Govt, Fresher, Sidebar Right Header, Header Band, Marriage)
+  const renderTopHeaderBlock = (): React.ReactNode => {
+    if (isMarriage) {
+      return (
         <div
-          className="w-[244px] shrink-0 px-5 py-7 flex flex-col justify-between gap-5"
+          className="flex items-start justify-between gap-4 border-b pb-3"
+          style={{ borderColor: accentBorder }}
+        >
+          <div className="flex-1 pt-4 text-center">
+            <h1 className="text-xl font-bold tracking-wider uppercase" style={{ color: accent }}>
+              {L.marriageTitle}
+            </h1>
+          </div>
+          {renderPhotoBox({ width: 98, height: 118 })}
+        </div>
+      );
+    }
+
+    if (isSidebar) {
+      if (isLightSidebar) return null;
+      return (
+        <div
+          className="pb-3"
           style={{
-            backgroundColor: sidebarBg,
-            color: isLightSidebar ? '#1e293b' : '#ffffff',
+            borderBottom: tpl === 'navy-tech-sidebar' ? '3px solid #0f172a' : `2px solid ${accent}`,
           }}
         >
-          <div className="space-y-5">
-            {isLightSidebar && (
-              <div>
-                <h1 className="text-lg font-bold leading-tight" style={{ color: accent }}>
-                  {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
-                </h1>
-                <div className="text-xs text-slate-600 mt-0.5 font-medium">
-                  {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' })}
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-center">
-              {renderPhotoBox({ width: 122, height: 146, darkBorder: !isLightSidebar })}
-            </div>
-
-            {/* Contact Info */}
-            <div>
-              <div
-                className="text-[11px] font-bold uppercase tracking-wider pb-1 mb-2"
-                style={{
-                  color: isLightSidebar ? accent : '#ffffff',
-                  borderBottom: isLightSidebar ? `1px solid ${accentBorder}` : '1px solid rgba(255,255,255,0.28)',
-                }}
-              >
-                {L.contact}
-              </div>
-              <div className="space-y-1.5 text-[11px] break-words">
-                <div>
-                  <div className={isLightSidebar ? 'text-slate-500 text-[10px]' : 'text-white/65 text-[10px]'}>
-                    {L.phPhone}
-                  </div>
-                  <div className="font-medium">
-                    {renderEditable(data.phone, L.phPhone, { type: 'basic', field: 'phone' }, { darkSurface: !isLightSidebar })}
-                  </div>
-                </div>
-                <div>
-                  <div className={isLightSidebar ? 'text-slate-500 text-[10px]' : 'text-white/65 text-[10px]'}>
-                    {L.phEmail}
-                  </div>
-                  <div className="font-medium">
-                    {renderEditable(data.email, L.phEmail, { type: 'basic', field: 'email' }, { darkSurface: !isLightSidebar })}
-                  </div>
-                </div>
-                <div>
-                  <div className={isLightSidebar ? 'text-slate-500 text-[10px]' : 'text-white/65 text-[10px]'}>
-                    {L.phAddress}
-                  </div>
-                  <div className="font-medium">
-                    {renderEditable(data.address, L.phAddress, { type: 'basic', field: 'address' }, { darkSurface: !isLightSidebar })}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Skills in Sidebar */}
-            {isLightSidebar ? renderSkillsBlock(undefined, 'tags') : renderSkillsBlock(undefined, 'sidebar-dark')}
-
-            {/* Languages in Sidebar */}
-            {isLightSidebar ? renderLanguagesBlock() : renderLanguagesBlock(undefined, true)}
-
-            {/* Personal Details inside Colored Sidebars */}
-            {!isLightSidebar && renderPersonalDetailsBlock(undefined, 1, false, true)}
-
-            {/* Declaration inside Light Modern Sidebar */}
-            {isLightSidebar && (
-              <div>
-                <div
-                  className="text-[11px] font-bold uppercase tracking-wider pb-1 mb-1.5"
-                  style={{ color: accent, borderBottom: `1px solid ${accentBorder}` }}
-                >
-                  {L.declaration}
-                </div>
-                <div className="text-[10.5px] text-slate-600 leading-relaxed">
-                  {data.declarationText}
-                </div>
-                {renderSignature('left')}
-              </div>
-            )}
+          <h1 className="text-2xl font-bold leading-tight" style={{ color: accent }}>
+            {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
+          </h1>
+          <div className="text-sm font-semibold text-slate-600 mt-1">
+            {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' })}
           </div>
         </div>
+      );
+    }
 
-        {/* RIGHT MAIN CONTENT COLUMN */}
-        <div className={`flex-1 px-7 py-7 ${sectionGap}`}>
-          {!isLightSidebar && (
-            <div
-              className="pb-3"
-              style={{
-                borderBottom:
-                  tpl === 'navy-tech-sidebar' ? '3px solid #0f172a' : `2px solid ${accent}`,
-              }}
-            >
-              <h1 className="text-2xl font-bold leading-tight" style={{ color: accent }}>
-                {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
-              </h1>
-              <div className="text-sm font-semibold text-slate-600 mt-1">
-                {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' })}
-              </div>
-            </div>
-          )}
-
-          {renderObjectiveBlock()}
-          {renderExperienceBlock()}
-          {renderEducationBlock()}
-          {renderTrainingsBlock()}
-          {renderReferencesBlock()}
-          {isLightSidebar && renderPersonalDetailsBlock(undefined, 2)}
-          {!isLightSidebar && renderDeclarationBlock()}
-        </div>
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // SPECIALIZED LAYOUT 3: COLORED HEADER BAND (Top Colored Banner + 2 Columns)
-  // =========================================================================
-  if (tpl === 'colored-header-band') {
-    return (
-      <div
-        className="bg-white text-slate-900 box-border flex flex-col"
-        style={{ width: '794px', minHeight: '1123px', fontFamily }}
-      >
-        {/* Top Full-Width Colored Band */}
+    if (isHeaderBand) {
+      return (
         <div
           className="px-9 py-6 flex items-center justify-between gap-6 text-white"
           style={{ backgroundColor: accent }}
         >
           <div className="space-y-1.5 flex-1">
             <h1 className="text-2xl font-bold tracking-wide uppercase">
-              {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' }, { darkSurface: true })}
+              {renderEditable(
+                data.fullName,
+                L.phName,
+                { type: 'basic', field: 'fullName' },
+                { darkSurface: true }
+              )}
             </h1>
             <div className="text-sm font-medium text-white/90">
-              {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' }, { darkSurface: true })}
+              {renderEditable(
+                data.jobTitle,
+                L.phJob,
+                { type: 'basic', field: 'jobTitle' },
+                { darkSurface: true }
+              )}
             </div>
             <div className="text-[11.5px] text-white/85 flex items-center gap-2 flex-wrap pt-1">
-              {renderEditable(data.phone, L.phPhone, { type: 'basic', field: 'phone' }, { darkSurface: true })}
+              {renderEditable(
+                data.phone,
+                L.phPhone,
+                { type: 'basic', field: 'phone' },
+                { darkSurface: true }
+              )}
               <span>·</span>
-              {renderEditable(data.email, L.phEmail, { type: 'basic', field: 'email' }, { darkSurface: true })}
+              {renderEditable(
+                data.email,
+                L.phEmail,
+                { type: 'basic', field: 'email' },
+                { darkSurface: true }
+              )}
               <span>·</span>
-              {renderEditable(data.address, L.phAddress, { type: 'basic', field: 'address' }, { darkSurface: true })}
+              {renderEditable(
+                data.address,
+                L.phAddress,
+                { type: 'basic', field: 'address' },
+                { darkSurface: true }
+              )}
             </div>
           </div>
           {renderPhotoBox({ width: 92, height: 112, darkBorder: true })}
         </div>
+      );
+    }
 
-        {/* 2-Column Body */}
-        <div className="flex flex-1 px-9 py-6 gap-7">
-          {/* Left Meta Column */}
-          <div className="w-[235px] shrink-0 space-y-5 pr-5 border-r border-slate-200">
-            {renderPersonalDetailsBlock(undefined, 1)}
-            {renderSkillsBlock(undefined, 'tags')}
-            {renderLanguagesBlock()}
-          </div>
-          {/* Right Primary Column */}
-          <div className={`flex-1 ${sectionGap}`}>
-            {renderObjectiveBlock()}
-            {renderExperienceBlock()}
-            {renderEducationBlock()}
-            {renderTrainingsBlock()}
-            {renderReferencesBlock()}
-            {renderDeclarationBlock()}
+    if (tpl === 'abroad-visa' || tpl === 'abroad-gulf') {
+      const isGulf = tpl === 'abroad-gulf';
+      return (
+        <div className="space-y-3">
+          {isGulf && (
+            <div className="text-center text-sm font-bold tracking-widest uppercase text-slate-800 pb-1 border-b border-slate-300">
+              {L.cvTitle}
+            </div>
+          )}
+          <div
+            className="flex items-start justify-between gap-4 pb-3"
+            style={{ borderBottom: `2px solid ${accent}` }}
+          >
+            <div className="space-y-1 flex-1">
+              {!isGulf && (
+                <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">
+                  {L.cvTitle}
+                </div>
+              )}
+              <h1 className="text-2xl font-bold uppercase" style={{ color: accent }}>
+                {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
+              </h1>
+              <div className="text-sm font-semibold text-slate-700">
+                {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' })}
+              </div>
+              <div className="text-[11.5px] text-slate-600 flex items-center gap-2 flex-wrap pt-0.5">
+                {renderEditable(data.phone, L.phPhone, { type: 'basic', field: 'phone' })}
+                <span>•</span>
+                {renderEditable(data.email, L.phEmail, { type: 'basic', field: 'email' })}
+                <span>•</span>
+                {renderEditable(data.address, L.phAddress, { type: 'basic', field: 'address' })}
+              </div>
+            </div>
+            {renderPhotoBox({ width: 98, height: 118 })}
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  // =========================================================================
-  // SPECIALIZED LAYOUT 4: ABROAD / VISA & ABROAD / GULF STANDARD
-  // =========================================================================
-  if (tpl === 'abroad-visa' || tpl === 'abroad-gulf') {
-    const isGulf = tpl === 'abroad-gulf';
-    return (
-      <div
-        className={`bg-white text-slate-900 box-border ${padClass} ${sectionGap}`}
-        style={{ width: '794px', minHeight: '1123px', fontFamily }}
-      >
-        {isGulf && (
-          <div className="text-center text-sm font-bold tracking-widest uppercase text-slate-800 pb-1 border-b border-slate-300">
-            {L.cvTitle}
-          </div>
-        )}
-
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 pb-3" style={{ borderBottom: `2px solid ${accent}` }}>
-          <div className="space-y-1 flex-1">
-            {!isGulf && (
-              <div className="text-[10px] font-bold tracking-widest uppercase text-slate-500">
-                {L.cvTitle}
-              </div>
-            )}
-            <h1 className="text-2xl font-bold uppercase" style={{ color: accent }}>
-              {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
-            </h1>
-            <div className="text-sm font-semibold text-slate-700">
-              {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' })}
-            </div>
-            <div className="text-[11.5px] text-slate-600 flex items-center gap-2 flex-wrap pt-0.5">
-              {renderEditable(data.phone, L.phPhone, { type: 'basic', field: 'phone' })}
-              <span>•</span>
-              {renderEditable(data.email, L.phEmail, { type: 'basic', field: 'email' })}
-              <span>•</span>
-              {renderEditable(data.address, L.phAddress, { type: 'basic', field: 'address' })}
-            </div>
-          </div>
-          {renderPhotoBox({ width: 98, height: 118 })}
-        </div>
-
-        {/* Passport Details (Side-by-side boxes in Abroad Visa, 4-col Table in Gulf) */}
-        {isGulf ? (
-          <div>
-            <table className="w-full border-collapse text-[11.5px]" style={{ border: `1px solid ${accentBorder}` }}>
-              <thead>
-                <tr style={{ backgroundColor: accentTint }}>
-                  <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>{L.passportNo}</th>
-                  <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>{L.issueDate}</th>
-                  <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>{L.expiryDate}</th>
-                  <th className="px-2 py-1.5 border border-slate-300 text-left font-bold" style={{ color: accent }}>{L.issuePlace}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="px-2 py-1.5 border border-slate-300 font-mono font-bold">
-                    {renderEditable(data.passportNo, L.phWrite, { type: 'passport', field: 'passportNo' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300">
-                    {renderEditable(data.passportIssueDate, L.phWrite, { type: 'passport', field: 'passportIssueDate' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300">
-                    {renderEditable(data.passportExpiryDate, L.phWrite, { type: 'passport', field: 'passportExpiryDate' })}
-                  </td>
-                  <td className="px-2 py-1.5 border border-slate-300">
-                    {renderEditable(data.passportIssuePlace, L.phWrite, { type: 'passport', field: 'passportIssuePlace' })}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="border border-slate-300 rounded p-3">
-              {renderSectionHeading(L.passportDetails)}
-              <div className="space-y-1 text-[11.5px]">
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.passportNo}:</span>
-                  <span className="font-mono font-bold">
-                    {renderEditable(data.passportNo, L.phWrite, { type: 'passport', field: 'passportNo' })}
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.issueDate}:</span>
-                  <span>{renderEditable(data.passportIssueDate, L.phWrite, { type: 'passport', field: 'passportIssueDate' })}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.expiryDate}:</span>
-                  <span>{renderEditable(data.passportExpiryDate, L.phWrite, { type: 'passport', field: 'passportExpiryDate' })}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.issuePlace}:</span>
-                  <span>{renderEditable(data.passportIssuePlace, L.phWrite, { type: 'passport', field: 'passportIssuePlace' })}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="border border-slate-300 rounded p-3">
-              {renderSectionHeading(L.personalDetails)}
-              <div className="space-y-1 text-[11.5px]">
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.fatherName}:</span>
-                  <span>{renderEditable(data.fatherName, L.phWrite, { type: 'personal', field: 'fatherName' })}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.dob}:</span>
-                  <span>{renderEditable(data.dateOfBirth, L.phWrite, { type: 'personal', field: 'dateOfBirth' })}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.nationality}:</span>
-                  <span>{renderEditable(data.nationality, L.phWrite, { type: 'personal', field: 'nationality' })}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="w-28 text-slate-600 shrink-0">{L.height} / {L.weight}:</span>
-                  <span>
-                    {renderEditable(data.height, L.phWrite, { type: 'personal', field: 'height' })} ·{' '}
-                    {renderEditable(data.weight, L.phWrite, { type: 'personal', field: 'weight' })}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {renderObjectiveBlock()}
-        {isGulf && renderPersonalDetailsBlock(undefined, 2, true)}
-        {renderExperienceBlock()}
-        {renderSkillsBlock()}
-        {renderEducationBlock()}
-        {renderTrainingsBlock()}
-        {renderLanguagesBlock()}
-        {(interactive || data.bangladeshContact?.trim()) && (
-          <div>
-            {renderSectionHeading(L.contactBd)}
-            <div className="text-[12px] text-slate-800">
-              {renderEditable(data.bangladeshContact || data.permanentAddress, L.phWrite, {
-                type: 'passport',
-                field: 'bangladeshContact',
-              })}
-            </div>
-          </div>
-        )}
-        {renderDeclarationBlock()}
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // SPECIALIZED LAYOUT 5: BANGLA BIODATA & GOVT / NGO FORMAL
-  // =========================================================================
-  if (tpl === 'bangla-biodata' || tpl === 'govt-ngo-formal') {
-    const isGovt = tpl === 'govt-ngo-formal';
-    let secNum = 1;
-    const nextNum = () => (isGovt ? secNum++ : undefined);
-
-    return (
-      <div
-        className={`bg-white text-slate-900 box-border ${padClass} ${sectionGap}`}
-        style={{ width: '794px', minHeight: '1123px', fontFamily }}
-      >
-        {/* Centered Formal Header + Right Photo */}
+    if (tpl === 'bangla-biodata' || tpl === 'govt-ngo-formal') {
+      return (
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <div className="text-center mb-3">
@@ -1684,29 +2002,11 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
           </div>
           {renderPhotoBox({ width: 98, height: 118 })}
         </div>
+      );
+    }
 
-        {renderObjectiveBlock(nextNum())}
-        {renderPersonalDetailsBlock(nextNum(), isGovt ? 2 : 1)}
-        {renderEducationBlock(nextNum(), true)}
-        {renderExperienceBlock(nextNum())}
-        {renderSkillsBlock(nextNum())}
-        {renderTrainingsBlock(nextNum())}
-        {renderLanguagesBlock(nextNum())}
-        {renderReferencesBlock(nextNum())}
-        {renderDeclarationBlock(nextNum(), 'right')}
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // SPECIALIZED LAYOUT 6: FRESHER 1-PAGE (Photo Left + Education & Skills First)
-  // =========================================================================
-  if (tpl === 'fresher-1p') {
-    return (
-      <div
-        className={`bg-white text-slate-900 box-border ${padClass} ${sectionGap}`}
-        style={{ width: '794px', minHeight: '1123px', fontFamily }}
-      >
+    if (tpl === 'fresher-1p') {
+      return (
         <div
           className="flex items-center gap-5 pb-3.5"
           style={{ borderBottom: `2px solid ${accent}` }}
@@ -1728,37 +2028,15 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
             </div>
           </div>
         </div>
+      );
+    }
 
-        {renderObjectiveBlock()}
-        {/* Fresher emphasizes Education & Skills FIRST */}
-        {renderEducationBlock()}
-        {renderSkillsBlock(undefined, 'tags')}
-        {renderTrainingsBlock()}
-        {renderExperienceBlock()}
-        <div className="grid grid-cols-1 gap-3">
-          {renderPersonalDetailsBlock(undefined, 2)}
-          {renderLanguagesBlock()}
-        </div>
-        {renderReferencesBlock()}
-        {renderDeclarationBlock()}
-      </div>
-    );
-  }
-
-  // =========================================================================
-  // DEFAULT SINGLE-COLUMN FAMILY:
-  // classic-plain, colored-bar, minimal-line, executive-one-col, minimal-ats, classic-with-photo
-  // =========================================================================
-  const isCenteredHeader = tpl === 'minimal-ats' || tpl === 'colored-bar';
-
-  return (
-    <div
-      className={`bg-white text-slate-900 box-border ${padClass} ${sectionGap}`}
-      style={{ width: '794px', minHeight: '1123px', fontFamily }}
-    >
-      {/* Top Header */}
+    const isCenteredHeader = tpl === 'minimal-ats' || tpl === 'colored-bar';
+    return (
       <div
-        className={`flex items-start ${isCenteredHeader && tpl === 'minimal-ats' ? 'justify-center text-center' : 'justify-between'} gap-5 pb-3.5`}
+        className={`flex items-start ${
+          isCenteredHeader && tpl === 'minimal-ats' ? 'justify-center text-center' : 'justify-between'
+        } gap-5 pb-3.5`}
         style={{
           borderBottom:
             tpl === 'minimal-ats'
@@ -1778,7 +2056,9 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
             className={`font-bold leading-tight ${
               tpl === 'minimal-ats' ? 'text-2xl uppercase tracking-wider text-slate-950' : 'text-[26px]'
             } ${tpl === 'colored-bar' ? 'text-center' : ''}`}
-            style={{ color: tpl === 'minimal-ats' ? '#0f172a' : tpl === 'classic-plain' ? '#1e293b' : accent }}
+            style={{
+              color: tpl === 'minimal-ats' ? '#0f172a' : tpl === 'classic-plain' ? '#1e293b' : accent,
+            }}
           >
             {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
           </h1>
@@ -1799,26 +2079,824 @@ export const CvSheetRenderer: React.FC<CvSheetRendererProps> = ({
         </div>
         {tpl !== 'minimal-ats' && renderPhotoBox({ width: 100, height: 122 })}
       </div>
+    );
+  };
 
-      {renderObjectiveBlock()}
-      {renderExperienceBlock()}
-      {renderEducationBlock()}
-      {renderSkillsBlock(undefined, tpl === 'minimal-line' ? 'tags' : 'inline')}
-      {renderTrainingsBlock()}
-      {renderLanguagesBlock()}
-      {renderPersonalDetailsBlock(undefined, tpl === 'colored-bar' ? 1 : 2)}
-      {renderReferencesBlock()}
-      {renderDeclarationBlock()}
+  // Sidebar Left Column (for Sidebar templates on Page 1)
+  const renderSidebarLeftColumn = () => (
+    <div
+      className="shrink-0 px-5 py-7 flex flex-col justify-between gap-5"
+      style={{
+        width: `${sidebarWidthPx}px`,
+        backgroundColor: sidebarBg,
+        color: isLightSidebar ? '#1e293b' : '#ffffff',
+      }}
+    >
+      <div className="space-y-5">
+        {isLightSidebar && (
+          <div>
+            <h1 className="text-lg font-bold leading-tight" style={{ color: accent }}>
+              {renderEditable(data.fullName, L.phName, { type: 'basic', field: 'fullName' })}
+            </h1>
+            <div className="text-xs text-slate-600 mt-0.5 font-medium">
+              {renderEditable(data.jobTitle, L.phJob, { type: 'basic', field: 'jobTitle' })}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-center">
+          {renderPhotoBox({ width: isNarrowPaper ? 96 : 122, height: isNarrowPaper ? 114 : 146, darkBorder: !isLightSidebar })}
+        </div>
+
+        {/* Contact Info */}
+        <div>
+          <div
+            className="text-[11px] font-bold uppercase tracking-wider pb-1 mb-2"
+            style={{
+              color: isLightSidebar ? accent : '#ffffff',
+              borderBottom: isLightSidebar
+                ? `1px solid ${accentBorder}`
+                : '1px solid rgba(255,255,255,0.28)',
+            }}
+          >
+            {L.contact}
+          </div>
+          <div className="space-y-1.5 text-[11px] break-words">
+            <div>
+              <div className={isLightSidebar ? 'text-slate-500 text-[10px]' : 'text-white/65 text-[10px]'}>
+                {L.phPhone}
+              </div>
+              <div className="font-medium">
+                {renderEditable(
+                  data.phone,
+                  L.phPhone,
+                  { type: 'basic', field: 'phone' },
+                  { darkSurface: !isLightSidebar }
+                )}
+              </div>
+            </div>
+            <div>
+              <div className={isLightSidebar ? 'text-slate-500 text-[10px]' : 'text-white/65 text-[10px]'}>
+                {L.phEmail}
+              </div>
+              <div className="font-medium">
+                {renderEditable(
+                  data.email,
+                  L.phEmail,
+                  { type: 'basic', field: 'email' },
+                  { darkSurface: !isLightSidebar }
+                )}
+              </div>
+            </div>
+            <div>
+              <div className={isLightSidebar ? 'text-slate-500 text-[10px]' : 'text-white/65 text-[10px]'}>
+                {L.phAddress}
+              </div>
+              <div className="font-medium">
+                {renderEditable(
+                  data.address,
+                  L.phAddress,
+                  { type: 'basic', field: 'address' },
+                  { darkSurface: !isLightSidebar }
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {isLightSidebar
+          ? renderSkillsBlock(undefined, 'tags')
+          : renderSkillsBlock(undefined, 'sidebar-dark')}
+
+        {isLightSidebar ? renderLanguagesBlock() : renderLanguagesBlock(undefined, true)}
+
+        {!isLightSidebar && renderPersonalDetailsBlock(undefined, 1, false, true)}
+
+        {isLightSidebar && !hiddenSet.has('declaration') && !data.hideDeclaration && (
+          <div className="relative group/side">
+            <div
+              className="text-[11px] font-bold uppercase tracking-wider pb-1 mb-1.5 flex items-center justify-between"
+              style={{ color: accent, borderBottom: `1px solid ${accentBorder}` }}
+            >
+              <span>{L.declaration}</span>
+              {interactive && onDeleteSection && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteSection('declaration');
+                  }}
+                  className="p-0.5 rounded bg-red-500/85 text-white opacity-0 group-hover/side:opacity-100 transition cursor-pointer"
+                  title={data.cvLang === 'bn' ? 'ঘোষণাপত্র মুছুন' : 'Delete Declaration'}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            <div className="text-[10.5px] text-slate-600 leading-relaxed">
+              {renderEditable(data.declarationText, 'Declaration...', {
+                type: 'basic',
+                field: 'declarationText',
+              })}
+            </div>
+            {renderSignature('left')}
+          </div>
+        )}
+      </div>
     </div>
   );
+
+  // Header Band Left Meta Column
+  const renderHeaderBandLeftColumn = () => (
+    <div
+      className="shrink-0 space-y-5 pr-5 border-r border-slate-200"
+      style={{ width: `${headerBandLeftColPx}px` }}
+    >
+      {renderPersonalDetailsBlock(undefined, 1)}
+      {renderSkillsBlock(undefined, 'tags')}
+      {renderLanguagesBlock()}
+    </div>
+  );
+
+  // Section wrapper with Drag/Mark/Page-Break/Spacer/Delete toolbar in Edit Mode
+  const wrapInteractiveSection = (
+    key: CvSectionKey,
+    content: React.ReactNode,
+    pageIndex: number,
+    spacingTop: number
+  ) => {
+    const isMarked = markedSections.includes(key);
+    const hasManualBreak = pageBreakSet.has(key);
+    const isOnPage2OrHigher = pageIndex > 0;
+    const isDragTarget = dragOverKey === key && draggedKey !== key;
+
+    if (!interactive) {
+      return (
+        <div
+          key={key}
+          style={{ marginTop: spacingTop > 0 ? `${spacingTop}px` : undefined }}
+        >
+          {content}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={key}
+        draggable={Boolean(onReorderSections)}
+        onDragStart={(e) => {
+          setDraggedKey(key);
+          e.dataTransfer.setData('text/plain', key);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        onDragEnd={() => {
+          setDraggedKey(null);
+          setDragOverKey(null);
+          setDragOverPage(null);
+        }}
+        onDragOver={(e) => {
+          if (!draggedKey || draggedKey === key) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOverKey(key);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const sourceKey = (e.dataTransfer.getData('text/plain') as CvSectionKey) || draggedKey;
+          setDragOverKey(null);
+          setDraggedKey(null);
+          if (sourceKey && sourceKey !== key) {
+            onReorderSections?.(sourceKey, key);
+          }
+        }}
+        style={{ marginTop: spacingTop > 0 ? `${spacingTop}px` : undefined }}
+        className={`relative group/cvsec rounded-md transition-all ${
+          isMarked
+            ? 'ring-2 ring-emerald-500/80 bg-emerald-50/35 px-1.5 py-1 -mx-1.5'
+            : isDragTarget
+            ? 'ring-2 ring-blue-500 bg-blue-50/40'
+            : 'hover:ring-1 hover:ring-blue-300/80 hover:bg-blue-50/15 px-1 -mx-1'
+        }`}
+      >
+        {/* Top-Right Compact Section Flow & Delete Bar */}
+        <div
+          className={`no-print absolute -top-3.5 right-0 z-20 flex items-center gap-0.5 rounded-lg bg-slate-900/90 text-white px-1.5 py-0.5 text-[10px] font-semibold shadow-md transition-opacity ${
+            isMarked ? 'opacity-100' : 'opacity-0 group-hover/cvsec:opacity-100'
+          }`}
+        >
+          {/* Drag Handle */}
+          <span
+            className="px-0.5 text-slate-300 cursor-grab active:cursor-grabbing flex items-center"
+            title={data.cvLang === 'bn' ? 'টেনে উপরে/নিচে বা অন্য পেজে নিন' : 'Drag to reorder or move between pages'}
+          >
+            <GripVertical className="w-3 h-3" />
+          </span>
+
+          {/* Mark Checkbox */}
+          {onToggleMarkSection && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleMarkSection(key);
+              }}
+              className={`p-0.5 rounded cursor-pointer transition ${
+                isMarked ? 'bg-emerald-500 text-white' : 'hover:bg-white/15 text-slate-200'
+              }`}
+              title={data.cvLang === 'bn' ? 'মার্ক করুন (একসাথে অন্য পেজে নিতে)' : 'Mark section'}
+            >
+              <Check className="w-2.5 h-2.5" />
+            </button>
+          )}
+
+          {/* Move Up / Down */}
+          {onMoveSectionDirection && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveSectionDirection(key, 'up');
+                }}
+                className="p-0.5 rounded hover:bg-white/15 cursor-pointer"
+                title={data.cvLang === 'bn' ? 'উপরে তুলুন' : 'Move Up'}
+              >
+                <ArrowUp className="w-2.5 h-2.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveSectionDirection(key, 'down');
+                }}
+                className="p-0.5 rounded hover:bg-white/15 cursor-pointer"
+                title={data.cvLang === 'bn' ? 'নিচে নামান' : 'Move Down'}
+              >
+                <ArrowDown className="w-2.5 h-2.5" />
+              </button>
+            </>
+          )}
+
+          {/* Add / Reduce Top Space (Push text across pages) */}
+          {onAdjustSectionSpace && (
+            <div className="flex items-center border-l border-white/20 pl-0.5 ml-0.5">
+              {spacingTop > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAdjustSectionSpace(key, -12);
+                  }}
+                  className="p-0.5 rounded hover:bg-white/15 cursor-pointer"
+                  title={data.cvLang === 'bn' ? 'স্পেস কমান' : 'Reduce space'}
+                >
+                  <Minus className="w-2.5 h-2.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdjustSectionSpace(key, 12);
+                }}
+                className="px-1 py-0.5 rounded hover:bg-white/15 cursor-pointer flex items-center gap-0.5 text-[9.5px]"
+                title={data.cvLang === 'bn' ? 'স্পেস দিয়ে নিচে/পরের পেজে নিন' : 'Add space above to push down'}
+              >
+                <Plus className="w-2.5 h-2.5" />
+                <span>{data.cvLang === 'bn' ? 'স্পেস' : 'Space'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Move to Page 2 / Bring to Page 1 Toggle */}
+          {onTogglePageBreak && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePageBreak(key);
+              }}
+              className={`px-1 py-0.5 rounded cursor-pointer flex items-center gap-0.5 text-[9.5px] border-l border-white/20 ml-0.5 ${
+                hasManualBreak || isOnPage2OrHigher
+                  ? 'bg-blue-500 text-white hover:bg-blue-600'
+                  : 'hover:bg-white/15 text-amber-300'
+              }`}
+              title={
+                hasManualBreak
+                  ? data.cvLang === 'bn'
+                    ? 'আগের পেজে ফিরিয়ে আনুন'
+                    : 'Pull back to previous page'
+                  : data.cvLang === 'bn'
+                  ? 'এই অংশটি পরের পেজে পাঠান'
+                  : 'Move section to Page 2'
+              }
+            >
+              {hasManualBreak ? (
+                <>
+                  <CornerUpLeft className="w-2.5 h-2.5" />
+                  <span>{data.cvLang === 'bn' ? 'পেইজ ১' : 'Page 1'}</span>
+                </>
+              ) : (
+                <>
+                  <CornerDownRight className="w-2.5 h-2.5" />
+                  <span>{data.cvLang === 'bn' ? 'পেইজ ২' : 'Page 2'}</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Delete Entire Section */}
+          {onDeleteSection && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteSection(key);
+              }}
+              className="p-0.5 ml-0.5 rounded bg-red-600 hover:bg-red-700 text-white cursor-pointer"
+              title={data.cvLang === 'bn' ? 'এই অপশনটি ডিলিট করুন' : 'Delete this section'}
+            >
+              <Trash2 className="w-2.5 h-2.5" />
+            </button>
+          )}
+        </div>
+
+        {content}
+      </div>
+    );
+  };
+
+  // =========================================================================
+  // PAGINATED MODE: Exact Multi-Page Physical Sheets + Live Height Measurement
+  // =========================================================================
+  const measureContainerRef = useRef<HTMLDivElement>(null);
+  const [pageBuckets, setPageBuckets] = useState<PageAssignment[]>(() => [
+    {
+      pageNumber: 1,
+      items: visibleSectionEntries.map((s) => ({
+        key: s.key,
+        spacingTop: Math.max(0, data.sectionSpacingTop?.[s.key] || 0),
+      })),
+      usedPx: 400,
+      totalPx: paperDims.heightPx,
+      fillPercent: 35,
+      remainingMm: Math.round((paperDims.heightPx - 400) / CV_PX_PER_MM),
+      overflowPx: 0,
+    },
+  ]);
+
+  const activeKeysSignature = visibleSectionEntries.map((e) => e.key).join(',');
+  const breakSignature = (data.pageBreakBefore || []).join(',');
+  const spacingSignature = JSON.stringify(data.sectionSpacingTop || {});
+
+  useLayoutEffect(() => {
+    if (!paginated || isThumbnail) return;
+    const container = measureContainerRef.current;
+    if (!container) return;
+
+    const computePages = () => {
+      const headerEl = container.querySelector('[data-cv-measure="header"]') as HTMLElement | null;
+      const headerH = headerEl ? Math.ceil(headerEl.getBoundingClientRect().height) : 0;
+
+      const measuredMap: Record<string, number> = {};
+      const secEls = container.querySelectorAll('[data-cv-measure-sec]');
+      secEls.forEach((el) => {
+        const k = el.getAttribute('data-cv-measure-sec');
+        if (k) {
+          measuredMap[k] = Math.ceil(el.getBoundingClientRect().height);
+        }
+      });
+
+      const verticalChrome = isMarriage ? 52 + 48 : isHeaderBand ? 48 : padVerticalPx;
+      const page1BaseUsed = isHeaderBand
+        ? headerH + 48
+        : isSidebar
+        ? (headerH > 0 ? headerH + sectionGapPx : 0) + 56
+        : (headerH > 0 ? headerH + sectionGapPx : 0) + verticalChrome;
+      const pageNextBaseUsed = isMarriage ? 52 + 48 : isSidebar ? 56 : padVerticalPx;
+
+      const totalPagePx = paperDims.heightPx;
+      const pages: PageAssignment[] = [];
+      let currentItems: { key: CvSectionKey; spacingTop: number }[] = [];
+      let currentUsedPx = page1BaseUsed;
+      let pageNum = 1;
+
+      const finalizePage = (items: { key: CvSectionKey; spacingTop: number }[], used: number, num: number) => {
+        const clampedUsed = Math.max(0, used);
+        const fillPercent = Math.min(100, Math.round((clampedUsed / totalPagePx) * 100));
+        const remainingPx = totalPagePx - clampedUsed;
+        const remainingMm = Math.max(0, Math.round(remainingPx / CV_PX_PER_MM));
+        const overflowPx = Math.max(0, clampedUsed - totalPagePx);
+        pages.push({
+          pageNumber: num,
+          items,
+          usedPx: clampedUsed,
+          totalPx: totalPagePx,
+          fillPercent,
+          remainingMm,
+          overflowPx,
+        });
+      };
+
+      for (const entry of visibleSectionEntries) {
+        const k = entry.key;
+        const secH = measuredMap[k] ?? 50;
+        const rawSpace = Math.max(0, data.sectionSpacingTop?.[k] || 0);
+        const forceBreak = pageBreakSet.has(k);
+        const itemCost = (currentItems.length > 0 ? sectionGapPx : 0) + rawSpace + secH;
+
+        const shouldBreak =
+          (forceBreak && (pageNum > 1 ? currentItems.length > 0 : currentItems.length > 0 || headerH > 0)) ||
+          (currentItems.length > 0 && currentUsedPx + itemCost > totalPagePx - 8);
+
+        if (shouldBreak) {
+          finalizePage(currentItems, currentUsedPx, pageNum);
+          pageNum += 1;
+          currentItems = [];
+          currentUsedPx = pageNextBaseUsed;
+        }
+
+        const effectiveSpace = currentItems.length === 0 && forceBreak ? rawSpace : rawSpace;
+        const addedCost = (currentItems.length > 0 ? sectionGapPx : 0) + effectiveSpace + secH;
+        currentItems.push({ key: k, spacingTop: effectiveSpace });
+        currentUsedPx += addedCost;
+      }
+
+      if (currentItems.length > 0 || pages.length === 0) {
+        finalizePage(currentItems, currentUsedPx, pageNum);
+      }
+
+      setPageBuckets((prev) => {
+        const prevSig = JSON.stringify(prev);
+        const nextSig = JSON.stringify(pages);
+        return prevSig === nextSig ? prev : pages;
+      });
+
+      if (onLayoutMetricsChange) {
+        const metricPages: CvPageMetric[] = pages.map((p) => ({
+          pageNumber: p.pageNumber,
+          usedPx: p.usedPx,
+          totalPx: p.totalPx,
+          fillPercent: p.fillPercent,
+          remainingMm: p.remainingMm,
+          overflowPx: p.overflowPx,
+          sectionKeys: p.items.map((it) => it.key),
+        }));
+        onLayoutMetricsChange({
+          paperWidthMm: paperDims.widthMm,
+          paperHeightMm: paperDims.heightMm,
+          paperWidthPx: paperDims.widthPx,
+          paperHeightPx: paperDims.heightPx,
+          pages: metricPages,
+        });
+      }
+    };
+
+    computePages();
+    const ro = new ResizeObserver(computePages);
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [
+    paginated,
+    isThumbnail,
+    paperDims.widthPx,
+    paperDims.heightPx,
+    activeKeysSignature,
+    breakSignature,
+    spacingSignature,
+    data,
+    interactive,
+    padVerticalPx,
+    sectionGapPx,
+    isMarriage,
+    isHeaderBand,
+    isSidebar,
+  ]);
+
+  // Thumbnail / Legacy non-paginated single sheet (fast for 17-Template Gallery)
+  if (!paginated || isThumbnail) {
+    if (isMarriage) {
+      return (
+        <div className={rootFormatClasses} style={{ fontFamily, fontSize: baseTextSize }}>
+          <div
+            className="bg-white text-slate-900 box-border"
+            style={{
+              width: `${paperDims.widthPx}px`,
+              minHeight: `${paperDims.heightPx}px`,
+              fontFamily,
+              padding: '26px',
+            }}
+          >
+            <div
+              className="h-full px-8 py-6 flex flex-col justify-between"
+              style={{
+                minHeight: `${paperDims.heightPx - 52}px`,
+                border: `2.5px solid ${accent}`,
+                borderRadius: '4px',
+              }}
+            >
+              <div className="space-y-4">
+                {renderTopHeaderBlock()}
+                {visibleSectionEntries.map((entry) => (
+                  <React.Fragment key={entry.key}>{entry.content}</React.Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isSidebar) {
+      return (
+        <div className={rootFormatClasses} style={{ fontFamily, fontSize: baseTextSize }}>
+          <div
+            className="bg-white text-slate-900 box-border flex"
+            style={{ width: `${paperDims.widthPx}px`, minHeight: `${paperDims.heightPx}px`, fontFamily }}
+          >
+            {renderSidebarLeftColumn()}
+            <div className={`flex-1 px-7 py-7 ${sectionGap}`}>
+              {renderTopHeaderBlock()}
+              {visibleSectionEntries.map((entry) => (
+                <React.Fragment key={entry.key}>{entry.content}</React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isHeaderBand) {
+      return (
+        <div className={rootFormatClasses} style={{ fontFamily, fontSize: baseTextSize }}>
+          <div
+            className="bg-white text-slate-900 box-border flex flex-col"
+            style={{ width: `${paperDims.widthPx}px`, minHeight: `${paperDims.heightPx}px`, fontFamily }}
+          >
+            {renderTopHeaderBlock()}
+            <div className="flex flex-1 px-9 py-6 gap-7">
+              {renderHeaderBandLeftColumn()}
+              <div className={`flex-1 ${sectionGap}`}>
+                {visibleSectionEntries.map((entry) => (
+                  <React.Fragment key={entry.key}>{entry.content}</React.Fragment>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={rootFormatClasses} style={{ fontFamily, fontSize: baseTextSize }}>
+        <div
+          className={`bg-white text-slate-900 box-border ${padClass} ${sectionGap}`}
+          style={{ width: `${paperDims.widthPx}px`, minHeight: `${paperDims.heightPx}px`, fontFamily }}
+        >
+          {renderTopHeaderBlock()}
+          {visibleSectionEntries.map((entry) => (
+            <React.Fragment key={entry.key}>{entry.content}</React.Fragment>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Build quick lookup map of rendered section nodes
+  const sectionNodeMap = new Map<CvSectionKey, React.ReactNode>(
+    visibleSectionEntries.map((e) => [e.key, e.content])
+  );
+
+  const renderSinglePhysicalPage = (page: PageAssignment, pageIndex: number) => {
+    const isPage1 = pageIndex === 0;
+    const isDropHighlight = dragOverPage === pageIndex;
+    const pageStyle: React.CSSProperties = {
+      width: `${paperDims.widthPx}px`,
+      height: page.overflowPx > 12 ? undefined : `${paperDims.heightPx}px`,
+      minHeight: `${paperDims.heightPx}px`,
+      fontFamily,
+    };
+
+    const pageDragProps = interactive
+      ? {
+          onDragOver: (e: React.DragEvent) => {
+            if (!draggedKey) return;
+            e.preventDefault();
+            setDragOverPage(pageIndex);
+          },
+          onDragLeave: () => {
+            if (dragOverPage === pageIndex) setDragOverPage(null);
+          },
+          onDrop: (e: React.DragEvent) => {
+            e.preventDefault();
+            const sourceKey = (e.dataTransfer.getData('text/plain') as CvSectionKey) || draggedKey;
+            setDragOverPage(null);
+            setDragOverKey(null);
+            setDraggedKey(null);
+            if (sourceKey && onDropOnPage) {
+              onDropOnPage(pageIndex, sourceKey);
+            }
+          },
+        }
+      : {};
+
+    const renderedItems = page.items.map((item) => {
+      const node = sectionNodeMap.get(item.key);
+      if (!node) return null;
+      return wrapInteractiveSection(item.key, node, pageIndex, item.spacingTop);
+    });
+
+    if (isMarriage) {
+      return (
+        <div
+          key={`page-${page.pageNumber}`}
+          className={`cv-print-page bg-white text-slate-900 box-border ${
+            interactive ? 'rounded-md shadow-md border border-slate-200/90' : ''
+          } ${isDropHighlight ? 'ring-2 ring-blue-500' : ''}`}
+          style={{ ...pageStyle, padding: '26px' }}
+          {...pageDragProps}
+        >
+          <div
+            className="h-full px-8 py-6 flex flex-col justify-between"
+            style={{
+              minHeight: `${paperDims.heightPx - 52}px`,
+              border: `2.5px solid ${accent}`,
+              borderRadius: '4px',
+            }}
+          >
+            <div className={sectionGap}>
+              {isPage1 && renderTopHeaderBlock()}
+              {renderedItems}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (isSidebar) {
+      return (
+        <div
+          key={`page-${page.pageNumber}`}
+          className={`cv-print-page bg-white text-slate-900 box-border flex ${
+            interactive ? 'rounded-md shadow-md border border-slate-200/90' : ''
+          } ${isDropHighlight ? 'ring-2 ring-blue-500' : ''}`}
+          style={pageStyle}
+          {...pageDragProps}
+        >
+          {isPage1 ? (
+            renderSidebarLeftColumn()
+          ) : (
+            <div
+              className="shrink-0 px-5 py-7 flex flex-col justify-between"
+              style={{
+                width: `${sidebarWidthPx}px`,
+                backgroundColor: sidebarBg,
+                color: isLightSidebar ? '#475569' : 'rgba(255,255,255,0.75)',
+              }}
+            >
+              <div className="space-y-1 text-[10.5px]">
+                <div className="font-bold uppercase tracking-wider opacity-85">
+                  {data.fullName || L.cvTitle}
+                </div>
+                <div className="opacity-70">
+                  {data.cvLang === 'bn' ? `পৃষ্ঠা ${page.pageNumber}` : `Page ${page.pageNumber}`}
+                </div>
+              </div>
+            </div>
+          )}
+          <div className={`flex-1 px-7 py-7 ${sectionGap}`}>
+            {isPage1 && renderTopHeaderBlock()}
+            {renderedItems}
+          </div>
+        </div>
+      );
+    }
+
+    if (isHeaderBand) {
+      return (
+        <div
+          key={`page-${page.pageNumber}`}
+          className={`cv-print-page bg-white text-slate-900 box-border flex flex-col ${
+            interactive ? 'rounded-md shadow-md border border-slate-200/90' : ''
+          } ${isDropHighlight ? 'ring-2 ring-blue-500' : ''}`}
+          style={pageStyle}
+          {...pageDragProps}
+        >
+          {isPage1 ? (
+            <>
+              {renderTopHeaderBlock()}
+              <div className="flex flex-1 px-9 py-6 gap-7">
+                {renderHeaderBandLeftColumn()}
+                <div className={`flex-1 ${sectionGap}`}>{renderedItems}</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="h-2.5 w-full shrink-0" style={{ backgroundColor: accent }} />
+              <div className={`flex-1 px-9 py-7 ${sectionGap}`}>{renderedItems}</div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={`page-${page.pageNumber}`}
+        className={`cv-print-page bg-white text-slate-900 box-border ${padClass} ${sectionGap} ${
+          interactive ? 'rounded-md shadow-md border border-slate-200/90' : ''
+        } ${isDropHighlight ? 'ring-2 ring-blue-500' : ''}`}
+        style={pageStyle}
+        {...pageDragProps}
+      >
+        {isPage1 && renderTopHeaderBlock()}
+        {renderedItems}
+      </div>
+    );
   };
 
   return (
-    <div
-      className={rootFormatClasses}
-      style={{ fontFamily, fontSize: baseTextSize }}
-    >
-      {renderSelectedTemplate()}
+    <div className={rootFormatClasses} style={{ fontFamily, fontSize: baseTextSize }}>
+      {/* Hidden 1:1 Measure Strip to compute exact section & header heights */}
+      <div
+        ref={measureContainerRef}
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: '-99999px',
+          top: 0,
+          width: `${mainColWidthPx}px`,
+          visibility: 'hidden',
+          pointerEvents: 'none',
+          fontFamily,
+          fontSize: baseTextSize,
+        }}
+        className={!isSidebar && !isHeaderBand && !isMarriage ? padClass : 'px-7'}
+      >
+        <div data-cv-measure="header">{renderTopHeaderBlock()}</div>
+        {visibleSectionEntries.map((entry) => (
+          <div key={`m-${entry.key}`} data-cv-measure-sec={entry.key}>
+            {entry.content}
+          </div>
+        ))}
+      </div>
+
+      {/* Stacked Physical Pages (Page 1, Page 2, ...) */}
+      <div className={interactive ? 'flex flex-col items-center gap-5' : 'flex flex-col items-start'}>
+        {pageBuckets.map((page, idx) => (
+          <div key={`cv-sheet-wrap-${page.pageNumber}`} className="relative cv-sheet-page-wrap">
+            {interactive && (
+              <div className="no-print mb-1.5 flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-300 px-1">
+                <span className="tabular-nums">
+                  {data.cvLang === 'bn'
+                    ? `পেইজ ${page.pageNumber} / ${pageBuckets.length}`
+                    : `Page ${page.pageNumber} of ${pageBuckets.length}`}
+                </span>
+                <span className="font-mono tabular-nums text-[10.5px]">
+                  {page.overflowPx > 12
+                    ? data.cvLang === 'bn'
+                      ? `জায়গা ছাড়িয়ে গেছে (+${Math.round(page.overflowPx / CV_PX_PER_MM)} মিমি)`
+                      : `Exceeds sheet (+${Math.round(page.overflowPx / CV_PX_PER_MM)} mm)`
+                    : data.cvLang === 'bn'
+                    ? `${page.fillPercent}% পূর্ণ · ${page.remainingMm} মিমি বাকি`
+                    : `${page.fillPercent}% used · ${page.remainingMm} mm left`}
+                </span>
+              </div>
+            )}
+            {renderSinglePhysicalPage(page, idx)}
+          </div>
+        ))}
+
+        {/* Quick Page 2 Drop Zone when dragging on a 1-page CV */}
+        {interactive && draggedKey && pageBuckets.length === 1 && onDropOnPage && (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOverPage(1);
+            }}
+            onDragLeave={() => setDragOverPage(null)}
+            onDrop={(e) => {
+              e.preventDefault();
+              const sourceKey = (e.dataTransfer.getData('text/plain') as CvSectionKey) || draggedKey;
+              setDragOverPage(null);
+              setDraggedKey(null);
+              if (sourceKey) onDropOnPage(1, sourceKey);
+            }}
+            className={`no-print w-full rounded-xl border-2 border-dashed px-4 py-6 text-center text-xs font-bold transition ${
+              dragOverPage === 1
+                ? 'border-blue-600 bg-blue-500/15 text-blue-700 dark:text-blue-300'
+                : 'border-slate-400 bg-white/70 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300'
+            }`}
+            style={{ width: `${paperDims.widthPx}px` }}
+          >
+            {data.cvLang === 'bn'
+              ? '↓ এখানে ছাড়লে পেইজ ২ তৈরি হয়ে লেখাটি পেইজ ২-এ চলে যাবে'
+              : '↓ Drop here to create Page 2 and move this section there'}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

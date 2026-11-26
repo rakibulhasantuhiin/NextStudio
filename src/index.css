@@ -473,7 +473,8 @@
     overflow: visible !important;
   }
 
-  #print-sheet-root .print-page {
+  #print-sheet-root .print-page,
+  #print-sheet-root .cv-print-page {
     position: relative !important;
     background: #ffffff !important;
     background-color: #ffffff !important;
@@ -483,6 +484,11 @@
     overflow: hidden !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
+  }
+
+  #print-sheet-root .cv-sheet-page-wrap:not(:last-child) {
+    page-break-after: always !important;
+    break-after: page !important;
   }
 
   #print-sheet-root * {

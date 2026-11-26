@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronDown,
+  CornerDownRight,
+  CornerUpLeft,
   Eye,
   EyeOff,
   FileDown,
@@ -13,6 +15,7 @@ import {
   Printer,
   RotateCcw,
   Settings2,
+  Trash2,
   X,
   Zap,
   ZoomIn,
@@ -23,17 +26,26 @@ import {
   CvDensity,
   CvFieldTarget,
   CvFontStyle,
+  CvLayoutMetrics,
+  CvPaperSizeId,
+  CvSectionKey,
   CvTemplateId,
 } from '../../types/cv';
 import { StudioPhotoItem } from '../../types';
 import {
   CV_ACCENT_COLORS,
+  CV_PAPER_SIZES,
   CV_QUICK_FILL_PRESETS,
   CV_TEMPLATES,
   createEmptyCvData,
+  getCvPaperDimensions,
 } from '../../utils/cvTemplates';
 import { CvFieldModal } from './CvFieldModal';
-import { CvSheetRenderer } from './CvSheetRenderer';
+import {
+  CvSheetRenderer,
+  getMergedSectionOrder,
+  getTemplateMainSections,
+} from './CvSheetRenderer';
 import { CvTemplateGallery } from './CvTemplateGallery';
 import { DocumentTypographyBar } from '../RichTextToolbar';
 import { DEFAULT_BANGLA_FONT } from '../../utils/richText';
@@ -115,7 +127,15 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
   const [showRemainingMenu, setShowRemainingMenu] = useState(false);
   const [scrollZoomEnabled, setScrollZoomEnabled] = useState(true);
   const [zoomHudVisible, setZoomHudVisible] = useState(false);
-  const [sheetHeight, setSheetHeight] = useState(1123);
+  const [markedSections, setMarkedSections] = useState<CvSectionKey[]>([]);
+  const [layoutMetrics, setLayoutMetrics] = useState<CvLayoutMetrics | null>(null);
+
+  const paperDims = useMemo(
+    () => getCvPaperDimensions(cvData),
+    [cvData.paperSize, cvData.customPaperWidthMm, cvData.customPaperHeightMm]
+  );
+
+  const [sheetHeight, setSheetHeight] = useState(paperDims.heightPx);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const sheetMeasureRef = useRef<HTMLDivElement>(null);
@@ -132,14 +152,14 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
     const node = sheetMeasureRef.current;
     if (!node) return;
     const updateHeight = () => {
-      const h = Math.max(1123, Math.ceil(node.scrollHeight));
+      const h = Math.max(paperDims.heightPx, Math.ceil(node.scrollHeight));
       setSheetHeight(h);
     };
     updateHeight();
     const ro = new ResizeObserver(updateHeight);
     ro.observe(node);
     return () => ro.disconnect();
-  }, [showGallery, cvData, isFinalPreview]);
+  }, [showGallery, cvData, isFinalPreview, paperDims.heightPx, layoutMetrics?.pages.length]);
 
   // Smooth mouse-wheel hover zoom directly over the CV sheet
   useEffect(() => {
@@ -240,7 +260,7 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
   const completedPercent = Math.round(
     ((completionItems.length - missingItems.length) / completionItems.length) * 100
   );
-  const estimatedPages = sheetHeight > 1145 ? 2 : 1;
+  const estimatedPages = layoutMetrics?.pages.length || (sheetHeight > paperDims.heightPx + 30 ? 2 : 1);
 
   // Template switch handler
   const handleSelectTemplate = (templateId: CvTemplateId) => {
@@ -392,11 +412,281 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
   };
 
   const handleClearCvData = () => {
-    setCvData((prev) =>
-      createEmptyCvData(prev.templateId, prev.cvLang)
-    );
+    setCvData((prev) => createEmptyCvData(prev.templateId, prev.cvLang));
+    setMarkedSections([]);
     setShowQuickFillMenu(false);
   };
+
+  // Multi-page section flow, mark, drag, spacing & universal delete/restore handlers
+  const templateDefaultSections = useMemo(
+    () => getTemplateMainSections(cvData.templateId),
+    [cvData.templateId]
+  );
+
+  const activeSectionOrder = useMemo(
+    () => getMergedSectionOrder(templateDefaultSections, cvData.sectionOrder),
+    [templateDefaultSections, cvData.sectionOrder]
+  );
+
+  const handleToggleMarkSection = useCallback((key: CvSectionKey) => {
+    setMarkedSections((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }, []);
+
+  const handleReorderSections = useCallback(
+    (fromKey: CvSectionKey, toKey: CvSectionKey) => {
+      if (fromKey === toKey) return;
+      setCvData((prev) => {
+        const currentOrder = getMergedSectionOrder(
+          getTemplateMainSections(prev.templateId),
+          prev.sectionOrder
+        );
+        const fromIdx = currentOrder.indexOf(fromKey);
+        const toIdx = currentOrder.indexOf(toKey);
+        if (fromIdx < 0 || toIdx < 0) return prev;
+        const nextOrder = [...currentOrder];
+        const [moved] = nextOrder.splice(fromIdx, 1);
+        nextOrder.splice(toIdx, 0, moved);
+        return { ...prev, sectionOrder: nextOrder };
+      });
+    },
+    []
+  );
+
+  const handleMoveSectionDirection = useCallback((key: CvSectionKey, dir: 'up' | 'down') => {
+    setCvData((prev) => {
+      const currentOrder = getMergedSectionOrder(
+        getTemplateMainSections(prev.templateId),
+        prev.sectionOrder
+      );
+      const hidden = new Set(prev.hiddenSections || []);
+      const visibleOrder = currentOrder.filter((k) => !hidden.has(k));
+      const visIdx = visibleOrder.indexOf(key);
+      if (visIdx < 0) return prev;
+      const swapVisIdx = dir === 'up' ? visIdx - 1 : visIdx + 1;
+      if (swapVisIdx < 0 || swapVisIdx >= visibleOrder.length) return prev;
+      const targetKeySwap = visibleOrder[swapVisIdx];
+      const idxA = currentOrder.indexOf(key);
+      const idxB = currentOrder.indexOf(targetKeySwap);
+      if (idxA < 0 || idxB < 0) return prev;
+      const nextOrder = [...currentOrder];
+      nextOrder[idxA] = targetKeySwap;
+      nextOrder[idxB] = key;
+      return { ...prev, sectionOrder: nextOrder };
+    });
+  }, []);
+
+  const handleTogglePageBreak = useCallback((key: CvSectionKey) => {
+    setCvData((prev) => {
+      const breaks = new Set(prev.pageBreakBefore || []);
+      if (breaks.has(key)) {
+        breaks.delete(key);
+        const nextSpace = { ...(prev.sectionSpacingTop || {}) };
+        delete nextSpace[key];
+        return { ...prev, pageBreakBefore: Array.from(breaks), sectionSpacingTop: nextSpace };
+      }
+      breaks.add(key);
+      return { ...prev, pageBreakBefore: Array.from(breaks) };
+    });
+  }, []);
+
+  const handleAdjustSectionSpace = useCallback((key: CvSectionKey, deltaPx: number) => {
+    setCvData((prev) => {
+      const current = prev.sectionSpacingTop?.[key] || 0;
+      const next = Math.max(0, Math.min(420, current + deltaPx));
+      const nextMap = { ...(prev.sectionSpacingTop || {}) };
+      if (next === 0) {
+        delete nextMap[key];
+      } else {
+        nextMap[key] = next;
+      }
+      return { ...prev, sectionSpacingTop: nextMap };
+    });
+  }, []);
+
+  const handleDeleteSection = useCallback((key: CvSectionKey) => {
+    setMarkedSections((prev) => prev.filter((k) => k !== key));
+    setCvData((prev) => {
+      const hidden = new Set(prev.hiddenSections || []);
+      hidden.add(key);
+      return {
+        ...prev,
+        hiddenSections: Array.from(hidden),
+        ...(key === 'languages' ? { showLanguages: false } : {}),
+        ...(key === 'trainings' ? { showTrainings: false } : {}),
+        ...(key === 'references' ? { showReferences: false } : {}),
+        ...(key === 'passport' ? { showPassportInfo: false } : {}),
+        ...(key === 'declaration' ? { hideDeclaration: true } : {}),
+      };
+    });
+  }, []);
+
+  const handleRestoreSection = useCallback((key: CvSectionKey) => {
+    setCvData((prev) => {
+      const hidden = (prev.hiddenSections || []).filter((k) => k !== key);
+      return {
+        ...prev,
+        hiddenSections: hidden,
+        ...(key === 'languages' ? { showLanguages: true } : {}),
+        ...(key === 'trainings' ? { showTrainings: true } : {}),
+        ...(key === 'references' ? { showReferences: true } : {}),
+        ...(key === 'passport' ? { showPassportInfo: true } : {}),
+        ...(key === 'declaration' ? { hideDeclaration: false } : {}),
+      };
+    });
+  }, []);
+
+  const handleDropOnPage = useCallback(
+    (targetPageIndex: number, draggedKey: CvSectionKey) => {
+      setCvData((prev) => {
+        const order = getMergedSectionOrder(
+          getTemplateMainSections(prev.templateId),
+          prev.sectionOrder
+        );
+        const breaks = new Set(prev.pageBreakBefore || []);
+        const nextSpace = { ...(prev.sectionSpacingTop || {}) };
+        delete nextSpace[draggedKey];
+
+        const pages = layoutMetrics?.pages || [];
+        if (targetPageIndex === 0) {
+          breaks.delete(draggedKey);
+          const page2First = pages[1]?.sectionKeys[0];
+          let nextOrder = [...order];
+          if (page2First && page2First !== draggedKey) {
+            const dIdx = nextOrder.indexOf(draggedKey);
+            const p2Idx = nextOrder.indexOf(page2First);
+            if (dIdx > p2Idx && p2Idx >= 0) {
+              nextOrder.splice(dIdx, 1);
+              nextOrder.splice(p2Idx, 0, draggedKey);
+            }
+          }
+          return {
+            ...prev,
+            sectionOrder: nextOrder,
+            pageBreakBefore: Array.from(breaks),
+            sectionSpacingTop: nextSpace,
+          };
+        }
+
+        // Moving onto Page 2+
+        const targetPage = pages[targetPageIndex];
+        const nextOrder = order.filter((k) => k !== draggedKey);
+        if (targetPage && targetPage.sectionKeys.length > 0) {
+          const anchorKey = targetPage.sectionKeys[targetPage.sectionKeys.length - 1];
+          const anchorIdx = nextOrder.indexOf(anchorKey);
+          if (anchorIdx >= 0) {
+            nextOrder.splice(anchorIdx + 1, 0, draggedKey);
+          } else {
+            nextOrder.push(draggedKey);
+          }
+          breaks.delete(draggedKey);
+        } else {
+          nextOrder.push(draggedKey);
+          breaks.add(draggedKey);
+        }
+
+        return {
+          ...prev,
+          sectionOrder: nextOrder,
+          pageBreakBefore: Array.from(breaks),
+          sectionSpacingTop: nextSpace,
+        };
+      });
+    },
+    [layoutMetrics]
+  );
+
+  const handleMoveMarkedToPage2 = useCallback(() => {
+    if (markedSections.length === 0) return;
+    setCvData((prev) => {
+      const order = getMergedSectionOrder(
+        getTemplateMainSections(prev.templateId),
+        prev.sectionOrder
+      );
+      const markedSet = new Set(markedSections);
+      const unmarked = order.filter((k) => !markedSet.has(k));
+      const markedOrdered = order.filter((k) => markedSet.has(k));
+      const nextOrder = [...unmarked, ...markedOrdered];
+      const breaks = new Set(prev.pageBreakBefore || []);
+      markedOrdered.forEach((k, idx) => {
+        if (idx === 0) breaks.add(k);
+        else breaks.delete(k);
+      });
+      return {
+        ...prev,
+        sectionOrder: nextOrder,
+        pageBreakBefore: Array.from(breaks),
+      };
+    });
+  }, [markedSections]);
+
+  const handlePullMarkedToPage1 = useCallback(() => {
+    if (markedSections.length === 0) return;
+    setCvData((prev) => {
+      const order = getMergedSectionOrder(
+        getTemplateMainSections(prev.templateId),
+        prev.sectionOrder
+      );
+      const markedSet = new Set(markedSections);
+      const breaks = new Set(prev.pageBreakBefore || []);
+      const nextSpace = { ...(prev.sectionSpacingTop || {}) };
+      markedSections.forEach((k) => {
+        breaks.delete(k);
+        delete nextSpace[k];
+      });
+      const unmarked = order.filter((k) => !markedSet.has(k));
+      const markedOrdered = order.filter((k) => markedSet.has(k));
+      const page2First = layoutMetrics?.pages[1]?.sectionKeys.find((k) => !markedSet.has(k));
+      let nextOrder = [...unmarked, ...markedOrdered];
+      if (page2First) {
+        const anchorIdx = unmarked.indexOf(page2First);
+        if (anchorIdx >= 0) {
+          nextOrder = [
+            ...unmarked.slice(0, anchorIdx),
+            ...markedOrdered,
+            ...unmarked.slice(anchorIdx),
+          ];
+        }
+      }
+      return {
+        ...prev,
+        sectionOrder: nextOrder,
+        pageBreakBefore: Array.from(breaks),
+        sectionSpacingTop: nextSpace,
+      };
+    });
+  }, [markedSections, layoutMetrics]);
+
+  const handleSpaceMarked = useCallback(
+    (deltaPx: number) => {
+      if (markedSections.length === 0) return;
+      handleAdjustSectionSpace(markedSections[0], deltaPx);
+    },
+    [markedSections, handleAdjustSectionSpace]
+  );
+
+  const handleDeleteMarked = useCallback(() => {
+    if (markedSections.length === 0) return;
+    markedSections.forEach((k) => handleDeleteSection(k));
+    setMarkedSections([]);
+  }, [markedSections, handleDeleteSection]);
+
+  const handleResetPageFlow = useCallback(() => {
+    setMarkedSections([]);
+    setCvData((prev) => ({
+      ...prev,
+      sectionOrder: [],
+      pageBreakBefore: [],
+      sectionSpacingTop: {},
+    }));
+  }, []);
+
+  const hasCustomPageFlow = Boolean(
+    (cvData.pageBreakBefore && cvData.pageBreakBefore.length > 0) ||
+      (cvData.sectionOrder && cvData.sectionOrder.length > 0) ||
+      (cvData.sectionSpacingTop && Object.keys(cvData.sectionSpacingTop).length > 0)
+  );
 
   // Gallery View
   if (showGallery) {
@@ -703,9 +993,26 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
               )}
             </div>
 
+            {/* Paper Size Selector */}
+            <select
+              value={cvData.paperSize || 'a4'}
+              onChange={(e) =>
+                setCvData((p) => ({ ...p, paperSize: e.target.value as CvPaperSizeId }))
+              }
+              className="glass-tile px-2 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer outline-none"
+              title={isBn ? 'সিভির পেপার সাইজ' : 'CV Paper Size'}
+            >
+              {CV_PAPER_SIZES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {isBn ? p.labelBn : p.labelEn}
+                </option>
+              ))}
+            </select>
+
             {/* Page Count Indicator */}
             <span className="hidden md:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/12 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold">
-              ✓ {estimatedPages === 1 ? (isBn ? '১ পাতা' : '1 Page') : isBn ? '২ পাতা' : '2 Pages'}
+              ✓ {paperDims.id.toUpperCase()} ·{' '}
+              {isBn ? `${estimatedPages} পাতা` : `${estimatedPages} ${estimatedPages === 1 ? 'Page' : 'Pages'}`}
             </span>
           </div>
 
@@ -848,24 +1155,126 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
         </div>
       </div>
 
-      {/* Inline Click Hint Strip */}
+      {/* Page Fill Status + Marked Group Flow Controls */}
       {!isFinalPreview && (
-        <div className="px-2 pb-1.5 lg:px-5 lg:pb-2">
-          <div className="glass-banner rounded-xl px-3 lg:px-3.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2">
+        <div className="px-2 pb-1.5 lg:px-5 lg:pb-2 space-y-1.5">
+          <div className="glass-banner rounded-xl px-3 lg:px-3.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-slate-200 flex flex-wrap items-center justify-between gap-2">
             <span>
               {isBn
-                ? '💡 সিভির যেকোনো হলুদ ঘরে বা লেখায় ক্লিক করে সরাসরি লিখুন, ছবি ও স্বাক্ষর বসান। পেজের উপর মাউস স্ক্রল করে জুম ইন/আউট করা যাবে।'
-                : '💡 Click any highlighted field on the CV sheet to edit directly, add your photo & signature, or scroll over the page to zoom in/out.'}
+                ? '💡 লেখায় ক্লিক করে এডিট করুন। যেকোনো সেকশনে মাউস নিলে ড্র্যাগ, মার্ক, স্পেস, পেইজ ১⇄২ এবং ডিলিট বাটন পাবেন।'
+                : '💡 Click text to edit. Hover any section to drag, mark, add space, move Page 1⇄2, or delete.'}
             </span>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {layoutMetrics?.pages.map((pg) => {
+                const isOver = pg.overflowPx > 12;
+                return (
+                  <span
+                    key={pg.pageNumber}
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10.5px] font-bold border tabular-nums ${
+                      isOver
+                        ? 'bg-red-500/15 border-red-400/50 text-red-700 dark:text-red-300'
+                        : pg.fillPercent >= 90
+                        ? 'bg-amber-500/15 border-amber-400/50 text-amber-800 dark:text-amber-200'
+                        : 'bg-white/75 dark:bg-slate-800/75 border-slate-300/70 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <span>{isBn ? `পেইজ ${pg.pageNumber}` : `P${pg.pageNumber}`}:</span>
+                    <span>{pg.fillPercent}%</span>
+                    <span className="text-[10px] font-normal opacity-80">
+                      ({isOver
+                        ? isBn
+                          ? `+${Math.round(pg.overflowPx / 3.78)}মিমি`
+                          : `+${Math.round(pg.overflowPx / 3.78)}mm over`
+                        : isBn
+                        ? `${pg.remainingMm}মিমি বাকি`
+                        : `${pg.remainingMm}mm left`}
+                      )
+                    </span>
+                  </span>
+                );
+              })}
+
+              {hasCustomPageFlow && (
+                <button
+                  type="button"
+                  onClick={handleResetPageFlow}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10.5px] font-semibold hover:bg-slate-300 dark:hover:bg-slate-600 cursor-pointer"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{isBn ? 'ফ্লো রিসেট' : 'Reset Flow'}</span>
+                </button>
+              )}
+            </div>
           </div>
+
+          {markedSections.length > 0 && (
+            <div className="glass-strip rounded-xl px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 border border-emerald-400/50 bg-emerald-50/70 dark:bg-emerald-950/35">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-800 dark:text-emerald-200">
+                <Check className="w-3.5 h-3.5" />
+                <span>
+                  {isBn
+                    ? `${markedSections.length}টি অংশ মার্ক করা হয়েছে`
+                    : `${markedSections.length} section${markedSections.length > 1 ? 's' : ''} marked`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={handleMoveMarkedToPage2}
+                  className="px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1 cursor-pointer"
+                >
+                  <CornerDownRight className="w-3 h-3" />
+                  <span>{isBn ? 'পেইজ ২-এ নিন' : 'Move to Page 2'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePullMarkedToPage1}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 dark:bg-slate-700 text-white hover:bg-slate-900 flex items-center gap-1 cursor-pointer"
+                >
+                  <CornerUpLeft className="w-3 h-3" />
+                  <span>{isBn ? 'পেইজ ১-এ আনুন' : 'Pull to Page 1'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSpaceMarked(16)}
+                  className="px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-white cursor-pointer"
+                >
+                  + {isBn ? 'স্পেস' : 'Space'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSpaceMarked(-16)}
+                  className="px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-white cursor-pointer"
+                >
+                  − {isBn ? 'স্পেস' : 'Space'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteMarked}
+                  className="px-2 py-1 rounded-lg bg-red-600 text-white hover:bg-red-700 flex items-center gap-1 cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>{isBn ? 'ডিলিট' : 'Delete'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMarkedSections([])}
+                  className="px-2 py-1 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-black/5 dark:hover:bg-white/10 cursor-pointer"
+                >
+                  {isBn ? 'বাতিল' : 'Clear'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Main Scrollable A4 CV Sheet Stage */}
+      {/* Main Scrollable Multi-Page CV Sheet Stage */}
       <div className="flex-1 flex flex-col items-center px-3 sm:px-6 pb-8 pt-2 overflow-auto">
         <div
           ref={stageRef}
-          className="relative glass-stage p-2.5 sm:p-3.5 rounded-2xl transition-shadow"
+          className="relative glass-stage p-2.5 sm:p-4 rounded-2xl transition-shadow"
         >
           {/* Floating Liquid Glass Zoom HUD */}
           {zoomHudVisible && (
@@ -874,18 +1283,18 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
             </div>
           )}
 
-          {/* Scaled A4 Container */}
+          {/* Scaled Multi-Page Container (Transparent outer wrapper so Page 1 & Page 2 show clearly) */}
           <div
-            className="relative bg-white rounded-lg overflow-hidden shadow-sm"
+            className="relative"
             style={{
-              width: `${Math.round(794 * zoom)}px`,
+              width: `${Math.round(paperDims.widthPx * zoom)}px`,
               minHeight: `${Math.round(sheetHeight * zoom)}px`,
             }}
           >
             <div
               ref={sheetMeasureRef}
               style={{
-                width: '794px',
+                width: `${paperDims.widthPx}px`,
                 transform: `scale(${zoom})`,
                 transformOrigin: 'top left',
               }}
@@ -893,6 +1302,8 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
               <CvSheetRenderer
                 data={cvData}
                 interactive={!isFinalPreview}
+                paginated={true}
+                markedSections={markedSections}
                 onEditField={(target) => setActiveField(target)}
                 onAddExperience={handleAddExperience}
                 onRemoveExperience={handleRemoveExperience}
@@ -902,143 +1313,129 @@ export const CvWorkspace: React.FC<CvWorkspaceProps> = ({
                 onRemoveTraining={handleRemoveTraining}
                 onAddReference={handleAddReference}
                 onRemoveReference={handleRemoveReference}
+                onToggleMarkSection={handleToggleMarkSection}
+                onReorderSections={handleReorderSections}
+                onMoveSectionDirection={handleMoveSectionDirection}
+                onTogglePageBreak={handleTogglePageBreak}
+                onAdjustSectionSpace={handleAdjustSectionSpace}
+                onDeleteSection={handleDeleteSection}
+                onHidePhoto={() => setCvData((p) => ({ ...p, hidePhoto: true }))}
+                onHideSignature={() => setCvData((p) => ({ ...p, hideSignature: true }))}
+                onDropOnPage={handleDropOnPage}
+                onLayoutMetricsChange={setLayoutMetrics}
               />
             </div>
           </div>
         </div>
 
-        {/* Optional Sections Bar Below CV Sheet (Matching Screenshot 2) */}
-        <div className="w-full max-w-[820px] mt-4 glass-strip rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 mr-1">
-            {isBn ? 'দরকার হলে যোগ করুন:' : 'Add optional sections:'}
-          </span>
-
-          {/* Languages */}
-          <div className="inline-flex items-center">
-            <button
-              type="button"
-              onClick={() => {
-                setCvData((p) => ({ ...p, showLanguages: true }));
-                setIsFinalPreview(false);
-                setActiveField({ type: 'languages' });
-              }}
-              className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1 cursor-pointer transition ${
-                cvData.showLanguages
-                  ? 'rounded-l-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
-                  : 'rounded-xl glass-tile text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              {cvData.showLanguages ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-              <span>{isBn ? 'ভাষা' : 'Languages'}</span>
-            </button>
-            {cvData.showLanguages && (
+        {/* Universal Section Manager Bar (Show, Delete, or Restore Any CV Option) */}
+        <div className="w-full max-w-[840px] mt-4 glass-strip rounded-2xl px-4 py-3 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              {isBn
+                ? 'সিভির যেকোনো অপশন যোগ বা ডিলিট করুন:'
+                : 'Show, delete, or restore any CV section:'}
+            </span>
+            {hasCustomPageFlow && (
               <button
                 type="button"
-                onClick={() => setCvData((p) => ({ ...p, showLanguages: false }))}
-                className="px-1.5 py-1.5 rounded-r-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-l-0 border-blue-400/40 hover:bg-red-500/15 hover:text-red-600 cursor-pointer"
-                title={isBn ? 'লুকান' : 'Hide section'}
+                onClick={handleResetPageFlow}
+                className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
               >
-                <X className="w-3 h-3" />
+                <RotateCcw className="w-3 h-3" />
+                <span>{isBn ? 'অর্ডার রিসেট' : 'Reset Page Order'}</span>
               </button>
             )}
           </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {activeSectionOrder.map((secKey) => {
+              const hidden = (cvData.hiddenSections || []).includes(secKey);
+              const isActive =
+                !hidden &&
+                !(secKey === 'languages' && !cvData.showLanguages) &&
+                !(secKey === 'trainings' && !cvData.showTrainings) &&
+                !(secKey === 'references' && !cvData.showReferences) &&
+                !(secKey === 'passport' && !cvData.showPassportInfo) &&
+                !(secKey === 'declaration' && cvData.hideDeclaration);
+              const labelMap: Record<CvSectionKey, { bn: string; en: string }> = {
+                objective: { bn: 'ক্যারিয়ার উদ্দেশ্য', en: 'Objective' },
+                experience: { bn: 'অভিজ্ঞতা', en: 'Experience' },
+                education: { bn: 'শিক্ষাগত যোগ্যতা', en: 'Education' },
+                skills: { bn: 'দক্ষতা', en: 'Skills' },
+                trainings: { bn: 'প্রশিক্ষণ', en: 'Training' },
+                languages: { bn: 'ভাষা', en: 'Languages' },
+                personal: { bn: 'ব্যক্তিগত তথ্য', en: 'Personal' },
+                passport: { bn: 'পাসপোর্ট', en: 'Passport' },
+                references: { bn: 'রেফারেন্স', en: 'References' },
+                declaration: { bn: 'ঘোষণাপত্র', en: 'Declaration' },
+                bangladeshContact: { bn: 'দেশে যোগাযোগ', en: 'BD Contact' },
+                marriagePersonal: { bn: 'ব্যক্তিগত তথ্য', en: 'Personal' },
+                marriageAddress: { bn: 'ঠিকানা', en: 'Address' },
+                occupation: { bn: 'পেশা', en: 'Occupation' },
+                familyInfo: { bn: 'পারিবারিক তথ্য', en: 'Family' },
+                partnerExpectation: { bn: 'সঙ্গীর প্রত্যাশা', en: 'Partner' },
+                guardianContact: { bn: 'অভিভাবক', en: 'Guardian' },
+              };
+              const lbl = labelMap[secKey];
+              return (
+                <div key={secKey} className="inline-flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isActive) {
+                        handleRestoreSection(secKey);
+                        setIsFinalPreview(false);
+                      } else {
+                        handleDeleteSection(secKey);
+                      }
+                    }}
+                    className={`px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition rounded-xl ${
+                      isActive
+                        ? 'bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40 hover:bg-red-500/12 hover:text-red-600 hover:border-red-300'
+                        : 'glass-tile text-slate-600 dark:text-slate-300 opacity-80 hover:opacity-100'
+                    }`}
+                    title={
+                      isActive
+                        ? isBn
+                          ? 'ডিলিট / বাদ দিন'
+                          : 'Click to delete section'
+                        : isBn
+                        ? 'ফিরিয়ে আনুন'
+                        : 'Click to add/restore'
+                    }
+                  >
+                    {isActive ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                    <span>{isBn ? lbl.bn : lbl.en}</span>
+                  </button>
+                </div>
+              );
+            })}
 
-          {/* Training & Certificates */}
-          <div className="inline-flex items-center">
+            {/* Photo & Signature quick delete/restore pills */}
             <button
               type="button"
-              onClick={() => {
-                if (cvData.trainings.length === 0) {
-                  handleAddTraining();
-                } else {
-                  setCvData((p) => ({ ...p, showTrainings: true }));
-                  setIsFinalPreview(false);
-                  setActiveField({ type: 'training', index: 0 });
-                }
-              }}
-              className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1 cursor-pointer transition ${
-                cvData.showTrainings
-                  ? 'rounded-l-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
-                  : 'rounded-xl glass-tile text-slate-700 dark:text-slate-200'
+              onClick={() => setCvData((p) => ({ ...p, hidePhoto: !p.hidePhoto }))}
+              className={`px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition rounded-xl ${
+                !cvData.hidePhoto
+                  ? 'bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40 hover:bg-red-500/12 hover:text-red-600'
+                  : 'glass-tile text-slate-600 dark:text-slate-300 opacity-80'
               }`}
             >
-              {cvData.showTrainings ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-              <span>{isBn ? 'প্রশিক্ষণ ও সনদ' : 'Training & Certificates'}</span>
+              {!cvData.hidePhoto ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+              <span>{isBn ? 'ছবি' : 'Photo'}</span>
             </button>
-            {cvData.showTrainings && (
-              <button
-                type="button"
-                onClick={() => setCvData((p) => ({ ...p, showTrainings: false }))}
-                className="px-1.5 py-1.5 rounded-r-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-l-0 border-blue-400/40 hover:bg-red-500/15 hover:text-red-600 cursor-pointer"
-                title={isBn ? 'লুকান' : 'Hide section'}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          {/* References */}
-          <div className="inline-flex items-center">
             <button
               type="button"
-              onClick={() => {
-                if (cvData.references.length === 0) {
-                  handleAddReference();
-                } else {
-                  setCvData((p) => ({ ...p, showReferences: true }));
-                  setIsFinalPreview(false);
-                  setActiveField({ type: 'reference', index: 0 });
-                }
-              }}
-              className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1 cursor-pointer transition ${
-                cvData.showReferences
-                  ? 'rounded-l-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
-                  : 'rounded-xl glass-tile text-slate-700 dark:text-slate-200'
+              onClick={() => setCvData((p) => ({ ...p, hideSignature: !p.hideSignature }))}
+              className={`px-2.5 py-1 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition rounded-xl ${
+                !cvData.hideSignature
+                  ? 'bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40 hover:bg-red-500/12 hover:text-red-600'
+                  : 'glass-tile text-slate-600 dark:text-slate-300 opacity-80'
               }`}
             >
-              {cvData.showReferences ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-              <span>{isBn ? 'রেফারেন্স' : 'References'}</span>
+              {!cvData.hideSignature ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+              <span>{isBn ? 'স্বাক্ষর' : 'Signature'}</span>
             </button>
-            {cvData.showReferences && (
-              <button
-                type="button"
-                onClick={() => setCvData((p) => ({ ...p, showReferences: false }))}
-                className="px-1.5 py-1.5 rounded-r-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-l-0 border-blue-400/40 hover:bg-red-500/15 hover:text-red-600 cursor-pointer"
-                title={isBn ? 'লুকান' : 'Hide section'}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Passport Details (Abroad / Gulf) */}
-          <div className="inline-flex items-center">
-            <button
-              type="button"
-              onClick={() => {
-                setCvData((p) => ({ ...p, showPassportInfo: true }));
-                setIsFinalPreview(false);
-                setActiveField({ type: 'passport', field: 'passportNo' });
-              }}
-              className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1 cursor-pointer transition ${
-                cvData.showPassportInfo
-                  ? 'rounded-l-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-400/40'
-                  : 'rounded-xl glass-tile text-slate-700 dark:text-slate-200'
-              }`}
-            >
-              {cvData.showPassportInfo ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-              <span>{isBn ? 'পাসপোর্ট তথ্য' : 'Passport Details'}</span>
-            </button>
-            {cvData.showPassportInfo && (
-              <button
-                type="button"
-                onClick={() => setCvData((p) => ({ ...p, showPassportInfo: false }))}
-                className="px-1.5 py-1.5 rounded-r-xl bg-blue-600/12 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-l-0 border-blue-400/40 hover:bg-red-500/15 hover:text-red-600 cursor-pointer"
-                title={isBn ? 'লুকান' : 'Hide section'}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
           </div>
         </div>
       </div>

@@ -282,6 +282,7 @@ export async function generateHighResSheetCanvas(
       marginMm: photoPrintSettings.marginMm,
       gapMm: photoPrintSettings.gapMm,
       autoRotateToFit: photoPrintSettings.autoRotateToFit,
+      slotPositions: photoPrintSettings.slotPositions,
     });
 
     const uniqueSrcs = Array.from(

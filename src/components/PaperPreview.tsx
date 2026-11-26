@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignCenterHorizontal,
   ArrowDown,
+  ArrowDownToLine,
   ArrowLeft,
   ArrowLeftRight,
   ArrowRight,
   ArrowUp,
+  ArrowUpToLine,
   Camera,
   Check,
   ChevronLeft,
@@ -28,6 +30,7 @@ import {
   Plus,
   Printer,
   RefreshCw,
+  RotateCcw,
   RotateCw,
   Scissors,
   Sparkles,
@@ -50,6 +53,7 @@ import {
   PaperOrientation,
   PhotoPresetType,
   PhotoPrintSettings,
+  PhotoPrintSlotRectOverride,
   StudioMode,
 } from '../types';
 import { calculateDocumentPlacement } from '../utils/documentLayout';
@@ -128,6 +132,8 @@ interface Props {
   onRotatePhotoPrintSlot?: (slotIndex: number) => void;
   onTogglePhotoPrintSlotFit?: (slotIndex: number) => void;
   onClearPhotoPrintSlot?: (slotIndex: number) => void;
+  onMovePhotoPrintSlots?: (slotPositions: Record<number, PhotoPrintSlotRectOverride>) => void;
+  onResetPhotoPrintPositions?: () => void;
 }
 
 export const PaperPreview: React.FC<Props> = ({
@@ -195,6 +201,8 @@ export const PaperPreview: React.FC<Props> = ({
   onRotatePhotoPrintSlot,
   onTogglePhotoPrintSlotFit,
   onClearPhotoPrintSlot,
+  onMovePhotoPrintSlots,
+  onResetPhotoPrintPositions,
 }) => {
   const t = translations[lang];
 
@@ -243,11 +251,29 @@ export const PaperPreview: React.FC<Props> = ({
     };
   }, [setZoom, wheelZoomEnabled]);
 
-  // Movement mode: 'all' (all photos move together) or 'single' (only selected photo moves)
-  // Default to 'all' so that when multiple photos are on paper, dragging any photo moves all together!
-  const [moveMode, setMoveMode] = useState<'all' | 'single'>('all');
+  // Passport movement mode: 'all' (all move), 'mark' (2+ marked move together), or 'single' (selected moves)
+  const [moveMode, setMoveMode] = useState<'all' | 'mark' | 'single'>('all');
+  const [markedItemIds, setMarkedItemIds] = useState<string[]>([]);
   const [isDraggingAll, setIsDraggingAll] = useState(false);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+
+  // Photo Print interactive slot movement & multi-mark selection
+  const [ppMoveMode, setPpMoveMode] = useState<'single' | 'mark' | 'all'>('single');
+  const [selectedPpIndex, setSelectedPpIndex] = useState<number | null>(null);
+  const [markedPpIndices, setMarkedPpIndices] = useState<number[]>([]);
+  const [draggingPpIndices, setDraggingPpIndices] = useState<number[]>([]);
+  const ppDragRef = useRef<{
+    startX: number;
+    startY: number;
+    moved: boolean;
+    baseSlotPositions: Record<number, PhotoPrintSlotRectOverride>;
+    items: { index: number; originX: number; originY: number; width: number; height: number }[];
+    minX: number;
+    maxRight: number;
+    minY: number;
+    maxBottom: number;
+  } | null>(null);
+  const ppJustDraggedRef = useRef(false);
 
   // Lamination movement mode: 'both' (front & back together) or 'single' (front or back individually)
   const [lamMoveMode, setLamMoveMode] = useState<'both' | 'single'>('both');
@@ -319,8 +345,30 @@ export const PaperPreview: React.FC<Props> = ({
       marginMm: photoPrintSettings.marginMm,
       gapMm: photoPrintSettings.gapMm,
       autoRotateToFit: photoPrintSettings.autoRotateToFit,
+      slotPositions: photoPrintSettings.slotPositions,
     });
   }, [mode, photoPrintSettings, paper, orientation]);
+
+  // Keep marked indices/ids tidy when sheet capacity or items change
+  useEffect(() => {
+    if (!photoPrintGrid) return;
+    const validSet = new Set(photoPrintGrid.slots.map((s) => s.index));
+    setMarkedPpIndices((prev) => {
+      const next = prev.filter((i) => validSet.has(i));
+      return next.length === prev.length ? prev : next;
+    });
+    if (selectedPpIndex !== null && !validSet.has(selectedPpIndex)) {
+      setSelectedPpIndex(null);
+    }
+  }, [photoPrintGrid, selectedPpIndex]);
+
+  useEffect(() => {
+    const validIds = new Set(passportItems.map((i) => i.id));
+    setMarkedItemIds((prev) => {
+      const next = prev.filter((id) => validIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [passportItems]);
 
   const dragRef = useRef<{
     isAll: boolean;
@@ -334,9 +382,24 @@ export const PaperPreview: React.FC<Props> = ({
     maxBottom: number;
   } | null>(null);
 
+  const getPassportDragTargets = (item: CalculatedItem) => {
+    if (moveMode === 'all' || passportItems.length === 1) {
+      return { isGroup: true, itemsToMove: passportItems };
+    }
+    if (markedItemIds.length >= 2 && markedItemIds.includes(item.id)) {
+      const subset = passportItems.filter((p) => markedItemIds.includes(p.id));
+      if (subset.length > 0) return { isGroup: subset.length > 1, itemsToMove: subset };
+    }
+    if (moveMode === 'mark' && markedItemIds.length > 0 && markedItemIds.includes(item.id)) {
+      const subset = passportItems.filter((p) => markedItemIds.includes(p.id));
+      if (subset.length > 0) return { isGroup: subset.length > 1, itemsToMove: subset };
+    }
+    return { isGroup: false, itemsToMove: [item] };
+  };
+
   // Start mouse drag
   const handleMouseDownItem = (e: React.MouseEvent, item: CalculatedItem) => {
-    // If clicked on an action button, don't initiate drag
+    // If clicked on an action button or mark badge, don't initiate drag
     if ((e.target as HTMLElement).closest('button')) return;
 
     e.preventDefault();
@@ -345,8 +408,7 @@ export const PaperPreview: React.FC<Props> = ({
     onSelectItem?.(item.id);
     onSelectPhoto(item.index % Math.max(1, passportItems.length));
 
-    const isAll = moveMode === 'all' || passportItems.length === 1;
-    const itemsToMove = isAll ? passportItems : [item];
+    const { isGroup, itemsToMove } = getPassportDragTargets(item);
 
     const minX = Math.min(...itemsToMove.map((i) => i.x));
     const maxRight = Math.max(...itemsToMove.map((i) => i.x + i.width));
@@ -354,7 +416,7 @@ export const PaperPreview: React.FC<Props> = ({
     const maxBottom = Math.max(...itemsToMove.map((i) => i.y + i.height));
 
     dragRef.current = {
-      isAll,
+      isAll: isGroup,
       itemId: item.id,
       startX: e.clientX,
       startY: e.clientY,
@@ -371,7 +433,7 @@ export const PaperPreview: React.FC<Props> = ({
       maxBottom,
     };
 
-    if (isAll) {
+    if (moveMode === 'all' && passportItems.length > 1) {
       setIsDraggingAll(true);
     } else {
       setDraggingItemId(item.id);
@@ -387,8 +449,7 @@ export const PaperPreview: React.FC<Props> = ({
     onSelectItem?.(item.id);
     onSelectPhoto(item.index % Math.max(1, passportItems.length));
 
-    const isAll = moveMode === 'all' || passportItems.length === 1;
-    const itemsToMove = isAll ? passportItems : [item];
+    const { isGroup, itemsToMove } = getPassportDragTargets(item);
 
     const minX = Math.min(...itemsToMove.map((i) => i.x));
     const maxRight = Math.max(...itemsToMove.map((i) => i.x + i.width));
@@ -396,7 +457,7 @@ export const PaperPreview: React.FC<Props> = ({
     const maxBottom = Math.max(...itemsToMove.map((i) => i.y + i.height));
 
     dragRef.current = {
-      isAll,
+      isAll: isGroup,
       itemId: item.id,
       startX: touch.clientX,
       startY: touch.clientY,
@@ -413,7 +474,7 @@ export const PaperPreview: React.FC<Props> = ({
       maxBottom,
     };
 
-    if (isAll) {
+    if (moveMode === 'all' && passportItems.length > 1) {
       setIsDraggingAll(true);
     } else {
       setDraggingItemId(item.id);
@@ -538,23 +599,28 @@ export const PaperPreview: React.FC<Props> = ({
     };
   }, [passportItems, mmToPx, paperWidthMm, paperHeightMm, onMoveItem, onMoveItems]);
 
-  // Nudge all photos together by deltaX and deltaY (in mm)
-  const handleNudgeAll = (deltaX: number, deltaY: number) => {
-    if (passportItems.length === 0) return;
-    const minX = Math.min(...passportItems.map((p) => p.x));
-    const maxRight = Math.max(...passportItems.map((p) => p.x + p.width));
-    const minY = Math.min(...passportItems.map((p) => p.y));
-    const maxBottom = Math.max(...passportItems.map((p) => p.y + p.height));
+  // Active target group for Passport quick align (All / 2+ Marked / Single)
+  const getPassportAlignTargets = () => {
+    if (passportItems.length === 0) return [];
+    if (moveMode === 'all') return passportItems;
+    if (markedItemIds.length > 0) {
+      const subset = passportItems.filter((p) => markedItemIds.includes(p.id));
+      if (subset.length > 0) return subset;
+    }
+    if (selectedItemId) {
+      const one = passportItems.find((p) => p.id === selectedItemId);
+      if (one) return [one];
+    }
+    return passportItems;
+  };
 
-    const effectiveDeltaX = Math.max(-minX, Math.min(paperWidthMm - maxRight, deltaX));
-    const effectiveDeltaY = Math.max(-minY, Math.min(paperHeightMm - maxBottom, deltaY));
-
-    const updates = passportItems.map((p) => ({
+  const commitPassportOffsets = (targets: CalculatedItem[], deltaX: number, deltaY: number) => {
+    if (targets.length === 0) return;
+    const updates = targets.map((p) => ({
       id: p.id,
-      x: Math.round((p.x + effectiveDeltaX) * 2) / 2,
-      y: Math.round((p.y + effectiveDeltaY) * 2) / 2,
+      x: Math.round((p.x + deltaX) * 2) / 2,
+      y: Math.round((p.y + deltaY) * 2) / 2,
     }));
-
     if (onMoveItems) {
       onMoveItems(updates);
     } else if (onMoveItem) {
@@ -562,34 +628,278 @@ export const PaperPreview: React.FC<Props> = ({
     }
   };
 
-  // Quick helper to center all photos on the sheet
-  const handleCenterAll = () => {
-    if (passportItems.length === 0) return;
-    const minX = Math.min(...passportItems.map((p) => p.x));
-    const maxRight = Math.max(...passportItems.map((p) => p.x + p.width));
-    const minY = Math.min(...passportItems.map((p) => p.y));
-    const maxBottom = Math.max(...passportItems.map((p) => p.y + p.height));
+  // Nudge target passport photos together by deltaX and deltaY (in mm)
+  const handleNudgeAll = (deltaX: number, deltaY: number, customTargets?: CalculatedItem[]) => {
+    const targets = customTargets ?? passportItems;
+    if (targets.length === 0) return;
+    const minX = Math.min(...targets.map((p) => p.x));
+    const maxRight = Math.max(...targets.map((p) => p.x + p.width));
+    const minY = Math.min(...targets.map((p) => p.y));
+    const maxBottom = Math.max(...targets.map((p) => p.y + p.height));
+
+    const effectiveDeltaX = Math.max(-minX, Math.min(paperWidthMm - maxRight, deltaX));
+    const effectiveDeltaY = Math.max(-minY, Math.min(paperHeightMm - maxBottom, deltaY));
+
+    commitPassportOffsets(targets, effectiveDeltaX, effectiveDeltaY);
+  };
+
+  // Quick align Passport targets (Top / Center / Bottom)
+  const handleAlignPassportTargets = (edge: 'top' | 'center' | 'bottom') => {
+    const targets = getPassportAlignTargets();
+    if (targets.length === 0) return;
+    const minX = Math.min(...targets.map((p) => p.x));
+    const maxRight = Math.max(...targets.map((p) => p.x + p.width));
+    const minY = Math.min(...targets.map((p) => p.y));
+    const maxBottom = Math.max(...targets.map((p) => p.y + p.height));
 
     const groupWidth = maxRight - minX;
     const groupHeight = maxBottom - minY;
 
-    const targetX = Math.max(0, (paperWidthMm - groupWidth) / 2);
-    const targetY = Math.max(0, (paperHeightMm - groupHeight) / 2);
-
-    const deltaX = targetX - minX;
-    const deltaY = targetY - minY;
-
-    const updates = passportItems.map((p) => ({
-      id: p.id,
-      x: Math.round((p.x + deltaX) * 2) / 2,
-      y: Math.round((p.y + deltaY) * 2) / 2,
-    }));
-
-    if (onMoveItems) {
-      onMoveItems(updates);
-    } else if (onMoveItem) {
-      updates.forEach((u) => onMoveItem(u.id, u.x, u.y));
+    if (edge === 'top') {
+      const targetY = Math.min(margins.top, Math.max(0, paperHeightMm - groupHeight));
+      commitPassportOffsets(targets, 0, targetY - minY);
+    } else if (edge === 'bottom') {
+      const targetY = Math.max(0, paperHeightMm - margins.bottom - groupHeight);
+      commitPassportOffsets(targets, 0, targetY - minY);
+    } else {
+      const targetX = Math.max(0, (paperWidthMm - groupWidth) / 2);
+      const targetY = Math.max(0, (paperHeightMm - groupHeight) / 2);
+      commitPassportOffsets(targets, targetX - minX, targetY - minY);
     }
+  };
+
+  // Photo Print Slot Dragging, Multi-Mark, Top/Center/Bottom & Fit-to-Paper Helpers
+  const getPpDragTargets = (slotIndex: number) => {
+    if (!photoPrintGrid) return [];
+    const clicked = photoPrintGrid.slots.find((r) => r.index === slotIndex);
+    if (!clicked) return [];
+    if (ppMoveMode === 'all') return photoPrintGrid.slots;
+    if (markedPpIndices.length >= 2 && markedPpIndices.includes(slotIndex)) {
+      const subset = photoPrintGrid.slots.filter((r) => markedPpIndices.includes(r.index));
+      if (subset.length > 0) return subset;
+    }
+    if (ppMoveMode === 'mark' && markedPpIndices.length > 0 && markedPpIndices.includes(slotIndex)) {
+      const subset = photoPrintGrid.slots.filter((r) => markedPpIndices.includes(r.index));
+      if (subset.length > 0) return subset;
+    }
+    return [clicked];
+  };
+
+  const getPpActionTargetRects = () => {
+    if (!photoPrintGrid) return [];
+    if (ppMoveMode === 'all') return photoPrintGrid.slots;
+    if (markedPpIndices.length > 0) {
+      const subset = photoPrintGrid.slots.filter((r) => markedPpIndices.includes(r.index));
+      if (subset.length > 0) return subset;
+    }
+    if (selectedPpIndex !== null) {
+      const one = photoPrintGrid.slots.find((r) => r.index === selectedPpIndex);
+      if (one) return [one];
+    }
+    return photoPrintGrid.slots;
+  };
+
+  const startPhotoPrintDrag = (clientX: number, clientY: number, slotIndex: number) => {
+    if (!photoPrintGrid || !onMovePhotoPrintSlots) return;
+    const targets = getPpDragTargets(slotIndex);
+    if (targets.length === 0) return;
+
+    const minX = Math.min(...targets.map((t) => t.x));
+    const maxRight = Math.max(...targets.map((t) => t.x + t.width));
+    const minY = Math.min(...targets.map((t) => t.y));
+    const maxBottom = Math.max(...targets.map((t) => t.y + t.height));
+
+    const baseSlotPositions: Record<number, PhotoPrintSlotRectOverride> = {
+      ...(photoPrintSettings?.slotPositions || {}),
+    };
+
+    ppDragRef.current = {
+      startX: clientX,
+      startY: clientY,
+      moved: false,
+      baseSlotPositions,
+      items: targets.map((t) => ({
+        index: t.index,
+        originX: t.x,
+        originY: t.y,
+        width: t.width,
+        height: t.height,
+      })),
+      minX,
+      maxRight,
+      minY,
+      maxBottom,
+    };
+    setDraggingPpIndices(targets.map((t) => t.index));
+  };
+
+  useEffect(() => {
+    const applyPpDelta = (clientX: number, clientY: number) => {
+      if (!ppDragRef.current || !onMovePhotoPrintSlots) return;
+      const d = ppDragRef.current;
+      const dxPx = clientX - d.startX;
+      const dyPx = clientY - d.startY;
+      if (Math.abs(dxPx) > 3 || Math.abs(dyPx) > 3) {
+        d.moved = true;
+      }
+      if (!d.moved) return;
+
+      const rawDxMm = dxPx / mmToPx;
+      const rawDyMm = dyPx / mmToPx;
+
+      const minDx = -d.minX;
+      const maxDx = Math.max(minDx, paperWidthMm - d.maxRight);
+      const clampedDx = Math.max(minDx, Math.min(maxDx, rawDxMm));
+
+      const minDy = -d.minY;
+      const maxDy = Math.max(minDy, paperHeightMm - d.maxBottom);
+      const clampedDy = Math.max(minDy, Math.min(maxDy, rawDyMm));
+
+      const snapDx = Math.round(clampedDx * 2) / 2;
+      const snapDy = Math.round(clampedDy * 2) / 2;
+
+      const nextPositions: Record<number, PhotoPrintSlotRectOverride> = {
+        ...d.baseSlotPositions,
+      };
+      for (const item of d.items) {
+        nextPositions[item.index] = {
+          ...(d.baseSlotPositions[item.index] || {}),
+          x: Math.round((item.originX + snapDx) * 2) / 2,
+          y: Math.round((item.originY + snapDy) * 2) / 2,
+          width: item.width,
+          height: item.height,
+        };
+      }
+      onMovePhotoPrintSlots(nextPositions);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!ppDragRef.current) return;
+      applyPpDelta(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!ppDragRef.current || e.touches.length !== 1) return;
+      applyPpDelta(e.touches[0].clientX, e.touches[0].clientY);
+    };
+
+    const handleEnd = () => {
+      if (ppDragRef.current) {
+        if (ppDragRef.current.moved) {
+          ppJustDraggedRef.current = true;
+          window.setTimeout(() => {
+            ppJustDraggedRef.current = false;
+          }, 140);
+        }
+        ppDragRef.current = null;
+        setDraggingPpIndices([]);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleTouchMove);
+    window.addEventListener('touchend', handleEnd);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleEnd);
+    };
+  }, [mmToPx, paperWidthMm, paperHeightMm, onMovePhotoPrintSlots]);
+
+  const applyPpShift = (targets: { index: number; x: number; y: number; width: number; height: number }[], dx: number, dy: number) => {
+    if (!onMovePhotoPrintSlots || targets.length === 0) return;
+    const minX = Math.min(...targets.map((t) => t.x));
+    const maxRight = Math.max(...targets.map((t) => t.x + t.width));
+    const minY = Math.min(...targets.map((t) => t.y));
+    const maxBottom = Math.max(...targets.map((t) => t.y + t.height));
+
+    const effDx = Math.max(-minX, Math.min(Math.max(-minX, paperWidthMm - maxRight), dx));
+    const effDy = Math.max(-minY, Math.min(Math.max(-minY, paperHeightMm - maxBottom), dy));
+
+    const nextPositions: Record<number, PhotoPrintSlotRectOverride> = {
+      ...(photoPrintSettings?.slotPositions || {}),
+    };
+    for (const t of targets) {
+      nextPositions[t.index] = {
+        ...(nextPositions[t.index] || {}),
+        x: Math.round((t.x + effDx) * 2) / 2,
+        y: Math.round((t.y + effDy) * 2) / 2,
+        width: t.width,
+        height: t.height,
+      };
+    }
+    onMovePhotoPrintSlots(nextPositions);
+  };
+
+  const handlePpAlign = (action: 'top' | 'center' | 'bottom' | 'fit-paper') => {
+    if (!photoPrintSettings || !photoPrintGrid || !onMovePhotoPrintSlots) return;
+    const targets = getPpActionTargetRects();
+    if (targets.length === 0) return;
+
+    const minX = Math.min(...targets.map((t) => t.x));
+    const maxRight = Math.max(...targets.map((t) => t.x + t.width));
+    const minY = Math.min(...targets.map((t) => t.y));
+    const maxBottom = Math.max(...targets.map((t) => t.y + t.height));
+    const groupW = maxRight - minX;
+    const groupH = maxBottom - minY;
+    const margin = photoPrintSettings.marginMm ?? 6;
+
+    if (action === 'top') {
+      const targetY = Math.min(margin, Math.max(0, paperHeightMm - groupH));
+      applyPpShift(targets, 0, targetY - minY);
+      return;
+    }
+
+    if (action === 'bottom') {
+      const targetY = Math.max(0, paperHeightMm - margin - groupH);
+      applyPpShift(targets, 0, targetY - minY);
+      return;
+    }
+
+    if (action === 'center') {
+      const targetX = Math.max(0, (paperWidthMm - groupW) / 2);
+      const targetY = Math.max(0, (paperHeightMm - groupH) / 2);
+      applyPpShift(targets, targetX - minX, targetY - minY);
+      return;
+    }
+
+    // 'fit-paper': Proportionally expand/fit the targeted slot(s) cleanly inside the printable sheet area
+    const availW = Math.max(20, paperWidthMm - margin * 2);
+    const availH = Math.max(20, paperHeightMm - margin * 2);
+    const scale = Math.min(availW / Math.max(1, groupW), availH / Math.max(1, groupH));
+    const fittedGroupW = groupW * scale;
+    const fittedGroupH = groupH * scale;
+    const originX = (paperWidthMm - fittedGroupW) / 2;
+    const originY = (paperHeightMm - fittedGroupH) / 2;
+
+    const nextPositions: Record<number, PhotoPrintSlotRectOverride> = {
+      ...(photoPrintSettings.slotPositions || {}),
+    };
+    for (const t of targets) {
+      nextPositions[t.index] = {
+        x: Math.round((originX + (t.x - minX) * scale) * 2) / 2,
+        y: Math.round((originY + (t.y - minY) * scale) * 2) / 2,
+        width: Math.round(t.width * scale * 2) / 2,
+        height: Math.round(t.height * scale * 2) / 2,
+      };
+    }
+    onMovePhotoPrintSlots(nextPositions);
+  };
+
+  const toggleMarkPpSlot = (slotIndex: number) => {
+    setMarkedPpIndices((prev) =>
+      prev.includes(slotIndex) ? prev.filter((i) => i !== slotIndex) : [...prev, slotIndex]
+    );
+    setSelectedPpIndex(slotIndex);
+  };
+
+  const toggleMarkPassportItem = (itemId: string) => {
+    setMarkedItemIds((prev) =>
+      prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
+    );
+    onSelectItem?.(itemId);
   };
 
   // Lamination Drag Handlers (Mouse & Touch) — Supports Both Together & Single Move
@@ -735,18 +1045,22 @@ export const PaperPreview: React.FC<Props> = ({
     }
   };
 
-  // Unified nudge handler (all or single)
+  // Unified nudge handler (all, marked group, or single)
   const handleNudge = (deltaX: number, deltaY: number) => {
     if (mode === 'lamination') {
       handleNudgeLamination(deltaX, deltaY);
       return;
     }
-    if (moveMode === 'all') {
-      handleNudgeAll(deltaX, deltaY);
+    if (mode === 'photoprint') {
+      const targets = getPpActionTargetRects();
+      applyPpShift(targets, deltaX, deltaY);
+      return;
+    }
+    const targets = getPassportAlignTargets();
+    if (targets.length > 0) {
+      handleNudgeAll(deltaX, deltaY, targets);
     } else if (selectedItemId) {
       onNudgeItem?.(selectedItemId, deltaX, deltaY);
-    } else if (passportItems.length > 0) {
-      handleNudgeAll(deltaX, deltaY);
     }
   };
 
@@ -793,10 +1107,16 @@ export const PaperPreview: React.FC<Props> = ({
     mode,
     selectedItemId,
     moveMode,
+    markedItemIds,
     passportItems,
     lamination,
     lamMoveMode,
     selectedLamSide,
+    photoPrintSettings,
+    photoPrintGrid,
+    ppMoveMode,
+    selectedPpIndex,
+    markedPpIndices,
     paperWidthMm,
     paperHeightMm,
     onNudgeItem,
@@ -804,6 +1124,7 @@ export const PaperPreview: React.FC<Props> = ({
     onDuplicateItem,
     onToggleItemSize,
     onMoveLamination,
+    onMovePhotoPrintSlots,
   ]);
 
   // Breakdown of photos currently on sheet (e.g. 5 Passport, 8 Stamp)
@@ -1273,10 +1594,209 @@ export const PaperPreview: React.FC<Props> = ({
           </div>
         )}
 
-        {/* Quick Toolbar for Adding Copies & Auto-Aligning */}
+        {/* Quick Toolbar for Photo Print Interactive Moving, Marking, Top/Bottom/Center & Fit */}
+        {mode === 'photoprint' && photoPrintSettings && photoPrintGrid && (
+          <div className="w-full flex items-center gap-1.5 flex-wrap justify-center sm:justify-between">
+            {/* 3-Way Move Scope Switcher: All / Mark (2+) / Single */}
+            <div className="flex items-center glass-track p-0.5 rounded-xl text-xs">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPpMoveMode('single');
+                }}
+                className={`py-1 px-2.5 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+                  ppMoveMode === 'single'
+                    ? 'glass-btn-primary text-white'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? 'যেকোনো ১টি ছবি মাউস দিয়ে আলাদাভাবে সরান' : 'Drag any single photo individually'}
+              >
+                <MousePointer className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'সিঙ্গেল' : 'Single'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPpMoveMode('mark');
+                }}
+                className={`py-1 px-2.5 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+                  ppMoveMode === 'mark'
+                    ? 'glass-btn-primary text-white'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? '২টি বা তার বেশি ছবি মার্ক করে একসাথে সরান' : 'Mark 2+ photos and move them together'}
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>
+                  {lang === 'bn'
+                    ? `মার্ক (${markedPpIndices.length})`
+                    : `Mark (${markedPpIndices.length})`}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPpMoveMode('all');
+                }}
+                className={`py-1 px-2.5 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer whitespace-nowrap ${
+                  ppMoveMode === 'all'
+                    ? 'glass-btn-primary text-white'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? 'সবগুলো ছবি একসাথে মাউস দিয়ে সরান' : 'Move all photos together'}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>
+                  {lang === 'bn'
+                    ? `সব একসাথে (${photoPrintGrid.totalSlots})`
+                    : `All (${photoPrintGrid.totalSlots})`}
+                </span>
+              </button>
+            </div>
+
+            {/* Quick Align & Fit Controls: Top / Center / Bottom / Fit / Reset / Nudge */}
+            <div className="flex items-center gap-1.5 flex-wrap justify-center">
+              {markedPpIndices.length > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMarkedPpIndices([]);
+                  }}
+                  className="py-1 px-2 rounded-xl glass-tile text-rose-600 dark:text-rose-400 text-[11px] font-bold transition cursor-pointer whitespace-nowrap"
+                  title={lang === 'bn' ? 'মার্ক বাতিল করুন' : 'Clear Marks'}
+                >
+                  {lang === 'bn' ? 'মার্ক মুছুন' : 'Unmark'}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePpAlign('top');
+                }}
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                title={lang === 'bn' ? 'পেপারের উপরে নিন' : 'Snap to Top of Paper'}
+              >
+                <ArrowUpToLine className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>{lang === 'bn' ? 'উপরে' : 'Top'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePpAlign('center');
+                }}
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                title={lang === 'bn' ? 'পেপারের মাঝখানে নিন' : 'Center on Paper'}
+              >
+                <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>{lang === 'bn' ? 'মাঝে' : 'Center'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePpAlign('bottom');
+                }}
+                className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                title={lang === 'bn' ? 'পেপারের নিচে নিন' : 'Snap to Bottom of Paper'}
+              >
+                <ArrowDownToLine className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>{lang === 'bn' ? 'নিচে' : 'Bottom'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePpAlign('fit-paper');
+                }}
+                className="py-1 px-2.5 rounded-xl glass-tile text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                title={lang === 'bn' ? 'পেপারে সুন্দরভাবে ফিট করুন' : 'Fit cleanly onto printable sheet'}
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? 'ফিট' : 'Fit'}</span>
+              </button>
+
+              {photoPrintSettings.slotPositions &&
+                Object.keys(photoPrintSettings.slotPositions).length > 0 &&
+                onResetPhotoPrintPositions && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onResetPhotoPrintPositions();
+                    }}
+                    className="py-1 px-2 rounded-xl glass-tile text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-1 transition cursor-pointer whitespace-nowrap"
+                    title={lang === 'bn' ? 'আগের গ্রিড মাপে ফেরত যান' : 'Reset to Default Grid'}
+                  >
+                    <RotateCcw className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                    <span>{lang === 'bn' ? 'রিসেট' : 'Reset'}</span>
+                  </button>
+                )}
+
+              {/* Micro Nudge Buttons */}
+              <div className="flex items-center glass-tile rounded-xl p-0.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNudge(0, -2);
+                  }}
+                  className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
+                  title={lang === 'bn' ? '২ মিমি উপরে' : 'Nudge Up 2mm'}
+                >
+                  <ArrowUp className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNudge(0, 2);
+                  }}
+                  className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
+                  title={lang === 'bn' ? '২ মিমি নিচে' : 'Nudge Down 2mm'}
+                >
+                  <ArrowDown className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNudge(-2, 0);
+                  }}
+                  className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
+                  title={lang === 'bn' ? '২ মিমি বামে' : 'Nudge Left 2mm'}
+                >
+                  <ArrowLeft className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleNudge(2, 0);
+                  }}
+                  className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
+                  title={lang === 'bn' ? '২ মিমি ডানে' : 'Nudge Right 2mm'}
+                >
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Quick Toolbar for Adding Copies & Auto-Aligning in Passport Mode */}
         {mode === 'passport' && passportItems.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap justify-center sm:justify-end">
-            {/* Move Mode Toggle: Move All Together vs Single Photo */}
+            {/* Move Mode Toggle: Move All / Mark (2+) / Single Photo */}
             <div className="flex items-center glass-track p-0.5 rounded-xl text-xs">
               <button
                 type="button"
@@ -1289,7 +1809,20 @@ export const PaperPreview: React.FC<Props> = ({
                 title={lang === 'bn' ? 'যেকোনো একটি ছবি মাউস দিয়ে টানলে সবগুলো ছবি একসাথে নড়বে' : 'Dragging any photo moves all photos together'}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? `একসাথে সরান (${passportItems.length})` : `Move All (${passportItems.length})`}</span>
+                <span>{lang === 'bn' ? `সব (${passportItems.length})` : `All (${passportItems.length})`}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMoveMode('mark')}
+                className={`py-1 px-2 rounded-lg font-bold text-xs flex items-center gap-1 transition cursor-pointer ${
+                  moveMode === 'mark'
+                    ? 'glass-btn-primary text-white'
+                    : 'text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                }`}
+                title={lang === 'bn' ? '২টি বা বেশি ছবি মার্ক করে একসাথে মুভ করুন' : 'Mark 2+ photos and move together'}
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{lang === 'bn' ? `মার্ক (${markedItemIds.length})` : `Mark (${markedItemIds.length})`}</span>
               </button>
               <button
                 type="button"
@@ -1302,19 +1835,37 @@ export const PaperPreview: React.FC<Props> = ({
                 title={lang === 'bn' ? 'শুধুমাত্র সিলেক্ট করা ছবিটি একা নড়বে' : 'Move only one selected photo'}
               >
                 <MousePointer className="w-3.5 h-3.5" />
-                <span>{lang === 'bn' ? 'একটি ছবি' : 'Single'}</span>
+                <span>{lang === 'bn' ? 'সিঙ্গেল' : 'Single'}</span>
               </button>
             </div>
 
-            {/* Quick Center on Sheet */}
+            {/* Quick Top / Center / Bottom on Sheet */}
             <button
               type="button"
-              onClick={handleCenterAll}
-              className="py-1 px-2.5 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
-              title={lang === 'bn' ? 'সব ছবি পেপারের মাঝে নিখুঁতভাবে সেন্টারিং করুন' : 'Center all photos on sheet'}
+              onClick={() => handleAlignPassportTargets('top')}
+              className="py-1 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+              title={lang === 'bn' ? 'পেপারের উপরে নিন' : 'Align to Top'}
+            >
+              <ArrowUpToLine className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{lang === 'bn' ? 'উপরে' : 'Top'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAlignPassportTargets('center')}
+              className="py-1 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+              title={lang === 'bn' ? 'সব ছবি পেপারের মাঝে নিখুঁতভাবে সেন্টারিং করুন' : 'Center photos on sheet'}
             >
               <Target className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>{lang === 'bn' ? 'মাঝখানে' : 'Center'}</span>
+              <span>{lang === 'bn' ? 'মাঝে' : 'Center'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAlignPassportTargets('bottom')}
+              className="py-1 px-2 rounded-xl glass-tile text-slate-800 dark:text-slate-100 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+              title={lang === 'bn' ? 'পেপারের নিচে নিন' : 'Align to Bottom'}
+            >
+              <ArrowDownToLine className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>{lang === 'bn' ? 'নিচে' : 'Bottom'}</span>
             </button>
 
             {/* Micro Nudge Buttons */}
@@ -1323,7 +1874,7 @@ export const PaperPreview: React.FC<Props> = ({
                 type="button"
                 onClick={() => handleNudge(0, -2)}
                 className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
-                title={lang === 'bn' ? 'সব ছবি ২ মিমি উপরে সরান' : 'Nudge Up 2mm'}
+                title={lang === 'bn' ? '২ মিমি উপরে সরান' : 'Nudge Up 2mm'}
               >
                 <ArrowUp className="w-3 h-3" />
               </button>
@@ -1331,7 +1882,7 @@ export const PaperPreview: React.FC<Props> = ({
                 type="button"
                 onClick={() => handleNudge(0, 2)}
                 className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
-                title={lang === 'bn' ? 'সব ছবি ২ মিমি নিচে সরান' : 'Nudge Down 2mm'}
+                title={lang === 'bn' ? '২ মিমি নিচে সরান' : 'Nudge Down 2mm'}
               >
                 <ArrowDown className="w-3 h-3" />
               </button>
@@ -1339,7 +1890,7 @@ export const PaperPreview: React.FC<Props> = ({
                 type="button"
                 onClick={() => handleNudge(-2, 0)}
                 className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
-                title={lang === 'bn' ? 'সব ছবি ২ মিমি বামে সরান' : 'Nudge Left 2mm'}
+                title={lang === 'bn' ? '২ মিমি বামে সরান' : 'Nudge Left 2mm'}
               >
                 <ArrowLeft className="w-3 h-3" />
               </button>
@@ -1347,7 +1898,7 @@ export const PaperPreview: React.FC<Props> = ({
                 type="button"
                 onClick={() => handleNudge(2, 0)}
                 className="p-1 hover:bg-white/70 dark:hover:bg-white/10 rounded-lg text-slate-700 dark:text-slate-200 cursor-pointer"
-                title={lang === 'bn' ? 'সব ছবি ২ মিমি ডানে সরান' : 'Nudge Right 2mm'}
+                title={lang === 'bn' ? '২ মিমি ডানে সরান' : 'Nudge Right 2mm'}
               >
                 <ArrowRight className="w-3 h-3" />
               </button>
@@ -1399,6 +1950,33 @@ export const PaperPreview: React.FC<Props> = ({
         )}
       </div>
 
+      {/* Photo Print Interactive Hint Banner */}
+      {mode === 'photoprint' && photoPrintSettings && photoPrintGrid && (
+        <div className="mb-3 text-[11px] rounded-xl glass-banner px-3 py-1.5 flex items-center gap-2 max-w-5xl w-full justify-between flex-wrap text-slate-800 dark:text-slate-100">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Move className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span>
+              {ppMoveMode === 'all' ? (
+                lang === 'bn'
+                  ? 'সবগুলো ছবি একসাথে মাউস দিয়ে টেনে পেপারের উপরে, নিচে বা যেকোনো জায়গায় সরান।'
+                  : 'Drag any slot to move all slots together across the sheet.'
+              ) : ppMoveMode === 'mark' || markedPpIndices.length >= 2 ? (
+                lang === 'bn'
+                  ? `মার্ক করা ${markedPpIndices.length}টি ছবি একসাথে টেনে সরান (Shift+ক্লিক দিয়েও মার্ক করা যাবে)।`
+                  : `Drag any marked slot to move ${markedPpIndices.length} marked photos together (Shift+Click toggles marks).`
+              ) : (
+                lang === 'bn'
+                  ? 'যেকোনো ছবি মাউস দিয়ে টেনে মুভ করুন, অথবা Shift+ক্লিক / মার্ক বাটনে ২+ ছবি একসাথে মুভ করুন।'
+                  : 'Drag any photo freely with mouse, or Shift+Click / use Mark to move 2+ photos together.'
+              )}
+            </span>
+          </div>
+          <span className="text-[10px] opacity-75 font-mono hidden md:inline">
+            {lang === 'bn' ? 'কীবোর্ড: ← → ↑ ↓ · Shift+Click = মার্ক' : 'Keys: ← → ↑ ↓ · Shift+Click = Mark'}
+          </span>
+        </div>
+      )}
+
       {/* Movement instruction tip */}
       {mode === 'passport' && passportItems.length > 0 && (
         <div
@@ -1414,20 +1992,29 @@ export const PaperPreview: React.FC<Props> = ({
               {moveMode === 'all' ? (
                 <>
                   <strong className="text-blue-700 dark:text-blue-300">
-                    {lang === 'bn' ? 'একসাথে মুভ চালু:' : 'Move All Active:'}
+                    {lang === 'bn' ? 'সব একসাথে মুভ:' : 'Move All Active:'}
                   </strong>{' '}
                   {lang === 'bn'
-                    ? 'মাউস দিয়ে যেকোনো ছবিতে ড্র্যাগ করুন—সবগুলো ছবি একসাথে ঠিক জায়গায় চলে যাবে।'
+                    ? 'মাউস দিয়ে যেকোনো ছবিতে ড্র্যাগ করুন—সবগুলো ছবি একসাথে সরবে।'
                     : 'Drag any photo with mouse to move all photos together on paper.'}
+                </>
+              ) : moveMode === 'mark' || markedItemIds.length >= 2 ? (
+                <>
+                  <strong className="text-emerald-700 dark:text-emerald-300">
+                    {lang === 'bn' ? `মার্ক মুভ (${markedItemIds.length}টি):` : `Marked Group (${markedItemIds.length}):`}
+                  </strong>{' '}
+                  {lang === 'bn'
+                    ? 'একাধিক ছবিতে ক্লিক বা Shift+ক্লিক করে মার্ক করুন, তারপর ড্র্যাগ করে একসাথে সরান।'
+                    : 'Click or Shift+Click 2+ photos to mark them, then drag any marked photo together.'}
                 </>
               ) : (
                 <>
                   <strong className="text-slate-900 dark:text-white">
-                    {lang === 'bn' ? 'একক মুভ:' : 'Single Move:'}
+                    {lang === 'bn' ? 'সিঙ্গেল মুভ:' : 'Single Move:'}
                   </strong>{' '}
                   {lang === 'bn'
-                    ? 'মাউস দিয়ে শুধুমাত্র একটি নির্বাচিত ছবি সরান।'
-                    : 'Drag one selected photo independently.'}
+                    ? 'মাউস দিয়ে একটি ছবি আলাদাভাবে সরান (Shift+ক্লিক দিয়ে ২+ মার্ক করুন)।'
+                    : 'Drag one photo independently (Shift+Click to mark 2+ together).'}
                 </>
               )}
             </span>
@@ -1439,11 +2026,15 @@ export const PaperPreview: React.FC<Props> = ({
             </span>
             <button
               type="button"
-              onClick={() => setMoveMode(moveMode === 'all' ? 'single' : 'all')}
+              onClick={() =>
+                setMoveMode(moveMode === 'all' ? 'mark' : moveMode === 'mark' ? 'single' : 'all')
+              }
               className="text-[10px] font-bold underline cursor-pointer text-blue-600 dark:text-blue-400 hover:text-blue-800"
             >
               {moveMode === 'all'
-                ? (lang === 'bn' ? 'একক ছবি মুভ করতে চান?' : 'Switch to Single?')
+                ? (lang === 'bn' ? '২+ মার্ক করে সরাতে চান?' : 'Switch to Mark 2+?')
+                : moveMode === 'mark'
+                ? (lang === 'bn' ? 'সিঙ্গেল ছবি সরাতে চান?' : 'Switch to Single?')
                 : (lang === 'bn' ? 'সব ছবি একসাথে সরাতে চান?' : 'Switch to Move All?')}
             </button>
           </div>
@@ -1933,6 +2524,7 @@ export const PaperPreview: React.FC<Props> = ({
                   {/* Rendered Draggable & Movable Photos on Sheet */}
                   {passportItems.map((item, idx) => {
                     const isSelected = selectedItemId === item.id;
+                    const isMarked = markedItemIds.includes(item.id);
                     const isDragging = draggingItemId === item.id || isDraggingAll;
                     const isStamp = item.width <= 25 || item.preset === 'bd-stamp';
 
@@ -1943,6 +2535,10 @@ export const PaperPreview: React.FC<Props> = ({
                         onTouchStart={(e) => handleTouchStartItem(e, item)}
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (e.shiftKey || e.ctrlKey || e.metaKey || moveMode === 'mark') {
+                            toggleMarkPassportItem(item.id);
+                            return;
+                          }
                           onSelectItem?.(item.id);
                           onSelectPhoto(item.index % passportItems.length);
                         }}
@@ -1955,6 +2551,8 @@ export const PaperPreview: React.FC<Props> = ({
                             ? 'cursor-grabbing shadow-xl ring-2 ring-blue-600 opacity-95 z-30'
                             : isDragging
                             ? 'cursor-grabbing shadow-2xl z-40 ring-2 ring-blue-600 opacity-95'
+                            : isMarked
+                            ? 'cursor-grab ring-2 ring-emerald-500 shadow-md z-30'
                             : moveMode === 'all'
                             ? 'cursor-grab hover:ring-2 hover:ring-blue-500 hover:shadow-md z-20'
                             : isSelected
@@ -1973,6 +2571,22 @@ export const PaperPreview: React.FC<Props> = ({
                             : (lang === 'bn' ? 'মাউস দিয়ে টেনে এই ছবিটি সরান' : 'Drag to move this photo')
                         }
                       >
+                      {/* Quick Corner Mark Toggle */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMarkPassportItem(item.id);
+                        }}
+                        className={`absolute top-0.5 right-0.5 w-4 h-4 rounded flex items-center justify-center transition z-30 cursor-pointer ${
+                          isMarked
+                            ? 'bg-emerald-600 text-white shadow-xs opacity-100'
+                            : 'bg-black/60 text-white/90 opacity-0 group-hover:opacity-100 hover:bg-emerald-600'
+                        }`}
+                        title={lang === 'bn' ? 'মার্ক করুন (একসাথে মুভ)' : 'Mark to move together'}
+                      >
+                        <Check className="w-2.5 h-2.5" />
+                      </button>
                       <img
                         src={item.photo.processedSrc || item.photo.originalSrc}
                         alt="Photo"
@@ -2746,7 +3360,7 @@ export const PaperPreview: React.FC<Props> = ({
           )}
 
           {/* ======================================================== */}
-          {/* 4. PHOTO PRINT MODE CONTENT (4R / 4-Up A4 / All Sizes)   */}
+          {/* 4. PHOTO PRINT MODE CONTENT (Draggable, Markable, Fit)   */}
           {/* ======================================================== */}
           {mode === 'photoprint' && photoPrintSettings && photoPrintGrid && (
             <>
@@ -2756,35 +3370,98 @@ export const PaperPreview: React.FC<Props> = ({
                 const topPx = rect.y * mmToPx;
                 const widthPx = rect.width * mmToPx;
                 const heightPx = rect.height * mmToPx;
+                const isMarked = markedPpIndices.includes(rect.index);
+                const isSelected = selectedPpIndex === rect.index;
+                const isDragging = draggingPpIndices.includes(rect.index);
 
                 if (!slot) {
                   return (
-                    <button
+                    <div
                       key={`pp-empty-${rect.index}`}
-                      type="button"
+                      onMouseDown={(e) => {
+                        if ((e.target as HTMLElement).closest('button')) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        startPhotoPrintDrag(e.clientX, e.clientY, rect.index);
+                      }}
+                      onTouchStart={(e) => {
+                        if ((e.target as HTMLElement).closest('button')) return;
+                        if (e.touches.length !== 1) return;
+                        startPhotoPrintDrag(e.touches[0].clientX, e.touches[0].clientY, rect.index);
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (ppJustDraggedRef.current) return;
+                        if (e.shiftKey || e.ctrlKey || e.metaKey || ppMoveMode === 'mark') {
+                          toggleMarkPpSlot(rect.index);
+                          return;
+                        }
+                        setSelectedPpIndex(rect.index);
                         onUploadPhotoPrintSlot?.(rect.index);
                       }}
-                      className="absolute border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/75 hover:bg-blue-50/60 rounded-xs flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-blue-600 transition cursor-pointer group overflow-hidden p-2"
+                      className={`absolute rounded-xs flex flex-col items-center justify-center gap-1 text-slate-500 transition group overflow-hidden p-2 select-none ${
+                        isDragging
+                          ? 'cursor-grabbing border-2 border-solid border-blue-600 bg-blue-50/75 shadow-xl z-40'
+                          : isMarked
+                          ? 'cursor-grab border-2 border-dashed border-emerald-600 bg-emerald-50/60 ring-2 ring-emerald-500/35 z-30'
+                          : isSelected
+                          ? 'cursor-grab border-2 border-dashed border-blue-500 bg-blue-50/55 z-20'
+                          : 'cursor-grab border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/75 hover:bg-blue-50/60 hover:text-blue-600 z-10'
+                      }`}
                       style={{
                         left: `${leftPx}px`,
                         top: `${topPx}px`,
                         width: `${widthPx}px`,
                         height: `${heightPx}px`,
                       }}
-                      title={lang === 'bn' ? 'ক্লিক করে ছবি আপলোড করুন' : 'Click to upload photo'}
+                      title={
+                        lang === 'bn'
+                          ? 'মাউস দিয়ে ড্র্যাগ করে সরান, বা ক্লিক করে ছবি দিন'
+                          : 'Drag to move slot, or click to upload photo'
+                      }
                     >
-                      <div className="w-8 h-8 rounded-xl bg-white/90 border border-slate-200 group-hover:border-blue-300 shadow-xs flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition">
+                      {/* Corner Mark Toggle Badge */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleMarkPpSlot(rect.index);
+                        }}
+                        className={`absolute top-1.5 right-1.5 w-5 h-5 rounded-md flex items-center justify-center transition cursor-pointer z-20 ${
+                          isMarked
+                            ? 'bg-emerald-600 text-white shadow-sm opacity-100'
+                            : 'bg-slate-900/60 text-white opacity-0 group-hover:opacity-100 hover:bg-emerald-600'
+                        }`}
+                        title={lang === 'bn' ? 'মার্ক করুন (একসাথে মুভ করতে)' : 'Mark to move together'}
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedPpIndex(rect.index);
+                          onUploadPhotoPrintSlot?.(rect.index);
+                        }}
+                        className="w-8 h-8 rounded-xl bg-white/90 border border-slate-200 group-hover:border-blue-300 shadow-xs flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition cursor-pointer"
+                        title={lang === 'bn' ? 'ছবি আপলোড করুন' : 'Upload Photo'}
+                      >
                         <ImageIcon className="w-4 h-4" />
-                      </div>
-                      <span className="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 leading-tight">
+                      </button>
+                      <span className="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 leading-tight text-center">
                         {lang === 'bn' ? `ছবি #${rect.index + 1} দিন` : `Add Photo #${rect.index + 1}`}
                       </span>
                       <span className="text-[10px] font-mono tabular-nums text-slate-400">
                         {rect.width} × {rect.height} mm
                       </span>
-                    </button>
+
+                      {isDragging && (
+                        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded shadow whitespace-nowrap pointer-events-none">
+                          {rect.x} × {rect.y} mm
+                        </span>
+                      )}
+                    </div>
                   );
                 }
 
@@ -2795,14 +3472,46 @@ export const PaperPreview: React.FC<Props> = ({
                 return (
                   <div
                     key={`pp-filled-${rect.index}`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="absolute overflow-hidden group bg-white"
+                    onMouseDown={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      startPhotoPrintDrag(e.clientX, e.clientY, rect.index);
+                    }}
+                    onTouchStart={(e) => {
+                      if ((e.target as HTMLElement).closest('button')) return;
+                      if (e.touches.length !== 1) return;
+                      startPhotoPrintDrag(e.touches[0].clientX, e.touches[0].clientY, rect.index);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (ppJustDraggedRef.current) return;
+                      if (e.shiftKey || e.ctrlKey || e.metaKey || ppMoveMode === 'mark') {
+                        toggleMarkPpSlot(rect.index);
+                        return;
+                      }
+                      setSelectedPpIndex(rect.index);
+                    }}
+                    className={`absolute overflow-hidden group bg-white select-none transition-shadow ${
+                      isDragging
+                        ? 'cursor-grabbing ring-2 ring-blue-600 shadow-2xl z-40 opacity-95'
+                        : isMarked
+                        ? 'cursor-grab ring-2 ring-emerald-500 shadow-lg z-30'
+                        : isSelected
+                        ? 'cursor-grab ring-2 ring-blue-500 shadow-md z-20'
+                        : 'cursor-grab hover:ring-2 hover:ring-blue-400 z-10'
+                    }`}
                     style={{
                       left: `${leftPx}px`,
                       top: `${topPx}px`,
                       width: `${widthPx}px`,
                       height: `${heightPx}px`,
                     }}
+                    title={
+                      lang === 'bn'
+                        ? 'মাউস দিয়ে ড্র্যাগ করে পেপারের যেকোনো জায়গায় সরান'
+                        : 'Drag with mouse to reposition anywhere on paper'
+                    }
                   >
                     <div
                       style={{
@@ -2818,7 +3527,7 @@ export const PaperPreview: React.FC<Props> = ({
                         src={slot.imageSrc}
                         alt={slot.name}
                         draggable={false}
-                        className="w-full h-full block select-none"
+                        className="w-full h-full block select-none pointer-events-none"
                         style={{ objectFit: fit }}
                       />
                     </div>
@@ -2839,10 +3548,34 @@ export const PaperPreview: React.FC<Props> = ({
                       </>
                     )}
 
-                    {/* Slot number pill & hover quick actions */}
+                    {/* Slot number pill */}
                     <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-slate-900/75 text-white text-[10px] font-mono font-bold tabular-nums opacity-0 group-hover:opacity-100 transition pointer-events-none">
                       #{rect.index + 1} · {fit === 'cover' ? (lang === 'bn' ? 'ফিট' : 'Cover') : (lang === 'bn' ? 'পুরো' : 'Full')}
                     </span>
+
+                    {/* Corner Mark Toggle Badge */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleMarkPpSlot(rect.index);
+                      }}
+                      className={`absolute top-1.5 right-1.5 w-5 h-5 rounded-md flex items-center justify-center transition cursor-pointer z-20 ${
+                        isMarked
+                          ? 'bg-emerald-600 text-white shadow-sm opacity-100'
+                          : 'bg-slate-900/65 text-white opacity-0 group-hover:opacity-100 hover:bg-emerald-600'
+                      }`}
+                      title={lang === 'bn' ? 'মার্ক করুন (একসাথে মুভ)' : 'Mark to move together'}
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+
+                    {/* Live coordinates while dragging */}
+                    {isDragging && (
+                      <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-blue-600/95 text-white text-[10px] font-mono tabular-nums px-2 py-0.5 rounded-full shadow pointer-events-none whitespace-nowrap z-30">
+                        {rect.x} × {rect.y} mm
+                      </span>
+                    )}
 
                     <div className="absolute bottom-2 inset-x-2 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition">
                       <button

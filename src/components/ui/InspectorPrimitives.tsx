@@ -174,11 +174,19 @@ export const PaperOutputSection: React.FC<PaperOutputProps> = ({
 
   const paperOptions: { id: PaperSizeType; title: string; sub: string }[] = [
     { id: 'a4', title: 'A4', sub: '210×297' },
+    { id: '4r', title: '4R', sub: '102×152' },
+    { id: '3r', title: '3R', sub: '89×127' },
+    { id: '5r', title: '5R', sub: '127×178' },
+    { id: '6r', title: '6R', sub: '152×203' },
+    { id: '8r', title: '8R', sub: '203×254' },
+    { id: '10r', title: '10R', sub: '203×305' },
+    { id: '2r', title: '2R', sub: '64×89' },
+    { id: 'a3', title: 'A3', sub: '297×420' },
     { id: 'a5', title: 'A5', sub: '148×210' },
+    { id: 'a6', title: 'A6', sub: '105×148' },
+    { id: 'b5', title: 'B5', sub: '176×250' },
     { id: 'letter', title: 'Letter', sub: '216×279' },
     { id: 'legal', title: 'Legal', sub: '216×356' },
-    { id: 'b5', title: 'B5', sub: '176×250' },
-    { id: '4r', title: '4R', sub: '102×152' },
     { id: 'custom', title: lang === 'en' ? 'Custom' : 'কাস্টম', sub: 'mm' },
   ];
 

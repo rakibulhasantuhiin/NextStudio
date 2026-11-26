@@ -5,13 +5,62 @@ import { jsPDF } from 'jspdf';
  * Exports the clean rendered CV DOM node into a crisp print-ready A4 PDF (supports 1 or multiple pages)
  * while preserving 100% accurate Bengali & English Unicode font shaping, layouts, photos, and signatures.
  */
-export async function exportCvElementToPdf(element: HTMLElement, filename: string): Promise<void> {
+export async function exportCvElementToPdf(
+  element: HTMLElement,
+  filename: string,
+  paperDims?: { widthMm: number; heightMm: number }
+): Promise<void> {
   // Ensure web fonts are loaded before rasterizing
   if (document.fonts && document.fonts.ready) {
     await document.fonts.ready;
   }
 
+  const pageWidthMm = paperDims?.widthMm || 210;
+  const pageHeightMm = paperDims?.heightMm || 297;
+  const orientation: 'portrait' | 'landscape' =
+    pageWidthMm > pageHeightMm ? 'landscape' : 'portrait';
   const pixelRatio = 2.5;
+
+  const pageNodes = Array.from(element.querySelectorAll('.cv-print-page')) as HTMLElement[];
+
+  const pdf = new jsPDF({
+    orientation,
+    unit: 'mm',
+    format: [pageWidthMm, pageHeightMm],
+    compress: true,
+  });
+
+  if (pageNodes.length > 0) {
+    for (let i = 0; i < pageNodes.length; i++) {
+      const node = pageNodes[i];
+      if (i > 0) {
+        pdf.addPage([pageWidthMm, pageHeightMm], orientation);
+      }
+
+      const dataUrl = await toJpeg(node, {
+        quality: 0.96,
+        pixelRatio,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+      });
+
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = dataUrl;
+      });
+
+      const pxPerMm = img.naturalWidth / pageWidthMm;
+      const renderedHeightMm = img.naturalHeight / pxPerMm;
+      const drawHeightMm = Math.min(pageHeightMm, renderedHeightMm);
+      pdf.addImage(dataUrl, 'JPEG', 0, 0, pageWidthMm, drawHeightMm, undefined, 'FAST');
+    }
+
+    pdf.save(filename);
+    return;
+  }
+
   const dataUrl = await toJpeg(element, {
     quality: 0.96,
     pixelRatio,
@@ -27,32 +76,20 @@ export async function exportCvElementToPdf(element: HTMLElement, filename: strin
     image.src = dataUrl;
   });
 
-  const a4WidthMm = 210;
-  const a4HeightMm = 297;
-
-  // Map full image width to 210mm A4 width
-  const pxPerMm = img.naturalWidth / a4WidthMm;
+  // Map full image width to selected paper width
+  const pxPerMm = img.naturalWidth / pageWidthMm;
   const totalHeightMm = img.naturalHeight / pxPerMm;
 
-  const pdf = new jsPDF({
-    orientation: 'portrait',
-    unit: 'mm',
-    format: [a4WidthMm, a4HeightMm],
-    compress: true,
-  });
-
-  if (totalHeightMm <= a4HeightMm + 1.5) {
-    // Fits cleanly on 1 A4 page
-    const drawHeightMm = Math.min(a4HeightMm, totalHeightMm);
-    pdf.addImage(dataUrl, 'JPEG', 0, 0, a4WidthMm, drawHeightMm, undefined, 'FAST');
+  if (totalHeightMm <= pageHeightMm + 1.5) {
+    const drawHeightMm = Math.min(pageHeightMm, totalHeightMm);
+    pdf.addImage(dataUrl, 'JPEG', 0, 0, pageWidthMm, drawHeightMm, undefined, 'FAST');
   } else {
-    // Slice cleanly into exact A4 height pages without overlapping text
-    const pageHeightPx = Math.floor(a4HeightMm * pxPerMm);
+    const pageHeightPx = Math.floor(pageHeightMm * pxPerMm);
     const totalPages = Math.ceil(img.naturalHeight / pageHeightPx);
 
     for (let pageIndex = 0; pageIndex < totalPages; pageIndex++) {
       if (pageIndex > 0) {
-        pdf.addPage([a4WidthMm, a4HeightMm], 'portrait');
+        pdf.addPage([pageWidthMm, pageHeightMm], orientation);
       }
       const sliceY = pageIndex * pageHeightPx;
       const sliceH = Math.min(pageHeightPx, img.naturalHeight - sliceY);
@@ -67,7 +104,7 @@ export async function exportCvElementToPdf(element: HTMLElement, filename: strin
         ctx.drawImage(img, 0, sliceY, img.naturalWidth, sliceH, 0, 0, img.naturalWidth, sliceH);
         const sliceDataUrl = sliceCanvas.toDataURL('image/jpeg', 0.96);
         const drawHeightMm = sliceH / pxPerMm;
-        pdf.addImage(sliceDataUrl, 'JPEG', 0, 0, a4WidthMm, drawHeightMm, undefined, 'FAST');
+        pdf.addImage(sliceDataUrl, 'JPEG', 0, 0, pageWidthMm, drawHeightMm, undefined, 'FAST');
       }
     }
   }

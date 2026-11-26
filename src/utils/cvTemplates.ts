@@ -1,4 +1,4 @@
-import { CvData, CvTemplateId, CvTemplateMeta } from '../types/cv';
+import { CvData, CvPaperSizeId, CvTemplateId, CvTemplateMeta } from '../types/cv';
 
 export const CV_ACCENT_COLORS: { name: string; hex: string }[] = [
   { name: 'Royal Blue', hex: '#1d4ed8' },
@@ -276,10 +276,155 @@ export const MARITAL_STATUS_OPTIONS = ['Single', 'Married', 'Divorced', 'Widowed
 export const BLOOD_GROUP_OPTIONS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 export const GENDER_OPTIONS = ['Male', 'Female', 'Other'];
 
+export interface CvPaperSpec {
+  id: CvPaperSizeId;
+  labelEn: string;
+  labelBn: string;
+  widthMm: number;
+  heightMm: number;
+}
+
+export const CV_PAPER_SIZES: CvPaperSpec[] = [
+  { id: 'a4', labelEn: 'A4 (210×297 mm)', labelBn: 'A4 (২১০×২৯৭ মিমি)', widthMm: 210, heightMm: 297 },
+  { id: 'letter', labelEn: 'Letter (216×279 mm)', labelBn: 'Letter (২১৬×২৭৯ মিমি)', widthMm: 215.9, heightMm: 279.4 },
+  { id: 'legal', labelEn: 'Legal (216×356 mm)', labelBn: 'Legal (২১৬×৩৫৬ মিমি)', widthMm: 215.9, heightMm: 355.6 },
+  { id: 'a5', labelEn: 'A5 (148×210 mm)', labelBn: 'A5 (১৪৮×২১০ মিমি)', widthMm: 148, heightMm: 210 },
+  { id: 'custom', labelEn: 'Custom Size', labelBn: 'কাস্টম সাইজ', widthMm: 210, heightMm: 297 },
+];
+
+export const CV_PX_PER_MM = 96 / 25.4;
+
+export function getCvPaperDimensions(data?: Pick<CvData, 'paperSize' | 'customPaperWidthMm' | 'customPaperHeightMm'>) {
+  const sizeId: CvPaperSizeId = data?.paperSize || 'a4';
+  const preset = CV_PAPER_SIZES.find((p) => p.id === sizeId) || CV_PAPER_SIZES[0];
+  const widthMm =
+    sizeId === 'custom'
+      ? Math.max(100, Math.min(450, Number(data?.customPaperWidthMm) || 210))
+      : preset.widthMm;
+  const heightMm =
+    sizeId === 'custom'
+      ? Math.max(120, Math.min(600, Number(data?.customPaperHeightMm) || 297))
+      : preset.heightMm;
+
+  return {
+    id: sizeId,
+    labelEn: preset.labelEn,
+    labelBn: preset.labelBn,
+    widthMm,
+    heightMm,
+    widthPx: Math.round(widthMm * CV_PX_PER_MM),
+    heightPx: Math.round(heightMm * CV_PX_PER_MM),
+  };
+}
+
+export interface CvOptionGroup {
+  groupEn: string;
+  groupBn: string;
+  items: string[];
+}
+
+export const CV_EDUCATION_EXAM_GROUPS: CvOptionGroup[] = [
+  {
+    groupEn: 'Primary & Junior School',
+    groupBn: 'প্রাথমিক ও জুনিয়র',
+    items: ['PSC / PECE', 'Ebtedayee', 'Class 8 Pass', 'JSC', 'JDC'],
+  },
+  {
+    groupEn: 'Secondary (SSC / Equivalent)',
+    groupBn: 'মাধ্যমিক (এসএসসি / সমমান)',
+    items: ['SSC', 'Dakhil', 'SSC (Vocational)', 'O-Level'],
+  },
+  {
+    groupEn: 'Higher Secondary (HSC / Equivalent)',
+    groupBn: 'উচ্চ মাধ্যমিক (এইচএসসি / সমমান)',
+    items: ['HSC', 'Alim', 'HSC (Vocational)', 'HSC (BM)', 'A-Level'],
+  },
+  {
+    groupEn: 'Diploma & Madrasah Higher',
+    groupBn: 'ডিপ্লোমা ও মাদ্রাসা উচ্চতর',
+    items: [
+      'Diploma in Engineering',
+      'Diploma in Computer',
+      'Diploma in Nursing',
+      'Trade / Certificate Course',
+      'Fazil',
+      'Kamil',
+    ],
+  },
+  {
+    groupEn: 'Bachelor / Honours / Graduation',
+    groupBn: 'স্নাতক / অনার্স / ডিগ্রি',
+    items: [
+      'B.A (Pass)',
+      'B.A (Honours)',
+      'B.S.S',
+      'B.Com / BBS',
+      'BBA',
+      'B.Sc',
+      'B.Sc in Engineering',
+      'B.Sc in CSE',
+      'LL.B',
+      'MBBS',
+      'B.Ed',
+    ],
+  },
+  {
+    groupEn: 'Masters & Doctorate',
+    groupBn: 'স্নাতকোত্তর ও উচ্চতর',
+    items: ['M.A', 'M.S.S', 'M.Com / MBS', 'MBA', 'M.Sc', 'LL.M', 'M.Ed', 'M.Phil', 'PhD'],
+  },
+];
+
+export const CV_EDUCATION_EXAM_FLAT: string[] = CV_EDUCATION_EXAM_GROUPS.flatMap((g) => g.items);
+
+export const CV_EDUCATION_BOARD_GROUPS: CvOptionGroup[] = [
+  {
+    groupEn: 'Bangladesh Education Boards',
+    groupBn: 'বাংলাদেশের সব শিক্ষা বোর্ড',
+    items: [
+      'Dhaka Board',
+      'Chattogram Board',
+      'Rajshahi Board',
+      'Cumilla Board',
+      'Jashore Board',
+      'Sylhet Board',
+      'Barishal Board',
+      'Dinajpur Board',
+      'Mymensingh Board',
+      'Bangladesh Madrasah Education Board',
+      'Bangladesh Technical Education Board (BTEB)',
+      'Bangladesh Open University (BOU)',
+    ],
+  },
+  {
+    groupEn: 'University & Group',
+    groupBn: 'বিশ্ববিদ্যালয় ও বিভাগ',
+    items: [
+      'National University',
+      'University of Dhaka',
+      'Public / Private University',
+      'Science',
+      'Business Studies',
+      'Humanities',
+      'Technical / Vocational',
+    ],
+  },
+];
+
+export const CV_EDUCATION_BOARD_FLAT: string[] = CV_EDUCATION_BOARD_GROUPS.flatMap((g) => g.items);
+
+export const CV_EDUCATION_YEARS: string[] = [
+  'Running / Appeared',
+  ...Array.from({ length: 2050 - 1980 + 1 }, (_, i) => String(2050 - i)),
+];
+
 export function createEmptyCvData(templateId: CvTemplateId = 'classic-plain', cvLang: 'en' | 'bn' = 'en'): CvData {
   return {
     templateId,
     cvLang,
+    paperSize: 'a4',
+    customPaperWidthMm: 210,
+    customPaperHeightMm: 297,
     accentColor: CV_TEMPLATES.find((t) => t.id === templateId)?.defaultAccent || '#1d4ed8',
     fontStyle: 'serif',
     banglaFont: 'solaimanlipi',
@@ -356,6 +501,13 @@ export function createEmptyCvData(templateId: CvTemplateId = 'classic-plain', cv
     showReferences: false,
     showPassportInfo: templateId === 'abroad-visa' || templateId === 'abroad-gulf',
     showFamilyInfo: templateId === 'marriage-biodata',
+    hiddenSections: [],
+    sectionOrder: [],
+    pageBreakBefore: [],
+    sectionSpacingTop: {},
+    hidePhoto: false,
+    hideSignature: false,
+    hideDeclaration: false,
   };
 }
 

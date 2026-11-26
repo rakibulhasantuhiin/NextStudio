@@ -56,6 +56,7 @@ import {
   PhotoPresetType,
   PhotoPrintSettings,
   PhotoPrintSlotItem,
+  PhotoPrintSlotRectOverride,
   PlacedSheetItem,
   ReadyDocState,
   StudioBackdropPreset,
@@ -90,7 +91,7 @@ import {
   generateDefaultPlacedItems,
 } from './utils/layoutCalculator';
 import { exportCvElementToImage, exportCvElementToPdf } from './utils/cvExport';
-import { createEmptyCvData } from './utils/cvTemplates';
+import { createEmptyCvData, getCvPaperDimensions } from './utils/cvTemplates';
 import {
   compositeCutoutWithBackdrop,
   enhanceStudioPortrait4k,
@@ -3155,21 +3156,38 @@ export default function App() {
     }));
   };
 
+  const handleMovePhotoPrintSlots = (
+    slotPositions: Record<number, PhotoPrintSlotRectOverride>
+  ) => {
+    setPhotoPrintSettings((prev) => ({
+      ...prev,
+      slotPositions,
+    }));
+  };
+
+  const handleResetPhotoPrintPositions = () => {
+    setPhotoPrintSettings((prev) => ({
+      ...prev,
+      slotPositions: {},
+    }));
+  };
+
   // 10. Print & Export Handlers
   const handleDirectPrint = () => {
     setSelectedItemId(null);
     const isLand = orientation === 'landscape';
+    const cvPaper = mode === 'cv' ? getCvPaperDimensions(cvData) : null;
     const widthMm =
-      mode === 'cv'
-        ? 210
+      mode === 'cv' && cvPaper
+        ? cvPaper.widthMm
         : mode === 'readydocs'
         ? activeReadyDocPaper.widthMm
         : isLand
         ? currentPaper.height
         : currentPaper.width;
     const heightMm =
-      mode === 'cv'
-        ? 297
+      mode === 'cv' && cvPaper
+        ? cvPaper.heightMm
         : mode === 'readydocs'
         ? activeReadyDocPaper.heightMm
         : isLand
@@ -3213,10 +3231,15 @@ export default function App() {
         .trim()
         .replace(/[^a-zA-Z0-9\u0980-\u09FF_-]+/g, '_')
         .slice(0, 40);
+      const cvPaper = getCvPaperDimensions(cvData);
       setIsExporting(true);
       await yieldToPaintFrame();
       try {
-        await exportCvElementToPdf(exportNode, `NextStudio_CV_${safeName || 'Resume'}.pdf`);
+        await exportCvElementToPdf(
+          exportNode,
+          `NextStudio_CV_${safeName || 'Resume'}.pdf`,
+          { widthMm: cvPaper.widthMm, heightMm: cvPaper.heightMm }
+        );
       } finally {
         setIsExporting(false);
       }
@@ -3713,13 +3736,25 @@ export default function App() {
               setSettings={setPhotoPrintSettings}
               paper={currentPaper}
               paperSize={paperSize}
-              setPaperSize={setPaperSize}
+              setPaperSize={(val) => {
+                setPaperSize(val);
+                handleResetPhotoPrintPositions();
+              }}
               customPaperWidth={customPaperWidth}
-              setCustomPaperWidth={setCustomPaperWidth}
+              setCustomPaperWidth={(val) => {
+                setCustomPaperWidth(val);
+                handleResetPhotoPrintPositions();
+              }}
               customPaperHeight={customPaperHeight}
-              setCustomPaperHeight={setCustomPaperHeight}
+              setCustomPaperHeight={(val) => {
+                setCustomPaperHeight(val);
+                handleResetPhotoPrintPositions();
+              }}
               orientation={orientation}
-              setOrientation={setOrientation}
+              setOrientation={(val) => {
+                setOrientation(val);
+                handleResetPhotoPrintPositions();
+              }}
               cuttingGuide={cuttingGuide}
               setCuttingGuide={setCuttingGuide}
               colorProfile={colorProfile}
@@ -4071,6 +4106,8 @@ export default function App() {
                     onRotatePhotoPrintSlot={handleRotatePhotoPrintSlot}
                     onTogglePhotoPrintSlotFit={handleTogglePhotoPrintSlotFit}
                     onClearPhotoPrintSlot={handleClearPhotoPrintSlot}
+                    onMovePhotoPrintSlots={handleMovePhotoPrintSlots}
+                    onResetPhotoPrintPositions={handleResetPhotoPrintPositions}
                   />
                 )}
                 </div>
@@ -4523,24 +4560,27 @@ export default function App() {
         lang={lang}
       />
 
-      {/* Offscreen Spotless A4 CV Export Node (Guaranteed clean 1:1 PDF/PNG/JPG regardless of zoom or gallery state) */}
-      {mode === 'cv' && (
-        <div
-          id="cv-clean-export-node"
-          aria-hidden="true"
-          style={{
-            position: 'fixed',
-            left: '-9999px',
-            top: 0,
-            width: '794px',
-            backgroundColor: '#ffffff',
-            pointerEvents: 'none',
-            zIndex: -1,
-          }}
-        >
-          <CvSheetRenderer data={cvData} interactive={false} />
-        </div>
-      )}
+      {/* Offscreen Spotless Multi-Page CV Export Node (Guaranteed clean 1:1 PDF/PNG/JPG regardless of zoom or gallery state) */}
+      {mode === 'cv' && (() => {
+        const cvPaper = getCvPaperDimensions(cvData);
+        return (
+          <div
+            id="cv-clean-export-node"
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              left: '-9999px',
+              top: 0,
+              width: `${cvPaper.widthPx}px`,
+              backgroundColor: 'transparent',
+              pointerEvents: 'none',
+              zIndex: -1,
+            }}
+          >
+            <CvSheetRenderer data={cvData} interactive={false} paginated={true} />
+          </div>
+        );
+      })()}
 
       {/* Offscreen Spotless Ready-Made Document Export Node */}
       {mode === 'readydocs' && (

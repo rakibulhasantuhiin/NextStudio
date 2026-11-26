@@ -3,6 +3,7 @@ import {
   PaperOrientation,
   PhotoPrintSettings,
   PhotoPrintSizeId,
+  PhotoPrintSlotRectOverride,
 } from '../types';
 
 export interface PhotoPrintPresetConfig {
@@ -87,15 +88,75 @@ export const PHOTO_PRINT_PRESETS: Record<PhotoPrintSizeId, PhotoPrintPresetConfi
     heightMm: 254,
     inchLabel: '8 × 10"',
   },
+  '10r': {
+    id: '10r',
+    nameBn: '10R / বড় ফটো (৮ × ১২ ইঞ্চি)',
+    nameEn: '10R (8 × 12 inch)',
+    shortLabelBn: '10R (৮×১২")',
+    shortLabelEn: '10R (8×12")',
+    widthMm: 203,
+    heightMm: 305,
+    inchLabel: '8 × 12"',
+  },
+  'passport-35x45': {
+    id: 'passport-35x45',
+    nameBn: 'পাসপোর্ট (৩৫ × ৪৫ মিমি)',
+    nameEn: 'Passport (35 × 45 mm)',
+    shortLabelBn: 'পাসপোর্ট',
+    shortLabelEn: 'Passport',
+    widthMm: 35,
+    heightMm: 45,
+    inchLabel: '35×45 mm',
+  },
+  'passport-40x50': {
+    id: 'passport-40x50',
+    nameBn: 'বড় পাসপোর্ট / কাপল (৪০ × ৫০ মিমি)',
+    nameEn: 'Classic / Couple (40 × 50 mm)',
+    shortLabelBn: 'বড় পাসপোর্ট',
+    shortLabelEn: 'Classic 40×50',
+    widthMm: 40,
+    heightMm: 50,
+    inchLabel: '40×50 mm',
+  },
+  'stamp-20x25': {
+    id: 'stamp-20x25',
+    nameBn: 'স্ট্যাম্প সাইজ (২০ × ২৫ মিমি)',
+    nameEn: 'Stamp Size (20 × 25 mm)',
+    shortLabelBn: 'স্ট্যাম্প',
+    shortLabelEn: 'Stamp',
+    widthMm: 20,
+    heightMm: 25,
+    inchLabel: '20×25 mm',
+  },
   'sq-4x4': {
     id: 'sq-4x4',
-    nameBn: 'স্কয়ার ৪ × ৪ ইঞ্চি (A4-এ ৪টি)',
+    nameBn: 'স্কয়ার ৪ × ৪ ইঞ্চি',
     nameEn: 'Square 4 × 4 inch',
     shortLabelBn: '৪×৪" স্কয়ার',
     shortLabelEn: 'Square 4×4"',
     widthMm: 102,
     heightMm: 102,
     inchLabel: '4 × 4"',
+  },
+  'sq-5x5': {
+    id: 'sq-5x5',
+    nameBn: 'স্কয়ার ৫ × ৫ ইঞ্চি',
+    nameEn: 'Square 5 × 5 inch',
+    shortLabelBn: '৫×৫" স্কয়ার',
+    shortLabelEn: 'Square 5×5"',
+    widthMm: 127,
+    heightMm: 127,
+    inchLabel: '5 × 5"',
+  },
+  a6: {
+    id: 'a6',
+    nameBn: 'A6 / পোস্টকার্ড (১০৫ × ১৪৮ মিমি)',
+    nameEn: 'A6 / Postcard (105 × 148 mm)',
+    shortLabelBn: 'A6 কার্ড',
+    shortLabelEn: 'A6 Postcard',
+    widthMm: 105,
+    heightMm: 148,
+    inchLabel: '4.1 × 5.8"',
   },
   a5: {
     id: 'a5',
@@ -116,6 +177,16 @@ export const PHOTO_PRINT_PRESETS: Record<PhotoPrintSizeId, PhotoPrintPresetConfi
     widthMm: 210,
     heightMm: 297,
     inchLabel: '8.3 × 11.7"',
+  },
+  'a3-full': {
+    id: 'a3-full',
+    nameBn: 'A3 পোস্টার (২৯৭ × ৪২০ মিমি)',
+    nameEn: 'A3 Poster (297 × 420 mm)',
+    shortLabelBn: 'A3 পোস্টার',
+    shortLabelEn: 'A3 Poster',
+    widthMm: 297,
+    heightMm: 420,
+    inchLabel: '11.7 × 16.5"',
   },
   custom: {
     id: 'custom',
@@ -139,6 +210,7 @@ export const DEFAULT_PHOTO_PRINT_SETTINGS: PhotoPrintSettings = {
   gapMm: 5,
   autoRotateToFit: true,
   slots: [null, null, null, null],
+  slotPositions: {},
 };
 
 export interface PhotoPrintGridSlotRect {
@@ -148,6 +220,7 @@ export interface PhotoPrintGridSlotRect {
   width: number; // mm
   height: number; // mm
   rotatedToFit: boolean;
+  customPositioned?: boolean;
 }
 
 export interface PhotoPrintGridLayout {
@@ -163,8 +236,8 @@ export interface PhotoPrintGridLayout {
 }
 
 /**
- * Computes symmetrically centered millimeter rectangles for all photos that fit on the paper.
- * Supports 4-Up A4 (2x2), exact 4R paper full-photo fit, 2R/3R/5R/6R/8R/Square/A5/A4 & Custom sizes.
+ * Computes symmetrically centered millimeter rectangles for all photos that fit on the paper,
+ * optionally applying user-dragged / aligned per-slot millimeter overrides.
  */
 export function calculatePhotoPrintGrid(options: {
   paper: PaperDimensions;
@@ -175,6 +248,7 @@ export function calculatePhotoPrintGrid(options: {
   marginMm?: number;
   gapMm?: number;
   autoRotateToFit?: boolean;
+  slotPositions?: Record<number, PhotoPrintSlotRectOverride>;
 }): PhotoPrintGridLayout {
   const {
     paper,
@@ -185,6 +259,7 @@ export function calculatePhotoPrintGrid(options: {
     marginMm = 6,
     gapMm = 5,
     autoRotateToFit = true,
+    slotPositions,
   } = options;
 
   const isLandscape = orientation === 'landscape';
@@ -245,13 +320,31 @@ export function calculatePhotoPrintGrid(options: {
   let idx = 0;
   for (let r = 0; r < chosen.rows; r++) {
     for (let c = 0; c < chosen.cols; c++) {
+      const baseX = Math.round((startX + c * (chosen.slotW + gapMm)) * 10) / 10;
+      const baseY = Math.round((startY + r * (chosen.slotH + gapMm)) * 10) / 10;
+      const baseW = Math.round(chosen.slotW * 10) / 10;
+      const baseH = Math.round(chosen.slotH * 10) / 10;
+
+      const override = slotPositions?.[idx];
+      const finalW = override?.width ? Math.min(sheetWidthMm, Math.max(10, override.width)) : baseW;
+      const finalH = override?.height ? Math.min(sheetHeightMm, Math.max(10, override.height)) : baseH;
+      const finalX =
+        override !== undefined
+          ? Math.round(Math.max(0, Math.min(sheetWidthMm - finalW, override.x)) * 10) / 10
+          : baseX;
+      const finalY =
+        override !== undefined
+          ? Math.round(Math.max(0, Math.min(sheetHeightMm - finalH, override.y)) * 10) / 10
+          : baseY;
+
       slots.push({
         index: idx,
-        x: Math.round((startX + c * (chosen.slotW + gapMm)) * 10) / 10,
-        y: Math.round((startY + r * (chosen.slotH + gapMm)) * 10) / 10,
-        width: Math.round(chosen.slotW * 10) / 10,
-        height: Math.round(chosen.slotH * 10) / 10,
+        x: finalX,
+        y: finalY,
+        width: finalW,
+        height: finalH,
         rotatedToFit,
+        customPositioned: override !== undefined,
       });
       idx++;
     }

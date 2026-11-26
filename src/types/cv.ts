@@ -21,6 +21,27 @@ export type CvTemplateId =
 
 export type CvCategory = 'all' | 'job' | 'abroad' | 'marriage' | 'fresher';
 
+export type CvPaperSizeId = 'a4' | 'letter' | 'legal' | 'a5' | 'custom';
+
+export type CvSectionKey =
+  | 'objective'
+  | 'experience'
+  | 'education'
+  | 'skills'
+  | 'trainings'
+  | 'languages'
+  | 'personal'
+  | 'passport'
+  | 'references'
+  | 'declaration'
+  | 'marriagePersonal'
+  | 'marriageAddress'
+  | 'occupation'
+  | 'familyInfo'
+  | 'partnerExpectation'
+  | 'guardianContact'
+  | 'bangladeshContact';
+
 export type CvFontStyle = 'serif' | 'sans' | 'classic';
 
 export type CvDensity = 'compact' | 'normal' | 'spacious';
@@ -61,6 +82,9 @@ export interface CvReferenceItem {
 export interface CvData {
   templateId: CvTemplateId;
   cvLang: 'en' | 'bn';
+  paperSize?: CvPaperSizeId;
+  customPaperWidthMm?: number;
+  customPaperHeightMm?: number;
   accentColor: string;
   fontStyle: CvFontStyle;
   banglaFont?: BanglaFontId;
@@ -132,6 +156,15 @@ export interface CvData {
   showReferences: boolean;
   showPassportInfo: boolean;
   showFamilyInfo: boolean;
+
+  // Universal delete / hide + multi-page flow controls
+  hiddenSections?: CvSectionKey[];
+  sectionOrder?: CvSectionKey[];
+  pageBreakBefore?: CvSectionKey[];
+  sectionSpacingTop?: Partial<Record<CvSectionKey, number>>;
+  hidePhoto?: boolean;
+  hideSignature?: boolean;
+  hideDeclaration?: boolean;
 }
 
 export interface CvTemplateMeta {
@@ -160,3 +193,22 @@ export type CvFieldTarget =
   | { type: 'languages' }
   | { type: 'photo' }
   | { type: 'signature' };
+
+export interface CvPageMetric {
+  pageNumber: number;
+  usedPx: number;
+  totalPx: number;
+  fillPercent: number;
+  remainingMm: number;
+  overflowPx: number;
+  sectionKeys: CvSectionKey[];
+}
+
+export interface CvLayoutMetrics {
+  paperWidthMm: number;
+  paperHeightMm: number;
+  paperWidthPx: number;
+  paperHeightPx: number;
+  pages: CvPageMetric[];
+}
+

@@ -19,6 +19,7 @@ import {
   getReadyDocTemplateById,
   resolveReadyDocPaper,
 } from '../utils/readyDocs';
+import { getCvPaperDimensions } from '../utils/cvTemplates';
 import { CvSheetRenderer } from './CvStudio/CvSheetRenderer';
 import { ReadyDocSheetRenderer } from './ReadyDocsStudio/ReadyDocSheetRenderer';
 
@@ -697,20 +698,22 @@ export const PrintSheetHidden: React.FC<Props> = ({
           );
         })}
 
-      {/* 4. CV Maker Mode (Pure white A4 vector DOM, clean print output without highlights) */}
-      {mode === 'cv' && cvData && (
-        <div
-          style={{
-            width: '210mm',
-            minHeight: '297mm',
-            backgroundColor: '#ffffff',
-            background: '#ffffff',
-            overflow: 'visible',
-          }}
-        >
-          <CvSheetRenderer data={cvData} interactive={false} />
-        </div>
-      )}
+      {/* 4. CV Maker Mode (Pure white vector DOM matching selected paper size & multi-page flow) */}
+      {mode === 'cv' && cvData && (() => {
+        const cvPaper = getCvPaperDimensions(cvData);
+        return (
+          <div
+            style={{
+              width: `${cvPaper.widthMm}mm`,
+              backgroundColor: '#ffffff',
+              background: '#ffffff',
+              overflow: 'visible',
+            }}
+          >
+            <CvSheetRenderer data={cvData} interactive={false} paginated={true} />
+          </div>
+        );
+      })()}
 
       {/* 5. Ready-Made Documents Mode (Exact A4 / A4 Landscape / Legal / Legal 13.5" vector print) */}
       {mode === 'readydocs' && readyDocState && readyTemplate && readyPaper && (
@@ -762,6 +765,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
             marginMm: photoPrintSettings.marginMm,
             gapMm: photoPrintSettings.gapMm,
             autoRotateToFit: photoPrintSettings.autoRotateToFit,
+            slotPositions: photoPrintSettings.slotPositions,
           });
           const imgFilter =
             colorProfile === 'bw'
