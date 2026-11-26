@@ -8,11 +8,13 @@ import {
   NIDCardSettings,
   PaperDimensions,
   PaperOrientation,
+  PhotoPrintSettings,
   ReadyDocState,
   StudioMode,
 } from '../types';
 import { calculateDocumentPlacement } from '../utils/documentLayout';
 import { CalculatedItem } from '../utils/layoutCalculator';
+import { calculatePhotoPrintGrid } from '../utils/photoPrintLayout';
 import {
   getReadyDocTemplateById,
   resolveReadyDocPaper,
@@ -32,6 +34,7 @@ interface Props {
   nid: NIDCardSettings;
   lamination?: LaminationCardSettings;
   documentSettings?: DocumentPrintSettings;
+  photoPrintSettings?: PhotoPrintSettings;
   cvData?: CvData;
   readyDocState?: ReadyDocState;
 }
@@ -48,6 +51,7 @@ export const PrintSheetHidden: React.FC<Props> = ({
   nid,
   lamination,
   documentSettings,
+  photoPrintSettings,
   cvData,
   readyDocState,
 }) => {
@@ -744,6 +748,120 @@ export const PrintSheetHidden: React.FC<Props> = ({
           />
         </div>
       )}
+
+      {/* 6. Photo Print Mode (4R / 4-Up A4 / Studio Sizes at exact mm coordinates) */}
+      {mode === 'photoprint' &&
+        photoPrintSettings &&
+        (() => {
+          const grid = calculatePhotoPrintGrid({
+            paper,
+            orientation,
+            sizeId: photoPrintSettings.sizeId,
+            customWidthMm: photoPrintSettings.customWidthMm,
+            customHeightMm: photoPrintSettings.customHeightMm,
+            marginMm: photoPrintSettings.marginMm,
+            gapMm: photoPrintSettings.gapMm,
+            autoRotateToFit: photoPrintSettings.autoRotateToFit,
+          });
+          const imgFilter =
+            colorProfile === 'bw'
+              ? 'grayscale(100%)'
+              : colorProfile === 'cmyk'
+              ? 'saturate(0.9) contrast(1.05)'
+              : 'none';
+
+          return grid.slots.map((rect) => {
+            const slot = photoPrintSettings.slots[rect.index];
+            if (!slot || !slot.imageSrc) return null;
+            const rotDeg = ((slot.rotation % 360) + 360) % 360;
+            const isOdd90 = rotDeg === 90 || rotDeg === 270;
+            const fit = slot.fitMode || photoPrintSettings.fitMode || 'cover';
+
+            return (
+              <div
+                key={`pp-print-${rect.index}`}
+                style={{
+                  position: 'absolute',
+                  left: `${rect.x}mm`,
+                  top: `${rect.y}mm`,
+                  width: `${rect.width}mm`,
+                  height: `${rect.height}mm`,
+                  overflow: 'hidden',
+                  boxSizing: 'border-box',
+                  boxShadow: 'none',
+                  border: 'none',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    width: `${isOdd90 ? rect.height : rect.width}mm`,
+                    height: `${isOdd90 ? rect.width : rect.height}mm`,
+                    transform: `translate(-50%, -50%) rotate(${rotDeg}deg)`,
+                  }}
+                >
+                  <img
+                    src={slot.imageSrc}
+                    alt=""
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: fit,
+                      display: 'block',
+                      boxShadow: 'none',
+                      border: 'none',
+                      filter: imgFilter,
+                    }}
+                  />
+                </div>
+
+                {cuttingGuide === 'dashed' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      border: '0.2mm dashed #94a3b8',
+                    }}
+                  />
+                )}
+                {cuttingGuide === 'solid' && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      border: '0.15mm solid #cbd5e1',
+                    }}
+                  />
+                )}
+                {cuttingGuide === 'scissors' && (
+                  <>
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        border: '0.2mm dotted #94a3b8',
+                      }}
+                    />
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: '-2.5mm',
+                        left: '-2.5mm',
+                        fontSize: '2.5mm',
+                        lineHeight: 1,
+                        color: '#64748b',
+                      }}
+                    >
+                      ✂
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+          });
+        })()}
     </div>
   );
 };

@@ -9,12 +9,14 @@ import {
   NIDCardSettings,
   PaperDimensions,
   PaperOrientation,
+  PhotoPrintSettings,
   PrintQuality,
   StudioMode,
   StudioPhotoItem,
 } from '../types';
 import { calculateDocumentPlacement } from './documentLayout';
 import { loadImage } from './imageProcessing';
+import { calculatePhotoPrintGrid } from './photoPrintLayout';
 
 export interface RenderSheetOptions {
   mode: StudioMode;
@@ -34,6 +36,8 @@ export interface RenderSheetOptions {
   lamination?: LaminationCardSettings;
   // Document / Fit-to-Paper items
   documentSettings?: DocumentPrintSettings;
+  // Photo Print (4R / 4-Up A4 / Studio Print Sizes)
+  photoPrintSettings?: PhotoPrintSettings;
 }
 
 /**
@@ -62,6 +66,7 @@ export async function generateHighResSheetCanvas(
     nid,
     lamination,
     documentSettings,
+    photoPrintSettings,
   } = options;
 
   const isLandscape = orientation === 'landscape';
@@ -256,6 +261,56 @@ export async function generateHighResSheetCanvas(
         scale,
         documentSettings
       );
+    }
+  } else if (mode === 'photoprint' && photoPrintSettings) {
+    const grid = calculatePhotoPrintGrid({
+      paper,
+      orientation,
+      sizeId: photoPrintSettings.sizeId,
+      customWidthMm: photoPrintSettings.customWidthMm,
+      customHeightMm: photoPrintSettings.customHeightMm,
+      marginMm: photoPrintSettings.marginMm,
+      gapMm: photoPrintSettings.gapMm,
+      autoRotateToFit: photoPrintSettings.autoRotateToFit,
+    });
+
+    for (const rect of grid.slots) {
+      const slot = photoPrintSettings.slots[rect.index];
+      if (!slot || !slot.imageSrc) continue;
+      const px = rect.x * scale;
+      const py = rect.y * scale;
+      const pWidth = rect.width * scale;
+      const pHeight = rect.height * scale;
+
+      try {
+        const img = await loadImage(slot.imageSrc);
+        const rotDeg = ((slot.rotation % 360) + 360) % 360;
+        const isOdd90 = rotDeg === 90 || rotDeg === 270;
+        const targetW = isOdd90 ? pHeight : pWidth;
+        const targetH = isOdd90 ? pWidth : pHeight;
+        const fit = slot.fitMode || photoPrintSettings.fitMode || 'cover';
+        const ratio =
+          fit === 'contain'
+            ? Math.min(targetW / Math.max(1, img.width), targetH / Math.max(1, img.height))
+            : Math.max(targetW / Math.max(1, img.width), targetH / Math.max(1, img.height));
+        const drawW = img.width * ratio;
+        const drawH = img.height * ratio;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(px, py, pWidth, pHeight);
+        ctx.clip();
+        ctx.translate(px + pWidth / 2, py + pHeight / 2);
+        if (rotDeg !== 0) {
+          ctx.rotate((rotDeg * Math.PI) / 180);
+        }
+        ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+        ctx.restore();
+      } catch (err) {
+        console.error('Failed to draw photo print slot:', err);
+      }
+
+      drawCuttingGuides(ctx, px, py, pWidth, pHeight, cuttingGuide, bleedArea * scale, scale);
     }
   }
 

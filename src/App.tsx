@@ -29,6 +29,7 @@ import { CropStraightenModal } from './components/PassportStudio/CropStraightenM
 import { PassportControls } from './components/PassportStudio/PassportControls';
 import { PhotoEditorModal } from './components/PassportStudio/PhotoEditorModal';
 import { WebcamCaptureModal } from './components/PassportStudio/WebcamCaptureModal';
+import { PhotoPrintControls } from './components/PhotoPrintStudio/PhotoPrintControls';
 import { PrintSheetHidden } from './components/PrintSheetHidden';
 import { ReadyDocControls } from './components/ReadyDocsStudio/ReadyDocControls';
 import { ReadyDocSheetRenderer } from './components/ReadyDocsStudio/ReadyDocSheetRenderer';
@@ -52,6 +53,8 @@ import {
   PhotoAdjustments,
   PhotoCopyAllocation,
   PhotoPresetType,
+  PhotoPrintSettings,
+  PhotoPrintSlotItem,
   PlacedSheetItem,
   ReadyDocState,
   StudioBackdropPreset,
@@ -93,6 +96,10 @@ import {
   generateFreeAiCouplePassport,
   generateFreeAiSinglePassport,
 } from './utils/freeAiPassportStudio';
+import {
+  DEFAULT_PHOTO_PRINT_SETTINGS,
+  calculatePhotoPrintGrid,
+} from './utils/photoPrintLayout';
 import { exportToImage, exportToPdf, triggerDirectPrint } from './utils/printAndPdf';
 import { exportReadyDocToImage, exportReadyDocToPdf } from './utils/readyDocExport';
 import {
@@ -131,6 +138,7 @@ interface StudioHistorySnapshot {
   nidMargins: MarginSettings;
   documentSettings: DocumentPrintSettings;
   lamination: LaminationCardSettings;
+  photoPrintSettings: PhotoPrintSettings;
   cvData: CvData;
   readyDocState: ReadyDocState;
 }
@@ -165,6 +173,7 @@ function areSnapshotsEqual(
     a.nidMargins === b.nidMargins &&
     a.documentSettings === b.documentSettings &&
     a.lamination === b.lamination &&
+    a.photoPrintSettings === b.photoPrintSettings &&
     a.cvData === b.cvData &&
     a.readyDocState === b.readyDocState
   );
@@ -318,6 +327,11 @@ export default function App() {
   const [lamination, setLamination] = useState<LaminationCardSettings>(DEFAULT_LAMINATION_SETTINGS);
   const [laminationEditingSide, setLaminationEditingSide] = useState<'front' | 'back' | null>(null);
 
+  // Photo Print (4-Up A4 / 4R / Multi-Size Photo Sheet) State
+  const [photoPrintSettings, setPhotoPrintSettings] = useState<PhotoPrintSettings>(
+    DEFAULT_PHOTO_PRINT_SETTINGS
+  );
+
   // CV Maker Studio State
   const [cvData, setCvData] = useState<CvData>(() => createEmptyCvData('classic-plain', 'en'));
   const [cvShowGallery, setCvShowGallery] = useState<boolean>(true);
@@ -337,6 +351,8 @@ export default function App() {
 
   // File upload trigger refs for paper preview click-to-upload
   const passportUploadInputRef = useRef<HTMLInputElement>(null);
+  const photoPrintSlotInputRef = useRef<HTMLInputElement>(null);
+  const pendingPhotoPrintSlotIdxRef = useRef<number | null>(null);
   const nidFrontInputRef = useRef<HTMLInputElement>(null);
   const nidBackInputRef = useRef<HTMLInputElement>(null);
   const lamFrontInputRef = useRef<HTMLInputElement>(null);
@@ -406,6 +422,12 @@ export default function App() {
           setDocumentSettings({
             ...DEFAULT_DOCUMENT_SETTINGS,
             ...saved.documentSettings,
+          });
+        }
+        if (saved.photoPrintSettings) {
+          setPhotoPrintSettings({
+            ...DEFAULT_PHOTO_PRINT_SETTINGS,
+            ...saved.photoPrintSettings,
           });
         }
         if (saved.lamination) {
@@ -499,6 +521,7 @@ export default function App() {
         nidMargins,
         documentSettings,
         lamination,
+        photoPrintSettings,
         cvData,
         readyDocState,
       };
@@ -534,6 +557,7 @@ export default function App() {
     nidMargins,
     documentSettings,
     lamination,
+    photoPrintSettings,
     cvData,
     readyDocState,
   ]);
@@ -562,6 +586,7 @@ export default function App() {
       nidMargins,
       documentSettings,
       lamination,
+      photoPrintSettings,
       cvData,
       readyDocState,
     }),
@@ -587,6 +612,7 @@ export default function App() {
       nidMargins,
       documentSettings,
       lamination,
+      photoPrintSettings,
       cvData,
       readyDocState,
     ]
@@ -686,6 +712,7 @@ export default function App() {
     setNidMargins(snap.nidMargins);
     setDocumentSettings(snap.documentSettings);
     setLamination(snap.lamination);
+    setPhotoPrintSettings(snap.photoPrintSettings);
     setCvData(snap.cvData);
     setReadyDocState(snap.readyDocState);
   };
@@ -2875,6 +2902,237 @@ export default function App() {
     }));
   };
 
+  // 9B. Photo Print (4-Up A4 / 4R / Studio Print Sizes) Handlers
+  const readImageFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('Failed to read image file'));
+      reader.readAsDataURL(file);
+    });
+
+  const handlePhotoPrintUploadBatch = async (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(
+      (f) => f.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|gif)$/i.test(f.name)
+    );
+    if (fileArray.length === 0) return;
+
+    const loaded = await Promise.all(
+      fileArray.map(async (f) => ({
+        name: f.name,
+        src: await readImageFileAsDataUrl(f),
+      }))
+    );
+
+    const grid = calculatePhotoPrintGrid({
+      paper: currentPaper,
+      orientation,
+      sizeId: photoPrintSettings.sizeId,
+      customWidthMm: photoPrintSettings.customWidthMm,
+      customHeightMm: photoPrintSettings.customHeightMm,
+      marginMm: photoPrintSettings.marginMm,
+      gapMm: photoPrintSettings.gapMm,
+      autoRotateToFit: photoPrintSettings.autoRotateToFit,
+    });
+    const capacity = Math.max(1, grid.totalSlots);
+
+    setPhotoPrintSettings((prev) => {
+      const nextSlots: (PhotoPrintSlotItem | null)[] = Array.from(
+        { length: Math.max(capacity, prev.slots.length) },
+        (_, i) => prev.slots[i] ?? null
+      );
+
+      if (prev.fillMode === 'repeat-all' && loaded.length === 1) {
+        const base = loaded[0];
+        for (let i = 0; i < capacity; i++) {
+          nextSlots[i] = {
+            id: `pp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            imageSrc: base.src,
+            name: base.name,
+            rotation: 0,
+            fitMode: prev.fitMode,
+          };
+        }
+        return { ...prev, slots: nextSlots.slice(0, capacity) };
+      }
+
+      let writeCursor = 0;
+      for (const item of loaded) {
+        let targetIdx = nextSlots.findIndex((s, idx) => idx < capacity && !s);
+        if (targetIdx === -1) {
+          targetIdx = writeCursor % capacity;
+        }
+        nextSlots[targetIdx] = {
+          id: `pp-${Date.now()}-${targetIdx}-${Math.random().toString(36).slice(2, 6)}`,
+          imageSrc: item.src,
+          name: item.name,
+          rotation: 0,
+          fitMode: prev.fitMode,
+        };
+        writeCursor = targetIdx + 1;
+      }
+
+      return { ...prev, slots: nextSlots };
+    });
+  };
+
+  const handlePhotoPrintSlotInputChange = async (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      pendingPhotoPrintSlotIdxRef.current = null;
+      return;
+    }
+
+    const startIdx = pendingPhotoPrintSlotIdxRef.current;
+    pendingPhotoPrintSlotIdxRef.current = null;
+
+    if (startIdx === null) {
+      await handlePhotoPrintUploadBatch(files);
+      return;
+    }
+
+    const fileArray = Array.from(files).filter(
+      (f) => f.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|gif)$/i.test(f.name)
+    );
+    if (fileArray.length === 0) return;
+
+    const loaded = await Promise.all(
+      fileArray.map(async (f) => ({
+        name: f.name,
+        src: await readImageFileAsDataUrl(f),
+      }))
+    );
+
+    const grid = calculatePhotoPrintGrid({
+      paper: currentPaper,
+      orientation,
+      sizeId: photoPrintSettings.sizeId,
+      customWidthMm: photoPrintSettings.customWidthMm,
+      customHeightMm: photoPrintSettings.customHeightMm,
+      marginMm: photoPrintSettings.marginMm,
+      gapMm: photoPrintSettings.gapMm,
+      autoRotateToFit: photoPrintSettings.autoRotateToFit,
+    });
+    const capacity = Math.max(1, grid.totalSlots);
+
+    setPhotoPrintSettings((prev) => {
+      const nextSlots: (PhotoPrintSlotItem | null)[] = Array.from(
+        { length: Math.max(capacity, prev.slots.length, startIdx + loaded.length) },
+        (_, i) => prev.slots[i] ?? null
+      );
+
+      if (prev.fillMode === 'repeat-all' && loaded.length === 1 && !nextSlots.some(Boolean)) {
+        for (let i = 0; i < capacity; i++) {
+          nextSlots[i] = {
+            id: `pp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            imageSrc: loaded[0].src,
+            name: loaded[0].name,
+            rotation: 0,
+            fitMode: prev.fitMode,
+          };
+        }
+        return { ...prev, slots: nextSlots.slice(0, capacity) };
+      }
+
+      loaded.forEach((item, offset) => {
+        const idx = startIdx + offset;
+        nextSlots[idx] = {
+          id: `pp-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          imageSrc: item.src,
+          name: item.name,
+          rotation: 0,
+          fitMode: prev.fitMode,
+        };
+      });
+
+      return { ...prev, slots: nextSlots };
+    });
+  };
+
+  const handleOpenPhotoPrintSlotUpload = (slotIndex: number) => {
+    pendingPhotoPrintSlotIdxRef.current = slotIndex;
+    photoPrintSlotInputRef.current?.click();
+  };
+
+  const handleRotatePhotoPrintSlot = (slotIndex: number) => {
+    setPhotoPrintSettings((prev) => {
+      const nextSlots = [...prev.slots];
+      const existing = nextSlots[slotIndex];
+      if (!existing) return prev;
+      nextSlots[slotIndex] = {
+        ...existing,
+        rotation: (existing.rotation + 90) % 360,
+      };
+      return { ...prev, slots: nextSlots };
+    });
+  };
+
+  const handleTogglePhotoPrintSlotFit = (slotIndex: number) => {
+    setPhotoPrintSettings((prev) => {
+      const nextSlots = [...prev.slots];
+      const existing = nextSlots[slotIndex];
+      if (!existing) return prev;
+      nextSlots[slotIndex] = {
+        ...existing,
+        fitMode: existing.fitMode === 'cover' ? 'contain' : 'cover',
+      };
+      return { ...prev, slots: nextSlots };
+    });
+  };
+
+  const handleClearPhotoPrintSlot = (slotIndex: number) => {
+    setPhotoPrintSettings((prev) => {
+      const nextSlots = [...prev.slots];
+      if (slotIndex < nextSlots.length) {
+        nextSlots[slotIndex] = null;
+      }
+      return { ...prev, slots: nextSlots };
+    });
+  };
+
+  const handleFillAllPhotoPrintWithFirst = () => {
+    const grid = calculatePhotoPrintGrid({
+      paper: currentPaper,
+      orientation,
+      sizeId: photoPrintSettings.sizeId,
+      customWidthMm: photoPrintSettings.customWidthMm,
+      customHeightMm: photoPrintSettings.customHeightMm,
+      marginMm: photoPrintSettings.marginMm,
+      gapMm: photoPrintSettings.gapMm,
+      autoRotateToFit: photoPrintSettings.autoRotateToFit,
+    });
+    const capacity = Math.max(1, grid.totalSlots);
+
+    setPhotoPrintSettings((prev) => {
+      const first = prev.slots.find(Boolean);
+      if (!first) return prev;
+      const nextSlots: (PhotoPrintSlotItem | null)[] = Array.from(
+        { length: capacity },
+        (_, i) => ({
+          ...first,
+          id: `pp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+        })
+      );
+      return { ...prev, slots: nextSlots };
+    });
+  };
+
+  const handleClearAllPhotoPrintSlots = () => {
+    const grid = calculatePhotoPrintGrid({
+      paper: currentPaper,
+      orientation,
+      sizeId: photoPrintSettings.sizeId,
+      customWidthMm: photoPrintSettings.customWidthMm,
+      customHeightMm: photoPrintSettings.customHeightMm,
+      marginMm: photoPrintSettings.marginMm,
+      gapMm: photoPrintSettings.gapMm,
+      autoRotateToFit: photoPrintSettings.autoRotateToFit,
+    });
+    setPhotoPrintSettings((prev) => ({
+      ...prev,
+      slots: Array.from({ length: Math.max(1, grid.totalSlots) }, () => null),
+    }));
+  };
+
   // 10. Print & Export Handlers
   const handleDirectPrint = () => {
     setSelectedItemId(null);
@@ -2959,6 +3217,8 @@ export default function App() {
     const filename =
       effectiveMode === 'passport'
         ? `NextStudio_Passport_${paperTag}_${printQuality}DPI.pdf`
+        : effectiveMode === 'photoprint'
+        ? `NextStudio_PhotoPrint_${paperTag}_${printQuality}DPI.pdf`
         : effectiveMode === 'nid'
         ? `NextStudio_NID_${paperTag}.pdf`
         : effectiveMode === 'lamination'
@@ -2982,6 +3242,7 @@ export default function App() {
           nid,
           lamination,
           documentSettings: effectiveDocSettings,
+          photoPrintSettings,
         },
         filename
       );
@@ -3035,6 +3296,8 @@ export default function App() {
     const filename =
       mode === 'passport'
         ? `NextStudio_Passport_${paperSize}.${ext}`
+        : mode === 'photoprint'
+        ? `NextStudio_PhotoPrint_${paperSize}_${printQuality}DPI.${ext}`
         : mode === 'nid'
         ? `NextStudio_NID_${paperSize}.${ext}`
         : mode === 'lamination'
@@ -3058,6 +3321,7 @@ export default function App() {
           nid,
           lamination,
           documentSettings,
+          photoPrintSettings,
         },
         format,
         filename
@@ -3095,6 +3359,7 @@ export default function App() {
       nidMargins,
       documentSettings,
       lamination,
+      photoPrintSettings,
       cvData,
       readyDocState,
     };
@@ -3118,6 +3383,12 @@ export default function App() {
         setDocumentSettings({
           ...DEFAULT_DOCUMENT_SETTINGS,
           ...imported.documentSettings,
+        });
+      }
+      if (imported.photoPrintSettings) {
+        setPhotoPrintSettings({
+          ...DEFAULT_PHOTO_PRINT_SETTINGS,
+          ...imported.photoPrintSettings,
         });
       }
       if (imported.lamination) {
@@ -3164,6 +3435,7 @@ export default function App() {
     setPlacedItems([]);
     setSelectedItemId(null);
     setDocumentSettings(DEFAULT_DOCUMENT_SETTINGS);
+    setPhotoPrintSettings(DEFAULT_PHOTO_PRINT_SETTINGS);
     setLamination(DEFAULT_LAMINATION_SETTINGS);
     setCvData(createEmptyCvData('classic-plain', 'en'));
     setReadyDocState(createDefaultReadyDocState());
@@ -3261,6 +3533,11 @@ export default function App() {
               {mode === 'passport' && placedItems.length > 0 && (
                 <span className="text-[11px] font-mono tabular-nums opacity-85">
                   ({placedItems.length})
+                </span>
+              )}
+              {mode === 'photoprint' && photoPrintSettings.slots.some(Boolean) && (
+                <span className="text-[11px] font-mono tabular-nums opacity-85">
+                  ({photoPrintSettings.slots.filter(Boolean).length})
                 </span>
               )}
               {mode === 'document' && documentSettings.pages.length > 0 && (
@@ -3371,6 +3648,38 @@ export default function App() {
               onNudgeItem={handleNudgeItem}
               onDuplicateItem={handleDuplicateItem}
               onDeleteItem={handleDeleteItem}
+            />
+          ) : mode === 'photoprint' ? (
+            <PhotoPrintControls
+              lang={lang}
+              settings={photoPrintSettings}
+              setSettings={setPhotoPrintSettings}
+              paper={currentPaper}
+              paperSize={paperSize}
+              setPaperSize={setPaperSize}
+              customPaperWidth={customPaperWidth}
+              setCustomPaperWidth={setCustomPaperWidth}
+              customPaperHeight={customPaperHeight}
+              setCustomPaperHeight={setCustomPaperHeight}
+              orientation={orientation}
+              setOrientation={setOrientation}
+              cuttingGuide={cuttingGuide}
+              setCuttingGuide={setCuttingGuide}
+              colorProfile={colorProfile}
+              setColorProfile={setColorProfile}
+              dpi={printQuality}
+              setDpi={setPrintQuality}
+              onUploadBatch={(files) => void handlePhotoPrintUploadBatch(files)}
+              onUploadSlot={handleOpenPhotoPrintSlotUpload}
+              onRotateSlot={handleRotatePhotoPrintSlot}
+              onToggleSlotFit={handleTogglePhotoPrintSlotFit}
+              onClearSlot={handleClearPhotoPrintSlot}
+              onFillAllWithFirst={handleFillAllPhotoPrintWithFirst}
+              onClearAllSlots={handleClearAllPhotoPrintSlots}
+              onPrint={handleDirectPrint}
+              onDownloadPdf={() => void handleDownloadPdf()}
+              onDownloadImage={(fmt) => void handleDownloadImage(fmt)}
+              isExporting={isExporting}
             />
           ) : mode === 'nid' ? (
             <NidControls
@@ -3675,13 +3984,30 @@ export default function App() {
                       setLamination((prev) => ({ ...prev, showFoldLine: !prev.showFoldLine }))
                     }
                     onRotateLaminationSide={handleRotateLaminationSide}
+                    photoPrintSettings={photoPrintSettings}
+                    onUploadPhotoPrintSlot={handleOpenPhotoPrintSlotUpload}
+                    onRotatePhotoPrintSlot={handleRotatePhotoPrintSlot}
+                    onTogglePhotoPrintSlotFit={handleTogglePhotoPrintSlotFit}
+                    onClearPhotoPrintSlot={handleClearPhotoPrintSlot}
                   />
                 )}
               </div>
 
-              {/* Persistent Desktop Bottom-Right Export Action Bar (JPG / PDF / Save / Print) */}
-              {mode === 'passport' && photos.length > 0 && (
+              {/* Persistent Desktop Bottom-Right Export Action Bar (JPG / PNG / PDF / Save / Print) */}
+              {((mode === 'passport' && photos.length > 0) ||
+                (mode === 'photoprint' && photoPrintSettings.slots.some(Boolean))) && (
                 <div className="hidden lg:flex items-center justify-end gap-2 px-5 py-2.5 border-t border-slate-200/80 dark:border-white/10 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md shrink-0">
+                  {mode === 'photoprint' && (
+                    <button
+                      type="button"
+                      disabled={isExporting}
+                      onClick={() => void handleDownloadImage('png')}
+                      className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400 text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition"
+                    >
+                      <ImageDown className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      <span>PNG</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     disabled={isExporting}
@@ -3833,6 +4159,17 @@ export default function App() {
         accept="image/*"
         onChange={(e) => {
           handleUploadDocuments(e.target.files);
+          e.target.value = '';
+        }}
+        className="hidden"
+      />
+      <input
+        ref={photoPrintSlotInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        onChange={(e) => {
+          void handlePhotoPrintSlotInputChange(e.target.files);
           e.target.value = '';
         }}
         className="hidden"
@@ -4180,6 +4517,7 @@ export default function App() {
         nid={nid}
         lamination={lamination}
         documentSettings={documentSettings}
+        photoPrintSettings={photoPrintSettings}
         cvData={cvData}
         readyDocState={readyDocState}
       />

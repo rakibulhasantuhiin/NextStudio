@@ -5,6 +5,7 @@ export * from './readyDocs';
 
 export type StudioMode =
   | 'passport'
+  | 'photoprint'
   | 'nid'
   | 'lamination'
   | 'document'
@@ -228,6 +229,39 @@ export interface DocumentPrintSettings {
   autoRotateToFit: boolean;
 }
 
+export type PhotoPrintSizeId =
+  | '4up-a4'
+  | '4r'
+  | '3r'
+  | '2r'
+  | '5r'
+  | '6r'
+  | '8r'
+  | 'sq-4x4'
+  | 'a5'
+  | 'a4-full'
+  | 'custom';
+
+export interface PhotoPrintSlotItem {
+  id: string;
+  imageSrc: string;
+  name: string;
+  rotation: number; // 0, 90, 180, 270
+  fitMode: 'cover' | 'contain';
+}
+
+export interface PhotoPrintSettings {
+  sizeId: PhotoPrintSizeId;
+  customWidthMm: number;
+  customHeightMm: number;
+  fitMode: 'cover' | 'contain';
+  fillMode: 'individual' | 'repeat-all';
+  marginMm: number;
+  gapMm: number;
+  autoRotateToFit: boolean;
+  slots: (PhotoPrintSlotItem | null)[];
+}
+
 export interface StudioState {
   mode: StudioMode;
   lang: 'bn' | 'en';
@@ -260,6 +294,8 @@ export interface StudioState {
   lamination?: LaminationCardSettings;
   // Document / Fit-to-Paper state
   documentSettings?: DocumentPrintSettings;
+  // Photo Print (4R / 4-Up A4 / Studio Print Sizes) state
+  photoPrintSettings?: PhotoPrintSettings;
   // CV Builder state
   cvData?: CvData;
   // Ready-Made Documents state

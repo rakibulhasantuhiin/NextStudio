@@ -16,6 +16,7 @@ import {
   Edit3,
   FileDown,
   FileText,
+  Image as ImageIcon,
   Layers,
   LayoutList,
   Loader2,
@@ -48,10 +49,12 @@ import {
   PaperDimensions,
   PaperOrientation,
   PhotoPresetType,
+  PhotoPrintSettings,
   StudioMode,
 } from '../types';
 import { calculateDocumentPlacement } from '../utils/documentLayout';
 import { CalculatedItem, generateEmptyPreviewSlots } from '../utils/layoutCalculator';
+import { PHOTO_PRINT_PRESETS, calculatePhotoPrintGrid } from '../utils/photoPrintLayout';
 import { translations } from '../utils/translations';
 
 interface Props {
@@ -119,6 +122,12 @@ interface Props {
   onSwapLaminationSides?: () => void;
   onToggleLaminationFoldLine?: () => void;
   onRotateLaminationSide?: (side: 'front' | 'back') => void;
+  // Photo Print (4R / 4-Up A4 / Studio Print Sizes) props
+  photoPrintSettings?: PhotoPrintSettings;
+  onUploadPhotoPrintSlot?: (slotIndex: number) => void;
+  onRotatePhotoPrintSlot?: (slotIndex: number) => void;
+  onTogglePhotoPrintSlotFit?: (slotIndex: number) => void;
+  onClearPhotoPrintSlot?: (slotIndex: number) => void;
 }
 
 export const PaperPreview: React.FC<Props> = ({
@@ -181,6 +190,11 @@ export const PaperPreview: React.FC<Props> = ({
   onSwapLaminationSides,
   onToggleLaminationFoldLine,
   onRotateLaminationSide,
+  photoPrintSettings,
+  onUploadPhotoPrintSlot,
+  onRotatePhotoPrintSlot,
+  onTogglePhotoPrintSlotFit,
+  onClearPhotoPrintSlot,
 }) => {
   const t = translations[lang];
 
@@ -293,6 +307,20 @@ export const PaperPreview: React.FC<Props> = ({
     layoutMode,
     manualCount,
   ]);
+
+  const photoPrintGrid = useMemo(() => {
+    if (mode !== 'photoprint' || !photoPrintSettings) return null;
+    return calculatePhotoPrintGrid({
+      paper,
+      orientation,
+      sizeId: photoPrintSettings.sizeId,
+      customWidthMm: photoPrintSettings.customWidthMm,
+      customHeightMm: photoPrintSettings.customHeightMm,
+      marginMm: photoPrintSettings.marginMm,
+      gapMm: photoPrintSettings.gapMm,
+      autoRotateToFit: photoPrintSettings.autoRotateToFit,
+    });
+  }, [mode, photoPrintSettings, paper, orientation]);
 
   const dragRef = useRef<{
     isAll: boolean;
@@ -819,6 +847,19 @@ export const PaperPreview: React.FC<Props> = ({
           <span className="text-blue-600 dark:text-blue-400 font-semibold">
             {mode === 'passport'
               ? countSummary()
+              : mode === 'photoprint' && photoPrintGrid && photoPrintSettings
+              ? (() => {
+                  const filled = photoPrintGrid.slots.filter(
+                    (r) => Boolean(photoPrintSettings.slots[r.index])
+                  ).length;
+                  const presetName =
+                    lang === 'bn'
+                      ? PHOTO_PRINT_PRESETS[photoPrintSettings.sizeId]?.shortLabelBn
+                      : PHOTO_PRINT_PRESETS[photoPrintSettings.sizeId]?.shortLabelEn;
+                  return lang === 'bn'
+                    ? `${filled}/${photoPrintGrid.totalSlots} টি ছবি · ${presetName} (${photoPrintGrid.slotWidthMm}×${photoPrintGrid.slotHeightMm} মিমি)`
+                    : `${filled}/${photoPrintGrid.totalSlots} Photos · ${presetName} (${photoPrintGrid.slotWidthMm}×${photoPrintGrid.slotHeightMm} mm)`;
+                })()
               : mode === 'nid'
               ? nid.frontImage || nid.backImage
                 ? lang === 'en'
@@ -1719,6 +1760,13 @@ export const PaperPreview: React.FC<Props> = ({
                     left: `${documentSettings.marginMm * mmToPx}px`,
                     right: `${documentSettings.marginMm * mmToPx}px`,
                     bottom: `${documentSettings.marginMm * mmToPx}px`,
+                  }
+                : mode === 'photoprint' && photoPrintSettings
+                ? {
+                    top: `${photoPrintSettings.marginMm * mmToPx}px`,
+                    left: `${photoPrintSettings.marginMm * mmToPx}px`,
+                    right: `${photoPrintSettings.marginMm * mmToPx}px`,
+                    bottom: `${photoPrintSettings.marginMm * mmToPx}px`,
                   }
                 : {
                   top: `${margins.top * mmToPx}px`,
@@ -2695,6 +2743,146 @@ export const PaperPreview: React.FC<Props> = ({
                 </div>
               );
             })()
+          )}
+
+          {/* ======================================================== */}
+          {/* 4. PHOTO PRINT MODE CONTENT (4R / 4-Up A4 / All Sizes)   */}
+          {/* ======================================================== */}
+          {mode === 'photoprint' && photoPrintSettings && photoPrintGrid && (
+            <>
+              {photoPrintGrid.slots.map((rect) => {
+                const slot = photoPrintSettings.slots[rect.index];
+                const leftPx = rect.x * mmToPx;
+                const topPx = rect.y * mmToPx;
+                const widthPx = rect.width * mmToPx;
+                const heightPx = rect.height * mmToPx;
+
+                if (!slot) {
+                  return (
+                    <button
+                      key={`pp-empty-${rect.index}`}
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUploadPhotoPrintSlot?.(rect.index);
+                      }}
+                      className="absolute border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/75 hover:bg-blue-50/60 rounded-xs flex flex-col items-center justify-center gap-1 text-slate-500 hover:text-blue-600 transition cursor-pointer group overflow-hidden p-2"
+                      style={{
+                        left: `${leftPx}px`,
+                        top: `${topPx}px`,
+                        width: `${widthPx}px`,
+                        height: `${heightPx}px`,
+                      }}
+                      title={lang === 'bn' ? 'ক্লিক করে ছবি আপলোড করুন' : 'Click to upload photo'}
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-white/90 border border-slate-200 group-hover:border-blue-300 shadow-xs flex items-center justify-center text-slate-400 group-hover:text-blue-600 transition">
+                        <ImageIcon className="w-4 h-4" />
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-700 group-hover:text-blue-700 leading-tight">
+                        {lang === 'bn' ? `ছবি #${rect.index + 1} দিন` : `Add Photo #${rect.index + 1}`}
+                      </span>
+                      <span className="text-[10px] font-mono tabular-nums text-slate-400">
+                        {rect.width} × {rect.height} mm
+                      </span>
+                    </button>
+                  );
+                }
+
+                const rotDeg = ((slot.rotation % 360) + 360) % 360;
+                const isOdd90 = rotDeg === 90 || rotDeg === 270;
+                const fit = slot.fitMode || photoPrintSettings.fitMode || 'cover';
+
+                return (
+                  <div
+                    key={`pp-filled-${rect.index}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute overflow-hidden group bg-white"
+                    style={{
+                      left: `${leftPx}px`,
+                      top: `${topPx}px`,
+                      width: `${widthPx}px`,
+                      height: `${heightPx}px`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        width: `${isOdd90 ? heightPx : widthPx}px`,
+                        height: `${isOdd90 ? widthPx : heightPx}px`,
+                        transform: `translate(-50%, -50%) rotate(${rotDeg}deg)`,
+                      }}
+                    >
+                      <img
+                        src={slot.imageSrc}
+                        alt={slot.name}
+                        draggable={false}
+                        className="w-full h-full block select-none"
+                        style={{ objectFit: fit }}
+                      />
+                    </div>
+
+                    {/* Cutting guides overlay */}
+                    {cuttingGuide === 'dashed' && (
+                      <div className="absolute inset-0 border border-dashed border-slate-400/90 pointer-events-none" />
+                    )}
+                    {cuttingGuide === 'solid' && (
+                      <div className="absolute inset-0 border border-slate-300 pointer-events-none" />
+                    )}
+                    {cuttingGuide === 'scissors' && (
+                      <>
+                        <div className="absolute inset-0 border border-dotted border-slate-400/90 pointer-events-none" />
+                        <span className="absolute -top-2.5 -left-2 text-[10px] text-slate-500 pointer-events-none">
+                          ✂
+                        </span>
+                      </>
+                    )}
+
+                    {/* Slot number pill & hover quick actions */}
+                    <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-slate-900/75 text-white text-[10px] font-mono font-bold tabular-nums opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                      #{rect.index + 1} · {fit === 'cover' ? (lang === 'bn' ? 'ফিট' : 'Cover') : (lang === 'bn' ? 'পুরো' : 'Full')}
+                    </span>
+
+                    <div className="absolute bottom-2 inset-x-2 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                      <button
+                        type="button"
+                        onClick={() => onUploadPhotoPrintSlot?.(rect.index)}
+                        className="px-2 py-1 rounded-lg glass-hud text-white text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
+                        title={lang === 'bn' ? 'ছবি পরিবর্তন করুন' : 'Replace Photo'}
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>{lang === 'bn' ? 'বদলান' : 'Replace'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRotatePhotoPrintSlot?.(rect.index)}
+                        className="p-1.5 rounded-lg glass-hud text-white cursor-pointer"
+                        title={lang === 'bn' ? '৯০° ঘোরান' : 'Rotate 90°'}
+                      >
+                        <RotateCw className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onTogglePhotoPrintSlotFit?.(rect.index)}
+                        className="p-1.5 rounded-lg glass-hud text-white cursor-pointer"
+                        title={lang === 'bn' ? 'ফিট / পুরো ছবি' : 'Toggle Fit'}
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onClearPhotoPrintSlot?.(rect.index)}
+                        className="p-1.5 rounded-lg bg-rose-600/90 hover:bg-rose-600 text-white cursor-pointer"
+                        title={lang === 'bn' ? 'মুছে ফেলুন' : 'Remove'}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           )}
             </div>
           </div>

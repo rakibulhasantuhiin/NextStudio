@@ -105,6 +105,14 @@ export const Header: React.FC<HeaderProps> = ({
       shortBn: 'পাসপোর্ট',
     },
     {
+      id: 'photoprint',
+      icon: <ImageIcon className="w-4 h-4 shrink-0" />,
+      labelEn: 'Photo Print',
+      labelBn: 'ছবি প্রিন্ট',
+      shortEn: 'Photos',
+      shortBn: 'ছবি',
+    },
+    {
       id: 'nid',
       icon: <CreditCard className="w-4 h-4 shrink-0" />,
       labelEn: 'NID Card',
