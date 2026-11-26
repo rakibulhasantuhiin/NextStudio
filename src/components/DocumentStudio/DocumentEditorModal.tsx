@@ -191,8 +191,8 @@ export const DocumentEditorModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-md p-2 sm:p-5 overflow-y-auto">
-      <div className="w-full max-w-4xl glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-md p-2 sm:p-5 overflow-y-auto studio-modal-backdrop">
+      <div className="w-full max-w-4xl glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden studio-modal-enter">
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-200/60 dark:border-white/10 shrink-0">
           <div className="flex items-center gap-2 min-w-0">

@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Camera,
   ChevronDown,
@@ -193,6 +194,8 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            <PWAInstallButton lang={lang} />
+
             {/* Undo / Redo */}
             <div className="flex items-center gap-0.5 glass-track p-0.5 rounded-xl shrink-0">
               <button
@@ -237,7 +240,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="fixed inset-0 z-30"
                     onClick={() => setMobileMenu('none')}
                   />
-                  <div className="glass-dropdown absolute right-0 mt-2 w-60 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40">
+                  <div className="glass-dropdown studio-dropdown-enter absolute right-0 mt-2 w-60 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40">
                     <button
                       type="button"
                       onClick={() => {
@@ -333,7 +336,7 @@ export const Header: React.FC<HeaderProps> = ({
                     className="fixed inset-0 z-30"
                     onClick={() => setMobileMenu('none')}
                   />
-                  <div className="glass-dropdown absolute right-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40 text-xs">
+                  <div className="glass-dropdown studio-dropdown-enter absolute right-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-2xl py-1.5 z-40 text-xs">
                     <button
                       type="button"
                       onClick={() => {
@@ -387,14 +390,24 @@ export const Header: React.FC<HeaderProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => setMode(item.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors duration-150 active:scale-95 cursor-pointer whitespace-nowrap shrink-0 ${
                   active
-                    ? 'glass-btn-primary text-white shadow-sm'
+                    ? 'text-white'
                     : 'glass-tile text-slate-700 dark:text-slate-200'
                 }`}
               >
-                {item.icon}
-                <span>{lang === 'bn' ? item.shortBn : item.shortEn}</span>
+                {active && (
+                  <motion.span
+                    layoutId="mobileStudioTabBg"
+                    transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.55 }}
+                    className="absolute inset-0 rounded-xl glass-btn-primary shadow-sm"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-1.5">
+                  {item.icon}
+                  <span>{lang === 'bn' ? item.shortBn : item.shortEn}</span>
+                </span>
               </button>
             );
           })}
@@ -431,15 +444,25 @@ export const Header: React.FC<HeaderProps> = ({
                 key={item.id}
                 type="button"
                 onClick={() => setMode(item.id)}
-                className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
+                className={`relative flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors duration-150 cursor-pointer whitespace-nowrap shrink-0 ${
                   active
-                    ? 'glass-tab-active text-blue-600 dark:text-blue-400'
+                    ? 'text-blue-600 dark:text-blue-400'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/40 dark:hover:bg-white/5'
                 }`}
               >
-                {item.icon}
-                <span className="sm:hidden">{lang === 'bn' ? item.shortBn : item.shortEn}</span>
-                <span className="hidden sm:inline">{lang === 'bn' ? item.labelBn : item.labelEn}</span>
+                {active && (
+                  <motion.span
+                    layoutId="desktopStudioTabBg"
+                    transition={{ type: 'spring', stiffness: 520, damping: 38, mass: 0.55 }}
+                    className="absolute inset-0 rounded-xl glass-tab-active"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-1.5">
+                  {item.icon}
+                  <span className="sm:hidden">{lang === 'bn' ? item.shortBn : item.shortEn}</span>
+                  <span className="hidden sm:inline">{lang === 'bn' ? item.labelBn : item.labelEn}</span>
+                </span>
               </button>
             );
           })}
@@ -496,7 +519,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="fixed inset-0 z-30"
                   onClick={() => setShowDownloadMenu(false)}
                 />
-                <div className="glass-dropdown absolute right-0 mt-2 w-64 rounded-2xl py-1.5 z-40">
+                <div className="glass-dropdown studio-dropdown-enter absolute right-0 mt-2 w-64 rounded-2xl py-1.5 z-40">
                   <button
                     type="button"
                     onClick={() => {
@@ -616,7 +639,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="fixed inset-0 z-30"
                   onClick={() => setShowMoreMenu(false)}
                 />
-                <div className="glass-dropdown absolute right-0 mt-2 w-56 rounded-2xl py-1.5 z-40 text-xs">
+                <div className="glass-dropdown studio-dropdown-enter absolute right-0 mt-2 w-56 rounded-2xl py-1.5 z-40 text-xs">
                   <button
                     type="button"
                     onClick={() => {

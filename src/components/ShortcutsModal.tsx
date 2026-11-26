@@ -26,11 +26,11 @@ export const ShortcutsModal: React.FC<Props> = ({ isOpen, onClose, lang }) => {
   return (
     <div
       onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 backdrop-blur-md p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 backdrop-blur-md p-4 studio-modal-backdrop"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-2xl glass-modal overflow-hidden"
+        className="w-full max-w-md rounded-2xl glass-modal overflow-hidden studio-modal-enter"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-white/10">
           <div className="flex items-center gap-2">

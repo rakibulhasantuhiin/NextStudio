@@ -58,8 +58,8 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
-          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
-          globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,woff,woff2,json}'],
+          maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
+          globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,woff,woff2,json,wasm}'],
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
@@ -94,10 +94,40 @@ export default defineConfig(() => {
                 },
               },
             },
+            {
+              urlPattern: /^https:\/\/fonts\.maateen\.me\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'nextstudio-bangla-fonts',
+                expiration: {
+                  maxEntries: 20,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/(staticimgly\.com|cdn\.jsdelivr\.net)\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'nextstudio-offline-models',
+                expiration: {
+                  maxEntries: 40,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
           ],
         },
         devOptions: {
-          enabled: false,
+          enabled: true,
+          type: 'module',
+          navigateFallback: 'index.html',
         },
       }),
     ],

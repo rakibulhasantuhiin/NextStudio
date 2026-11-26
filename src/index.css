@@ -38,7 +38,6 @@
     radial-gradient(58% 52% at 75% 88%, rgba(125, 211, 252, 0.36) 0%, rgba(125, 211, 252, 0) 70%),
     radial-gradient(48% 45% at 18% 85%, rgba(196, 181, 253, 0.24) 0%, rgba(196, 181, 253, 0) 72%),
     linear-gradient(160deg, #eff5ff 0%, #e1eaf7 52%, #e8eef9 100%);
-  background-attachment: fixed;
 }
 
 .dark .studio-ambient-bg {
@@ -49,7 +48,6 @@
     radial-gradient(55% 50% at 68% 92%, rgba(99, 102, 241, 0.22) 0%, rgba(99, 102, 241, 0) 70%),
     radial-gradient(42% 40% at 18% 84%, rgba(14, 165, 233, 0.14) 0%, rgba(14, 165, 233, 0) 72%),
     linear-gradient(165deg, #070d1b 0%, #050812 55%, #070c19 100%);
-  background-attachment: fixed;
 }
 
 /* Precision drafting dot grid layered transparently over the ambient backdrop */
@@ -69,9 +67,9 @@
 
 /* Liquid Glass Header Bar */
 .glass-bar {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.54) 100%);
-  backdrop-filter: blur(26px) saturate(190%);
-  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0.62) 100%);
+  backdrop-filter: blur(16px) saturate(175%);
+  -webkit-backdrop-filter: blur(16px) saturate(175%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.8);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.94),
@@ -80,7 +78,7 @@
 }
 
 .dark .glass-bar {
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.72) 0%, rgba(15, 23, 42, 0.56) 100%);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(15, 23, 42, 0.64) 100%);
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -89,10 +87,11 @@
 
 /* Floating Liquid Glass Inspector Panel */
 .glass-panel {
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.48) 100%);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.74) 0%, rgba(255, 255, 255, 0.56) 100%);
+  backdrop-filter: blur(16px) saturate(175%);
+  -webkit-backdrop-filter: blur(16px) saturate(175%);
   border: 1px solid rgba(255, 255, 255, 0.82);
+  contain: layout style;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.95),
     inset 0 0 0 1px rgba(15, 23, 42, 0.03),
@@ -100,7 +99,7 @@
 }
 
 .dark .glass-panel {
-  background: linear-gradient(155deg, rgba(15, 23, 42, 0.68) 0%, rgba(15, 23, 42, 0.48) 100%);
+  background: linear-gradient(155deg, rgba(15, 23, 42, 0.74) 0%, rgba(15, 23, 42, 0.56) 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.11),
@@ -109,9 +108,9 @@
 
 /* Sculpted Liquid Glass Bezel framing the printable paper sheet */
 .glass-stage {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.34) 100%);
-  backdrop-filter: blur(24px) saturate(185%);
-  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.42) 100%);
+  backdrop-filter: blur(14px) saturate(170%);
+  -webkit-backdrop-filter: blur(14px) saturate(170%);
   border: 1px solid rgba(255, 255, 255, 0.84);
   box-shadow:
     inset 0 1px 1px rgba(255, 255, 255, 0.96),
@@ -121,7 +120,7 @@
 }
 
 .dark .glass-stage {
-  background: linear-gradient(145deg, rgba(30, 41, 59, 0.56) 0%, rgba(15, 23, 42, 0.36) 100%);
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.62) 0%, rgba(15, 23, 42, 0.44) 100%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
     inset 0 1px 1px rgba(255, 255, 255, 0.14),
@@ -577,9 +576,94 @@
   animation: scanBeamSweep 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+/* Super-fast GPU-composited studio tab, stage, dropdown, and modal motion (<= 150ms) */
+@keyframes studioPanelEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0) scale(0.996);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes studioStageEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(6px, 0, 0) scale(0.996);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes studioDropdownEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes studioModalBackdropEnter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes studioModalCardEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.studio-panel-enter {
+  animation: studioPanelEnter 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.studio-stage-enter {
+  animation: studioStageEnter 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.studio-dropdown-enter {
+  animation: studioDropdownEnter 115ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top right;
+  will-change: transform, opacity;
+}
+
+.studio-modal-backdrop {
+  animation: studioModalBackdropEnter 120ms ease-out both;
+}
+
+.studio-modal-enter {
+  animation: studioModalCardEnter 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-scan-beam {
-    animation: none;
+  .animate-scan-beam,
+  .studio-panel-enter,
+  .studio-stage-enter,
+  .studio-dropdown-enter,
+  .studio-modal-backdrop,
+  .studio-modal-enter {
+    animation: none !important;
+    will-change: auto;
   }
 }
 

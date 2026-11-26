@@ -107,8 +107,8 @@ export const WebcamCaptureModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 overflow-y-auto">
-      <div className="w-full max-w-xl glass-modal rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-white/20 dark:border-white/10 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 overflow-y-auto studio-modal-backdrop">
+      <div className="w-full max-w-xl glass-modal rounded-3xl overflow-hidden shadow-2xl flex flex-col border border-white/20 dark:border-white/10 studio-modal-enter">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/60 dark:border-white/10 bg-white/40 dark:bg-slate-900/40">
           <div className="flex items-center gap-2.5">

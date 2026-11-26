@@ -78,11 +78,11 @@ export const ReadyDocFieldModal: React.FC<ReadyDocFieldModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/35 backdrop-blur-[3px]"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2.5 sm:p-4 bg-slate-950/35 backdrop-blur-[3px] studio-modal-backdrop"
       onClick={onClose}
     >
       <div
-        className="glass-modal w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl p-4 sm:p-5 space-y-3.5"
+        className="glass-modal w-full max-w-md max-h-[88dvh] overflow-y-auto rounded-2xl p-4 sm:p-5 space-y-3.5 studio-modal-enter"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Row: Label + Hint + Close */}

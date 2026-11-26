@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useId } from 'react';
+import { motion } from 'motion/react';
 import {
   ColorProfile,
   CuttingGuideStyle,
@@ -51,6 +52,7 @@ export function InspectorTabs<T extends string>({
   activeTab: T;
   onChange: (id: T) => void;
 }) {
+  const tabsGroupId = useId();
   return (
     <div
       role="tablist"
@@ -66,13 +68,21 @@ export function InspectorTabs<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(tab.id)}
-            className={`py-2 px-2 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer whitespace-nowrap truncate ${
+            className={`relative py-2 px-2 rounded-xl text-xs font-semibold transition-colors duration-150 cursor-pointer whitespace-nowrap truncate ${
               active
-                ? 'glass-tab-active text-blue-600 dark:text-blue-400'
+                ? 'text-blue-600 dark:text-blue-400'
                 : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
             }`}
           >
-            {tab.label}
+            {active && (
+              <motion.span
+                layoutId={`inspectorTab-${tabsGroupId}`}
+                transition={{ type: 'spring', stiffness: 540, damping: 38, mass: 0.5 }}
+                className="absolute inset-0 rounded-xl glass-tab-active"
+                aria-hidden="true"
+              />
+            )}
+            <span className="relative z-10 block truncate">{tab.label}</span>
           </button>
         );
       })}

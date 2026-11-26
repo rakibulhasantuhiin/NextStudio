@@ -9,9 +9,13 @@ const STORAGE_KEY = 'nextstudio_saved_project_v3';
 const LEGACY_STORAGE_KEY_V2 = 'photostudio_bd_saved_project_v2';
 const LEGACY_STORAGE_KEY_V1 = 'photostudio_bd_saved_project_v1';
 
+let cachedDbPromise: Promise<IDBDatabase | null> | null = null;
+
 function openOfflineDB(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
-  return new Promise((resolve) => {
+  if (cachedDbPromise) return cachedDbPromise;
+
+  cachedDbPromise = new Promise((resolve) => {
     try {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = () => {
@@ -20,12 +24,28 @@ function openOfflineDB(): Promise<IDBDatabase | null> {
           db.createObjectStore(STORE_NAME);
         }
       };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onclose = () => {
+          cachedDbPromise = null;
+        };
+        db.onversionchange = () => {
+          db.close();
+          cachedDbPromise = null;
+        };
+        resolve(db);
+      };
+      request.onerror = () => {
+        cachedDbPromise = null;
+        resolve(null);
+      };
     } catch {
+      cachedDbPromise = null;
       resolve(null);
     }
   });
+
+  return cachedDbPromise;
 }
 
 /**
@@ -43,9 +63,9 @@ export async function saveStateOffline(state: StudioState): Promise<boolean> {
         tx.oncomplete = () => resolve(true);
         tx.onerror = () => resolve(false);
       });
-      db.close();
     }
   } catch {
+    cachedDbPromise = null;
     savedToIdb = false;
   }
 
@@ -79,10 +99,10 @@ export async function loadStateOffline(): Promise<StudioState | null> {
         req.onsuccess = () => resolve((req.result as StudioState) || null);
         req.onerror = () => resolve(null);
       });
-      db.close();
       if (record) return record;
     }
   } catch {
+    cachedDbPromise = null;
     // fallback to localStorage
   }
 

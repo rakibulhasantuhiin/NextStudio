@@ -141,8 +141,8 @@ export const NidEditorModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
-      <div className="w-full max-w-4xl glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-md p-3 sm:p-6 overflow-y-auto studio-modal-backdrop">
+      <div className="w-full max-w-4xl glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden studio-modal-enter">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-900/8 dark:border-white/10 shrink-0">
           <div className="flex items-center gap-2">

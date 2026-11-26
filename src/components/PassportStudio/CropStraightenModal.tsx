@@ -336,7 +336,7 @@ export const CropStraightenModal: React.FC<Props> = ({
   const formattedDeg = lang === 'bn' ? toBnDigits(formattedDegRaw) : formattedDegRaw;
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-[#080d1a] text-white select-none">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-[#080d1a] text-white select-none studio-modal-backdrop">
       {/* Top Bar */}
       <div className="px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 border-b border-white/10 bg-[#0d1424]">
         <div className="min-w-0">

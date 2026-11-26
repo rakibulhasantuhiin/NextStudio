@@ -87,6 +87,24 @@ export async function generateHighResSheetCanvas(
   const scale = dpi / 25.4; // pixels per mm
 
   if (mode === 'passport' && itemPositions && itemPositions.length > 0) {
+    const uniqueSrcs = Array.from(
+      new Set(itemPositions.map((item) => item.photo.processedSrc || item.photo.originalSrc).filter(Boolean))
+    );
+    const loadedEntries = await Promise.all(
+      uniqueSrcs.map(async (src) => {
+        try {
+          return [src, await loadImage(src)] as const;
+        } catch (err) {
+          console.error('Failed to preload passport image:', err);
+          return null;
+        }
+      })
+    );
+    const imgCache = new Map<string, HTMLImageElement>();
+    for (const entry of loadedEntries) {
+      if (entry) imgCache.set(entry[0], entry[1]);
+    }
+
     for (const item of itemPositions) {
       const { x, y, width, height, photo } = item;
       const px = x * scale;
@@ -95,8 +113,8 @@ export async function generateHighResSheetCanvas(
       const pHeight = height * scale;
 
       // Draw photo using aspect-preserving object-fit: cover (matches preview & print 1:1)
-      try {
-        const img = await loadImage(photo.processedSrc || photo.originalSrc);
+      const img = imgCache.get(photo.processedSrc || photo.originalSrc);
+      if (img) {
         ctx.save();
         ctx.beginPath();
         ctx.rect(px, py, pWidth, pHeight);
@@ -112,8 +130,6 @@ export async function generateHighResSheetCanvas(
         }
         ctx.drawImage(img, px + (pWidth - drawW) / 2, py + (pHeight - drawH) / 2, drawW, drawH);
         ctx.restore();
-      } catch (err) {
-        console.error('Failed to draw photo on canvas:', err);
       }
 
       // Draw cutting guide and bleed around photo
@@ -138,25 +154,22 @@ export async function generateHighResSheetCanvas(
     const pWidth = cardWidthMm * scale;
     const pHeight = cardHeightMm * scale;
 
+    const frontSrc = nid.processedFrontImage || nid.frontImage;
+    const backSrc = nid.processedBackImage || nid.backImage;
+    const [frontImg, backImg] = await Promise.all([
+      frontSrc ? loadImage(frontSrc).catch(() => null) : Promise.resolve(null),
+      backSrc ? loadImage(backSrc).catch(() => null) : Promise.resolve(null),
+    ]);
+
     // Draw Front
-    if (nid.processedFrontImage || nid.frontImage) {
-      try {
-        const frontImg = await loadImage(nid.processedFrontImage || nid.frontImage!);
-        ctx.drawImage(frontImg, px, pyFront, pWidth, pHeight);
-      } catch (err) {
-        console.error('Failed to draw NID front:', err);
-      }
+    if (frontSrc) {
+      if (frontImg) ctx.drawImage(frontImg, px, pyFront, pWidth, pHeight);
       drawCuttingGuides(ctx, px, pyFront, pWidth, pHeight, cuttingGuide, bleedArea * scale, scale);
     }
 
     // Draw Back
-    if (nid.processedBackImage || nid.backImage) {
-      try {
-        const backImg = await loadImage(nid.processedBackImage || nid.backImage!);
-        ctx.drawImage(backImg, px, pyBack, pWidth, pHeight);
-      } catch (err) {
-        console.error('Failed to draw NID back:', err);
-      }
+    if (backSrc) {
+      if (backImg) ctx.drawImage(backImg, px, pyBack, pWidth, pHeight);
       drawCuttingGuides(ctx, px, pyBack, pWidth, pHeight, cuttingGuide, bleedArea * scale, scale);
     }
   } else if (
@@ -212,23 +225,20 @@ export async function generateHighResSheetCanvas(
       ctx.restore();
     };
 
-    if (lamination.processedFrontImage || lamination.frontImage) {
-      try {
-        const fImg = await loadImage(lamination.processedFrontImage || lamination.frontImage!);
-        drawCardImage(fImg, fx, fy, pW, pH, false);
-      } catch (err) {
-        console.error('Failed to draw lamination front:', err);
-      }
+    const lamFrontSrc = lamination.processedFrontImage || lamination.frontImage;
+    const lamBackSrc = lamination.processedBackImage || lamination.backImage;
+    const [fImg, bImg] = await Promise.all([
+      lamFrontSrc ? loadImage(lamFrontSrc).catch(() => null) : Promise.resolve(null),
+      lamBackSrc ? loadImage(lamBackSrc).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    if (lamFrontSrc) {
+      if (fImg) drawCardImage(fImg, fx, fy, pW, pH, false);
       drawCuttingGuides(ctx, fx, fy, pW, pH, lamination.outerCutGuide, 0, scale);
     }
 
-    if (lamination.processedBackImage || lamination.backImage) {
-      try {
-        const bImg = await loadImage(lamination.processedBackImage || lamination.backImage!);
-        drawCardImage(bImg, bx, by, pW, pH, lamination.backRotate180);
-      } catch (err) {
-        console.error('Failed to draw lamination back:', err);
-      }
+    if (lamBackSrc) {
+      if (bImg) drawCardImage(bImg, bx, by, pW, pH, lamination.backRotate180);
       drawCuttingGuides(ctx, bx, by, pW, pH, lamination.outerCutGuide, 0, scale);
     }
 
@@ -274,6 +284,28 @@ export async function generateHighResSheetCanvas(
       autoRotateToFit: photoPrintSettings.autoRotateToFit,
     });
 
+    const uniqueSrcs = Array.from(
+      new Set(
+        grid.slots
+          .map((rect) => photoPrintSettings.slots[rect.index]?.imageSrc)
+          .filter((src): src is string => Boolean(src))
+      )
+    );
+    const loadedEntries = await Promise.all(
+      uniqueSrcs.map(async (src) => {
+        try {
+          return [src, await loadImage(src)] as const;
+        } catch (err) {
+          console.error('Failed to preload photo print slot:', err);
+          return null;
+        }
+      })
+    );
+    const imgCache = new Map<string, HTMLImageElement>();
+    for (const entry of loadedEntries) {
+      if (entry) imgCache.set(entry[0], entry[1]);
+    }
+
     for (const rect of grid.slots) {
       const slot = photoPrintSettings.slots[rect.index];
       if (!slot || !slot.imageSrc) continue;
@@ -282,8 +314,8 @@ export async function generateHighResSheetCanvas(
       const pWidth = rect.width * scale;
       const pHeight = rect.height * scale;
 
-      try {
-        const img = await loadImage(slot.imageSrc);
+      const img = imgCache.get(slot.imageSrc);
+      if (img) {
         const rotDeg = ((slot.rotation % 360) + 360) % 360;
         const isOdd90 = rotDeg === 90 || rotDeg === 270;
         const targetW = isOdd90 ? pHeight : pWidth;
@@ -306,8 +338,6 @@ export async function generateHighResSheetCanvas(
         }
         ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
         ctx.restore();
-      } catch (err) {
-        console.error('Failed to draw photo print slot:', err);
       }
 
       drawCuttingGuides(ctx, px, py, pWidth, pHeight, cuttingGuide, bleedArea * scale, scale);
@@ -755,8 +785,11 @@ export function triggerDirectPrint(options?: DirectPrintOptions) {
     }
   };
 
-  // Wait briefly for all images inside the iframe to decode (fast for data URLs, strict 450ms ceiling)
+  // Wait briefly for all images inside the iframe to decode (near-instant for local data/blob URLs)
   const imgs = Array.from(iframeDoc.images);
+  const allLocalOrReady = imgs.every(
+    (img) => (img.complete && img.naturalWidth > 0) || img.src.startsWith('data:') || img.src.startsWith('blob:')
+  );
   const waitForImages = Promise.all(
     imgs.map((img) => {
       if (img.complete && img.naturalWidth > 0) {
@@ -770,23 +803,24 @@ export function triggerDirectPrint(options?: DirectPrintOptions) {
     })
   );
 
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
   const waitForFonts =
-    iframeDoc.fonts && iframeDoc.fonts.ready
+    !isOffline && iframeDoc.fonts && iframeDoc.fonts.status === 'loading'
       ? Promise.race([
           iframeDoc.fonts.ready.catch(() => undefined),
-          new Promise<void>((resolve) => window.setTimeout(resolve, 150)),
+          new Promise<void>((resolve) => window.setTimeout(resolve, 90)),
         ])
       : Promise.resolve();
 
   Promise.race([
     Promise.all([waitForImages, waitForFonts]),
-    new Promise<void>((resolve) => window.setTimeout(resolve, 450)),
+    new Promise<void>((resolve) => window.setTimeout(resolve, allLocalOrReady ? 160 : 320)),
   ]).finally(() => {
     // Allow 1 paint frame so Chromium's print compositor gets the fully laid-out sheet immediately
     if (typeof iframeWin.requestAnimationFrame === 'function') {
       iframeWin.requestAnimationFrame(() => executePrint());
     } else {
-      window.setTimeout(executePrint, 20);
+      executePrint();
     }
   });
 }

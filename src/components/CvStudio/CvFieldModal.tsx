@@ -1075,12 +1075,12 @@ export const CvFieldModal: React.FC<CvFieldModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/35 backdrop-blur-xs p-2.5 sm:p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/35 backdrop-blur-xs p-2.5 sm:p-4 studio-modal-backdrop"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md max-h-[88dvh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-4 text-slate-900 dark:text-slate-100"
+        className="w-full max-w-md max-h-[88dvh] overflow-y-auto glass-modal rounded-2xl p-4 sm:p-5 space-y-4 text-slate-900 dark:text-slate-100 studio-modal-enter"
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">

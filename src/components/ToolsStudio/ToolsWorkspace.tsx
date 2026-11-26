@@ -43,7 +43,7 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({
 
   const navigateTool = (id: ToolId) => {
     setActiveTool(id);
-    containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    containerRef.current?.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   const renderActiveTool = () => {
@@ -129,7 +129,10 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({
       )}
 
       {/* Main Content Container */}
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-6 pb-16">
+      <div
+        key={activeTool}
+        className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-6 pb-16 studio-stage-enter"
+      >
         {renderActiveTool()}
       </div>
     </div>

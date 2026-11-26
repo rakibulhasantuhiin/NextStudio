@@ -202,8 +202,8 @@ export const PhotoEditorModal: React.FC<Props> = ({
   const skinLightVal = adjustments.skinLight ?? 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-2 sm:p-4">
-      <div className="w-full max-w-md glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden shadow-2xl border border-slate-200/80 dark:border-white/15">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-2 sm:p-4 studio-modal-backdrop">
+      <div className="w-full max-w-md glass-modal rounded-2xl flex flex-col max-h-[92vh] overflow-hidden shadow-2xl border border-slate-200/80 dark:border-white/15 studio-modal-enter">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200/70 dark:border-white/10 shrink-0 bg-white/80 dark:bg-slate-900/80">
           <div className="flex items-center gap-2">

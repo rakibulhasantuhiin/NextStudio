@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Edit3,
   FileDown,
@@ -485,12 +486,21 @@ export default function App() {
     }
   }, [theme]);
 
-  // 4. Autosave Debounced into IndexedDB (100% Offline, Large Photo Safe)
+  // 4. Autosave Debounced & Idle-Scheduled into IndexedDB (100% Offline, Zero UI Hitch)
   const saveTimeoutRef = useRef<number | null>(null);
+  const idleCallbackRef = useRef<number | null>(null);
   useEffect(() => {
     if (!hasHydratedRef.current) return;
     setIsSaved(false);
     if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    const winWithIdle = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleCallbackRef.current !== null && winWithIdle.cancelIdleCallback) {
+      winWithIdle.cancelIdleCallback(idleCallbackRef.current);
+      idleCallbackRef.current = null;
+    }
 
     saveTimeoutRef.current = window.setTimeout(() => {
       const currentState: StudioState = {
@@ -525,11 +535,23 @@ export default function App() {
         cvData,
         readyDocState,
       };
-      void saveStateOffline(currentState).then(() => setIsSaved(true));
+      const persist = () => {
+        idleCallbackRef.current = null;
+        void saveStateOffline(currentState).then(() => setIsSaved(true));
+      };
+      if (winWithIdle.requestIdleCallback) {
+        idleCallbackRef.current = winWithIdle.requestIdleCallback(persist, { timeout: 1200 });
+      } else {
+        persist();
+      }
     }, 650);
 
     return () => {
       if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+      if (idleCallbackRef.current !== null && winWithIdle.cancelIdleCallback) {
+        winWithIdle.cancelIdleCallback(idleCallbackRef.current);
+        idleCallbackRef.current = null;
+      }
     };
   }, [
     mode,
@@ -3160,13 +3182,26 @@ export default function App() {
         ? `NextStudio - ${activeReadyDocTemplate.titleEn}`
         : `NextStudio - ${mode.toUpperCase()}`;
 
-    window.setTimeout(() => {
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => {
+        triggerDirectPrint({ widthMm, heightMm, title });
+      });
+    } else {
       triggerDirectPrint({ widthMm, heightMm, title });
-    }, 20);
+    }
   };
 
   const handleDirectPrintRef = useRef(handleDirectPrint);
   handleDirectPrintRef.current = handleDirectPrint;
+
+  const yieldToPaintFrame = () =>
+    new Promise<void>((resolve) => {
+      if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => resolve());
+      } else {
+        window.setTimeout(resolve, 0);
+      }
+    });
 
   const handleDownloadPdf = async (overrideDocPages?: DocumentPageItem[]) => {
     const effectiveMode: StudioMode = overrideDocPages ? 'document' : mode;
@@ -3179,6 +3214,7 @@ export default function App() {
         .replace(/[^a-zA-Z0-9\u0980-\u09FF_-]+/g, '_')
         .slice(0, 40);
       setIsExporting(true);
+      await yieldToPaintFrame();
       try {
         await exportCvElementToPdf(exportNode, `NextStudio_CV_${safeName || 'Resume'}.pdf`);
       } finally {
@@ -3226,6 +3262,7 @@ export default function App() {
         : `NextStudio_PaperPrint_${paperTag}${pageSuffix}.pdf`;
 
     setIsExporting(true);
+    await yieldToPaintFrame();
     try {
       await exportToPdf(
         {
@@ -3305,6 +3342,7 @@ export default function App() {
         : `NextStudio_PaperPrint_${paperSize}.${ext}`;
 
     setIsExporting(true);
+    await yieldToPaintFrame();
     try {
       await exportToImage(
         {
@@ -3511,51 +3549,69 @@ export default function App() {
             <button
               type="button"
               onClick={() => setMobileTab('preview')}
-              className={`py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer ${
+              className={`relative py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors duration-150 active:scale-[0.98] cursor-pointer ${
                 mobileTab === 'preview'
-                  ? 'glass-btn-primary text-white shadow-sm'
+                  ? 'text-white'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <span>
-                {mode === 'cv'
-                  ? lang === 'bn'
-                    ? 'সিভি প্রিভিউ'
-                    : 'CV Preview'
-                  : mode === 'readydocs'
-                  ? lang === 'bn'
-                    ? 'কাগজ প্রিভিউ'
-                    : 'Doc Preview'
-                  : lang === 'bn'
-                  ? 'পেপার প্রিভিউ'
-                  : 'Paper Preview'}
+              {mobileTab === 'preview' && (
+                <motion.span
+                  layoutId="mobileViewSwitchBg"
+                  transition={{ type: 'spring', stiffness: 540, damping: 38, mass: 0.5 }}
+                  className="absolute inset-0 rounded-lg glass-btn-primary shadow-sm"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="relative z-10 flex items-center justify-center gap-1.5">
+                <span>
+                  {mode === 'cv'
+                    ? lang === 'bn'
+                      ? 'সিভি প্রিভিউ'
+                      : 'CV Preview'
+                    : mode === 'readydocs'
+                    ? lang === 'bn'
+                      ? 'কাগজ প্রিভিউ'
+                      : 'Doc Preview'
+                    : lang === 'bn'
+                    ? 'পেপার প্রিভিউ'
+                    : 'Paper Preview'}
+                </span>
+                {mode === 'passport' && placedItems.length > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums opacity-85">
+                    ({placedItems.length})
+                  </span>
+                )}
+                {mode === 'photoprint' && photoPrintSettings.slots.some(Boolean) && (
+                  <span className="text-[11px] font-mono tabular-nums opacity-85">
+                    ({photoPrintSettings.slots.filter(Boolean).length})
+                  </span>
+                )}
+                {mode === 'document' && documentSettings.pages.length > 0 && (
+                  <span className="text-[11px] font-mono tabular-nums opacity-85">
+                    ({documentSettings.pages.length})
+                  </span>
+                )}
               </span>
-              {mode === 'passport' && placedItems.length > 0 && (
-                <span className="text-[11px] font-mono tabular-nums opacity-85">
-                  ({placedItems.length})
-                </span>
-              )}
-              {mode === 'photoprint' && photoPrintSettings.slots.some(Boolean) && (
-                <span className="text-[11px] font-mono tabular-nums opacity-85">
-                  ({photoPrintSettings.slots.filter(Boolean).length})
-                </span>
-              )}
-              {mode === 'document' && documentSettings.pages.length > 0 && (
-                <span className="text-[11px] font-mono tabular-nums opacity-85">
-                  ({documentSettings.pages.length})
-                </span>
-              )}
             </button>
             <button
               type="button"
               onClick={() => setMobileTab('controls')}
-              className={`py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer ${
+              className={`relative py-2 px-3 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors duration-150 active:scale-[0.98] cursor-pointer ${
                 mobileTab === 'controls'
-                  ? 'glass-btn-primary text-white shadow-sm'
+                  ? 'text-white'
                   : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
-              <span>{lang === 'bn' ? 'কন্ট্রোল ও সেটিংস' : 'Controls & Settings'}</span>
+              {mobileTab === 'controls' && (
+                <motion.span
+                  layoutId="mobileViewSwitchBg"
+                  transition={{ type: 'spring', stiffness: 540, damping: 38, mass: 0.5 }}
+                  className="absolute inset-0 rounded-lg glass-btn-primary shadow-sm"
+                  aria-hidden="true"
+                />
+              )}
+              <span className="relative z-10">{lang === 'bn' ? 'কন্ট্রোল ও সেটিংস' : 'Controls & Settings'}</span>
             </button>
           </div>
         </div>
@@ -3563,7 +3619,7 @@ export default function App() {
 
         {/* 2. Main Desktop Workstation Shell */}
         {mode === 'tools' ? (
-          <main className="no-print flex-1 flex flex-col overflow-hidden w-full">
+          <main key="tools-workspace" className="no-print flex-1 flex flex-col overflow-hidden w-full studio-stage-enter">
             <ToolsWorkspace lang={lang} initialTool={toolsInitialTool} />
           </main>
         ) : (
@@ -3574,6 +3630,7 @@ export default function App() {
               mobileTab === 'preview' ? 'hidden lg:block' : 'block'
             }`}
           >
+          <div key={mode} className="studio-panel-enter">
           {mode === 'passport' ? (
             <PassportControls
               lang={lang}
@@ -3793,6 +3850,7 @@ export default function App() {
               setDpi={setPrintQuality}
             />
           )}
+          </div>
         </aside>
 
         {/* Right Area: Architectural Studio Drafting Stage */}
@@ -3802,7 +3860,7 @@ export default function App() {
           }`}
         >
           {mode === 'cv' ? (
-            <div className="flex-1 overflow-auto">
+            <div key="stage-cv" className="flex-1 overflow-auto studio-stage-enter">
               <CvWorkspace
                 lang={lang}
                 cvData={cvData}
@@ -3819,7 +3877,7 @@ export default function App() {
               />
             </div>
           ) : mode === 'readydocs' ? (
-            <div className="flex-1 overflow-auto">
+            <div key="stage-readydocs" className="flex-1 overflow-auto studio-stage-enter">
               <ReadyDocWorkspace
                 lang={lang}
                 template={activeReadyDocTemplate}
@@ -3844,29 +3902,49 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setPassportStageView('inspector')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      className={`relative px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors duration-150 cursor-pointer ${
                         passportStageView === 'inspector'
-                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          ? 'text-blue-600 dark:text-blue-400'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                       }`}
                     >
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                      <span>{lang === 'bn' ? 'আগে/পরে তুলনা' : 'Before / After'}</span>
+                      {passportStageView === 'inspector' && (
+                        <motion.span
+                          layoutId="passportStagePill"
+                          transition={{ type: 'spring', stiffness: 540, damping: 38, mass: 0.5 }}
+                          className="absolute inset-0 rounded-lg bg-white dark:bg-slate-900 shadow-xs"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-1.5">
+                        <SlidersHorizontal className="w-3.5 h-3.5" />
+                        <span>{lang === 'bn' ? 'আগে/পরে তুলনা' : 'Before / After'}</span>
+                      </span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setPassportStageView('sheet')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                      className={`relative px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors duration-150 cursor-pointer ${
                         passportStageView === 'sheet'
-                          ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                          ? 'text-blue-600 dark:text-blue-400'
                           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
                       }`}
                     >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>
-                        {lang === 'bn'
-                          ? `প্রিন্ট শীট প্রিভিউ (${passportItems.length})`
-                          : `Print Sheet (${passportItems.length})`}
+                      {passportStageView === 'sheet' && (
+                        <motion.span
+                          layoutId="passportStagePill"
+                          transition={{ type: 'spring', stiffness: 540, damping: 38, mass: 0.5 }}
+                          className="absolute inset-0 rounded-lg bg-white dark:bg-slate-900 shadow-xs"
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span className="relative z-10 flex items-center gap-1.5">
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span>
+                          {lang === 'bn'
+                            ? `প্রিন্ট শীট প্রিভিউ (${passportItems.length})`
+                            : `Print Sheet (${passportItems.length})`}
+                        </span>
                       </span>
                     </button>
                   </div>
@@ -3899,6 +3977,10 @@ export default function App() {
 
               {/* Scrollable Workspace Content */}
               <div className="flex-1 overflow-auto">
+                <div
+                  key={mode === 'passport' ? `${mode}-${passportStageView}` : mode}
+                  className="studio-stage-enter min-h-full"
+                >
                 {mode === 'passport' &&
                 passportStageView === 'inspector' &&
                 (photos.length > 0 || isAiGenerating) ? (
@@ -3991,6 +4073,7 @@ export default function App() {
                     onClearPhotoPrintSlot={handleClearPhotoPrintSlot}
                   />
                 )}
+                </div>
               </div>
 
               {/* Persistent Desktop Bottom-Right Export Action Bar (JPG / PNG / PDF / Save / Print) */}
