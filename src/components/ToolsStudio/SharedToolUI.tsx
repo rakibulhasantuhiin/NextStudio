@@ -40,7 +40,8 @@ export type ToolId =
   | 'pdf-to-image'
   | 'pdf-compress'
   | 'pdf-extract-text'
-  | 'pdf-watermark-number';
+  | 'pdf-watermark-number'
+  | 'doc-converter';
 
 interface ToolHeaderProps {
   title: string;

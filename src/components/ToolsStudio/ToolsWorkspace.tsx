@@ -18,6 +18,7 @@ import {
   PdfToImageTool,
   PdfWatermarkNumberTool,
 } from './PdfToolsViews';
+import { DocumentConverterTool } from './DocumentConverterTool';
 import { DocumentScannerTool } from './DocumentScannerTool';
 import { WatermarkRemoveTool } from './WatermarkRemoveTool';
 
@@ -82,6 +83,8 @@ export const ToolsWorkspace: React.FC<ToolsWorkspaceProps> = ({
         return <PdfExtractTextTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       case 'pdf-watermark-number':
         return <PdfWatermarkNumberTool lang={lang} onBack={() => navigateTool('dashboard')} />;
+      case 'doc-converter':
+        return <DocumentConverterTool lang={lang} onBack={() => navigateTool('dashboard')} />;
       default:
         return <ToolsDashboard lang={lang} onSelectTool={navigateTool} />;
     }

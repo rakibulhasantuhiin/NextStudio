@@ -109,12 +109,12 @@ export default defineConfig(() => {
               },
             },
             {
-              urlPattern: /^https:\/\/(staticimgly\.com|cdn\.jsdelivr\.net)\/.*/i,
+              urlPattern: /^https:\/\/(staticimgly\.com|cdn\.jsdelivr\.net|tessdata\.projectnaptha\.com|unpkg\.com)\/.*/i,
               handler: 'CacheFirst',
               options: {
                 cacheName: 'nextstudio-offline-models',
                 expiration: {
-                  maxEntries: 40,
+                  maxEntries: 60,
                   maxAgeSeconds: 60 * 60 * 24 * 365,
                 },
                 cacheableResponse: {

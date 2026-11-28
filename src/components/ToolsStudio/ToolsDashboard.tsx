@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   ArrowDownUp,
+  ArrowLeftRight,
   Combine,
   Eraser,
   FileImage,
@@ -209,6 +210,19 @@ const PDF_TOOLS: ToolCardMeta[] = [
     badgeBn: 'ZIP চালু',
     iconBg: 'from-indigo-500 to-purple-600',
     icon: <Hash className="w-5 h-5 text-white" />,
+  },
+  {
+    id: 'doc-converter',
+    titleEn: 'PDF ↔ Word / Excel / PPTX & Image OCR',
+    titleBn: 'PDF ↔ Word / Excel / PPTX ও ছবি থেকে Word',
+    descriptionEn:
+      'Convert PDF to Word (.docx/.doc), PowerPoint, or Excel, convert Office files to crisp Bengali/English PDF without broken fonts, and run sharp Image-to-Word OCR offline.',
+    descriptionBn:
+      'PDF থেকে Word, PowerPoint, Excel এবং Word/Doc/Excel/PPTX থেকে ফন্ট না ভেঙে PDF — সাথে ছবি থেকে স্পষ্ট বাংলা-ইংরেজি Word OCR (অফলাইন)।',
+    badgeEn: 'Office · OCR · Offline',
+    badgeBn: 'অফিস · OCR · অফলাইন',
+    iconBg: 'from-blue-600 to-indigo-600',
+    icon: <ArrowLeftRight className="w-5 h-5 text-white" />,
   },
 ];
 
