@@ -41,6 +41,7 @@ export type ToolId =
   | 'pdf-compress'
   | 'pdf-extract-text'
   | 'pdf-watermark-number'
+  | 'bangla-ocr'
   | 'doc-converter';
 
 interface ToolHeaderProps {

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { GoogleGenAI, Type } from '@google/genai';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import fs from 'fs';
@@ -119,10 +120,12 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (_req: Request, res: Response) => {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const openaiKey = process.env.OPENAI_API_KEY?.trim();
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
     res.json({
       ok: true,
-      openaiConfigured: Boolean(apiKey && apiKey !== 'MY_OPENAI_API_KEY'),
+      openaiConfigured: Boolean(openaiKey && openaiKey !== 'MY_OPENAI_API_KEY'),
+      geminiConfigured: Boolean(geminiKey && geminiKey !== 'MY_GEMINI_API_KEY'),
     });
   });
 
@@ -249,6 +252,183 @@ async function startServer() {
       }
     }
   );
+
+  // Gemini 4 Hydrogen Server-Side Bangla & Bengali OCR Endpoint
+  app.post('/api/ocr/bangla', async (req: Request, res: Response) => {
+    try {
+      const geminiKey = process.env.GEMINI_API_KEY?.trim();
+      if (!geminiKey || geminiKey === 'MY_GEMINI_API_KEY') {
+        res.status(503).json({
+          error:
+            'GEMINI_API_KEY is not configured in server secrets. Use Offline OCR or configure GEMINI_API_KEY in Settings > Secrets.',
+        });
+        return;
+      }
+
+      const rawImage = typeof req.body?.imageDataUrl === 'string' ? req.body.imageDataUrl : '';
+      const prepared = parseDataUrlImage(rawImage, 0);
+      if (!prepared) {
+        res.status(400).json({ error: 'Invalid or missing image payload.' });
+        return;
+      }
+      if (prepared.bytes.byteLength > 18 * 1024 * 1024) {
+        res.status(413).json({ error: 'Image payload exceeds 18MB limit.' });
+        return;
+      }
+
+      const allowedModes = new Set([
+        'all-ocr',
+        'image-to-text',
+        'photo-to-text',
+        'handwriting',
+        'pdf-to-text',
+        'pdf-to-word',
+        'mixed-bn-en',
+        'form-ocr',
+        'export-suite',
+      ]);
+      const mode =
+        typeof req.body?.mode === 'string' && allowedModes.has(req.body.mode)
+          ? req.body.mode
+          : 'all-ocr';
+
+      const langMode =
+        req.body?.langMode === 'ben' || req.body?.langMode === 'eng'
+          ? req.body.langMode
+          : 'ben+eng';
+
+      const modeGuidance: Record<string, string> = {
+        'handwriting':
+          'Focus carefully on handwritten Bengali and English cursive/printed handwriting (notes, letters, signatures, filled boxes). Strictly keep Bengali numerals (০১২৩৪৫৬৭৮৯) as Bengali digits and English numerals as English digits.',
+        'form-ocr':
+          'This is a filled-in form containing printed labels and typed or handwritten answers. Extract every field into formFields (label + value) and also preserve clean fullText.',
+        'photo-to-text':
+          'This is a phone photo, WhatsApp forward, or screenshot that may have perspective tilt, shadows, or compression noise. Read every Bengali and English character clearly without guessing unprinted text.',
+        'mixed-bn-en':
+          'Read mixed Bangla and English text seamlessly in one pass, keeping both scripts and both numeral systems intact.',
+        'pdf-to-text':
+          'Transcribe the scanned Bengali/English PDF page faithfully preserving headings, paragraphs, bullet lists, and tables.',
+        'pdf-to-word':
+          'Transcribe the scanned Bengali/English PDF page preserving document structure, headings, lists, and clean Unicode paragraphs suitable for Word export.',
+      };
+
+      const systemInstruction = [
+        'You are a high-precision Bangla (Bengali) and English OCR transcription engine.',
+        'Transcribe all visible text strictly verbatim into clean NFC Unicode without broken conjuncts (যুক্তাক্ষর) or corrupted vowel signs (কার/মাত্রা).',
+        'Do not translate Bengali to English or English to Bengali.',
+        'Preserve Bengali numerals (০১২৩৪৫৬৭৮৯) as Bengali and English numerals (0123456789) as English exactly as written.',
+        langMode === 'ben'
+          ? 'Prioritize Bengali script and Bengali punctuation (।).'
+          : 'Support both Bengali and English scripts accurately in reading order.',
+        modeGuidance[mode] || 'Transcribe all printed and handwritten Bengali/English text cleanly.',
+      ].join(' ');
+
+      const ai = new GoogleGenAI({
+        apiKey: geminiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      const base64Data = Buffer.from(prepared.bytes).toString('base64');
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: prepared.mime,
+                data: base64Data,
+              },
+            },
+            {
+              text: 'Extract all text, paragraphs, and any form label-value pairs from this document image in reading order.',
+            },
+          ],
+        },
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              fullText: {
+                type: Type.STRING,
+                description: 'Complete verbatim Unicode transcription in natural reading order.',
+              },
+              paragraphs: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Clean logical paragraphs or lines extracted in reading order.',
+              },
+              detectedScript: {
+                type: Type.STRING,
+                description: 'Detected language/script such as bangla, english, or mixed.',
+              },
+              containsHandwriting: {
+                type: Type.BOOLEAN,
+                description: 'Whether handwritten text was detected.',
+              },
+              formFields: {
+                type: Type.ARRAY,
+                description: 'Key-value pairs if the document is a filled-in form or structured record.',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    value: { type: Type.STRING },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const rawJson = (response.text ?? '{}').trim();
+      let parsedJson: {
+        fullText?: string;
+        paragraphs?: string[];
+        detectedScript?: string;
+        containsHandwriting?: boolean;
+        formFields?: Array<{ label?: string; value?: string }>;
+      } = {};
+      try {
+        parsedJson = JSON.parse(rawJson);
+      } catch {
+        parsedJson = { fullText: rawJson, paragraphs: rawJson ? [rawJson] : [] };
+      }
+
+      const fullText = (parsedJson.fullText || '').normalize('NFC').trim();
+      const paragraphs = Array.isArray(parsedJson.paragraphs)
+        ? parsedJson.paragraphs.map((p) => String(p || '').normalize('NFC').trim()).filter(Boolean)
+        : fullText
+        ? fullText.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)
+        : [];
+      const formFields = Array.isArray(parsedJson.formFields)
+        ? parsedJson.formFields
+            .map((f) => ({
+              label: String(f?.label || '').normalize('NFC').trim(),
+              value: String(f?.value || '').normalize('NFC').trim(),
+            }))
+            .filter((f) => f.label || f.value)
+        : [];
+
+      res.json({
+        fullText,
+        paragraphs,
+        detectedScript: parsedJson.detectedScript || 'mixed',
+        containsHandwriting: Boolean(parsedJson.containsHandwriting),
+        formFields,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Online Bangla OCR request failed.';
+      console.error('[api/ocr/bangla] Exception:', err);
+      res.status(502).json({ error: message });
+    }
+  });
 
   // Return clean JSON 404 for unknown API routes
   app.use('/api', (_req: Request, res: Response) => {
